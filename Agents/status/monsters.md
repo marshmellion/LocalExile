@@ -176,6 +176,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   drives acts with every granted effect the client can play as a hit — 463 varieties, 2307 actions — each with the
   damage, cast time and reach its own row gives it. A skill with a cooldown takes the turn the moment it is ready and
   in reach; between those, the skill used longest ago does, so a boss cycles its list instead of repeating one move.
+  Teleports, movement skills (leap slams, warps, charges, flicker strikes, cyclones) and self-buffs (shields, cries,
+  auras, enrages) are in the kit too (`BossMoves`): the clip plays as an action toward where the boss lands, then the
+  King in the Mists' move order puts it there (0x1ac, 0x1b7 for a teleport, a 0.1 s 0x1ba); a leap or a teleport slam
+  hits a player standing where it lands. They get a cooldown when the tables give none (teleport 8 s, leap 6 s, buff
+  18 s). Scripted steps stay out (teleporting the player, to the arena's centre, start-fight, portal-in, hides).
+  A summon skill whose stat set names no monster (most campaign ones: the official AI scripts are not in the client)
+  brings a listed monster (Merveil's daughters and spawn) or one of the boss's own family the skill names
+  (`BossSummons`); a summon at the cap is put off instead of stalling the boss. After a special a skill without a
+  cooldown goes next, so five cooldowns cannot starve the rest (Merveil, the Twisted). A boss whose spells reach its
+  whole aggro range walks up for its melee swing once it has waited 7 s (Merveil, the Siren stood still casting Ice
+  Spear). Of 5259 granted effects on 602 bosses, 3774 are played (3337 before). Not yet: buffs play their clip only
+  (no buff is applied), phases and invulnerability windows of bosses without a controller, summons the data does not
+  name (Merveil's statues and animated weapons, Atziri's demons). Checked offline only.
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
   Arakaali's unsafe generic laser activators stay out; a dedicated controller supplies linked native turret rails.
   Her Silk transition and stance-specific attacks run; corner travel, laser ordering and collision calibration remain.

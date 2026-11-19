@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
@@ -55,10 +56,11 @@ public static class BossKits
         foreach (int effect in effects)
         {
             if (SolarisLunaris.IsBody(variety) && effect is 6739 or 6740) continue;
-            if (effect < 0 || catalog.IsMovement(effect) || catalog.CastsOnDeath(effect)) continue;
+            if (effect < 0 || catalog.CastsOnDeath(effect)) continue;
             string? id = catalog.EffectId(effect);
-            if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
-                || id.Contains("Daemon", StringComparison.Ordinal)
+            // A teleport, a movement skill and a self-buff are played by BossMoves: the clip, then the boss where it lands.
+            var kind = BossMoves.KindOf(catalog, effect);
+            if (id is not null && (BossMoves.IsScripted(id) || id.Contains("Daemon", StringComparison.Ordinal)
                 || id.Contains("MemoryGame", StringComparison.Ordinal)
                 || id.Contains("Bond", StringComparison.Ordinal)
                 || id.Contains("Mark", StringComparison.Ordinal)
@@ -69,7 +71,7 @@ public static class BossKits
                 || id.Contains("EmptyAction", StringComparison.Ordinal)
                 || id.Contains("Emerge", StringComparison.Ordinal)
                 || id.Contains("Retreat", StringComparison.Ordinal))) continue;
-            if (!(catalog.IsAttack(effect) || catalog.IsSpell(effect) || catalog.IsProjectile(effect))) continue;
+            if (kind == BossMoves.Kind.Hit && !(catalog.IsAttack(effect) || catalog.IsSpell(effect) || catalog.IsProjectile(effect))) continue;
             if (!usable.Contains(effect)) usable.Add(effect);
         }
         return usable;
@@ -93,6 +95,15 @@ public static class BossKits
             double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
             ushort id = (ushort)(0x4000 + kit.Count);
             var attack = kit.Count == 0 && defaultAttack is not null ? defaultAttack with { SkillId = id } : AttackFor(conn, variety, level, effect, id);
+            // A move (BossMoves) acts by itself: it is kept whatever it hits for, reaches as its kind does, and gets a
+            // cooldown when the tables give it none, or the boss would only ever blink.
+            var kind = BossMoves.KindOf(catalog, effect);
+            if (kind != BossMoves.Kind.Hit && (kit.Count > 0 || defaultAttack is null))
+            {
+                kit.Add(new(effect, attack with { Range = BossMoves.Reach(kind, variety), Projectile = null, Release = null, ReleaseEffect = null, Summon = null },
+                    Math.Max(cooldown, BossMoves.DefaultCooldown(kind))));
+                continue;
+            }
             // An effect that hits for nothing, summons nothing and fires nothing is no action: a flame breath's own
             // segments, a trigger that waits for the geometry it points at, a shape the client plays and the server
             // never answers. The boss stands through it and the player sees a swing that does nothing. The monster's own
@@ -101,6 +112,8 @@ public static class BossKits
             if (!acts && kit.Count > 0) continue;
             kit.Add(new(effect, attack, Math.Max(0, cooldown)));
         }
+        foreach (var entry in kit)
+            if (BossMoves.KindOf(catalog, entry.Effect) is var k and not BossMoves.Kind.Hit) Moves[entry.Effect] = k;
         return kit;
     }
 
@@ -151,7 +164,7 @@ public static class BossKits
         bool ranged = spell && !catalog.IsMelee(effect) || catalog.IsRangedAttack(effect);
         double reach = ranged && spell ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
         var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
-        var summon = catalog.MonsterSummon(effect, actorLevel);
+        var summon = catalog.MonsterSummon(effect, actorLevel) ?? BossSummons.For(catalog, variety, effect);
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {
             Spell = spell,
@@ -172,6 +185,22 @@ public static class BossKits
     public static MonsterAttack? Choose(SpawnedMonster monster, double now, double distance)
     {
         if (monster.Kit.Count == 0) return monster.Attack;
+        // A boss whose other skills all reach across the room (Merveil's Ice Spear: her whole aggro range) would never
+        // walk again: its melee swing is only a candidate in reach, and the spell always is. When the swing has waited its
+        // turn, the boss walks up for it (the ordinary chase does, with the swing as its attack), unless the player is
+        // far off or it has tried for a while without getting there.
+        if (WalkUpFor(monster, now, distance) is { } walk) return walk;
+        // Specials take a ready turn, but not every one: with several cooldowns between them (Merveil, the Twisted, has
+        // five) they would take every turn and the skills without one would never come. So after a special, a skill
+        // without a cooldown goes next when one can (the two alternate), and after one of those a ready special does.
+        double lastSpecial = 0, lastPlain = 0;
+        foreach (var entry in monster.Kit)
+        {
+            if (!monster.KitReadyAt.TryGetValue(entry.Effect, out double at)) continue;
+            if (entry.CooldownSeconds > 0) lastSpecial = Math.Max(lastSpecial, Math.Min(now, at - entry.CooldownSeconds));
+            else if (at <= now) lastPlain = Math.Max(lastPlain, at);
+        }
+        bool plainFirst = lastSpecial > 0 && lastSpecial >= lastPlain;
         MonsterKitSkill? best = null;
         int bestTier = -1;
         double bestUsed = 0;
@@ -180,12 +209,14 @@ public static class BossKits
             if (!Arakaali.Allowed(monster, entry.Effect)) continue;
             // A skill that does not reach the player is no candidate: the boss keeps its attack and walks up.
             if (entry.Attack.Range < distance) continue;
+            if (Moves.TryGetValue(entry.Effect, out var kind) && !BossMoves.Fits(kind, monster, distance)) continue;
             double used = monster.KitReadyAt.GetValueOrDefault(entry.Effect);
             bool special = entry.CooldownSeconds > 0;
-            if (special && used > now) continue;
+            // Not ready: a special on its cooldown, or any skill put off (Defer: a summon at its cap).
+            if (used > now) continue;
             bool better;
             if (best is null) better = true;
-            else if (special != (bestTier > 0)) better = special;
+            else if (special != (bestTier > 0)) better = plainFirst ? !special : special;
             else if (used != bestUsed) better = used < bestUsed;
             else better = entry.Effect == monster.Kit[0].Effect;
             if (!better) continue;
@@ -195,6 +226,46 @@ public static class BossKits
         }
         return best?.Attack ?? (Arakaali.IsBoss(monster.Variety)
             ? monster.Kit.FirstOrDefault(entry => Arakaali.Allowed(monster, entry.Effect))?.Attack : monster.Attack);
+    }
+
+    // The kit's moves by effect, filled as kits are built (the AI's Choose has no catalog at hand).
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<int, BossMoves.Kind> Moves = new();
+
+    // When a boss began walking up for its melee turn: it gives up after WalkUpSeconds (a player on a ledge, or one it
+    // cannot reach), and its turn comes round again later.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, StrongBox<double>> WalkingSince = new();
+    const double MeleeTurnSeconds = 7, WalkUpSeconds = 5, WalkUpFarthest = 60;
+
+    static MonsterAttack? WalkUpFor(SpawnedMonster monster, double now, double distance)
+    {
+        // Its melee swing: a damaging attack with no cooldown that is neither a spell nor ranged (the default swing,
+        // usually first).
+        if (monster.Kit.FirstOrDefault(k => !k.Attack.Ranged && !k.Attack.Spell && k.CooldownSeconds == 0 && !k.Attack.Damage.IsZero
+            && !Moves.ContainsKey(k.Effect)) is not { } melee) return null;
+        if (monster.Variety is { MovementSpeed: 0 } or { Immobile: true }) return null;
+        // Only a boss with something else to do: one that has nothing but the swing walks up for it anyway.
+        if (!monster.Kit.Any(k => k != melee && k.Attack.Range >= distance && !Moves.ContainsKey(k.Effect))) return null;
+        var since = WalkingSince.GetOrCreateValue(monster);
+        if (distance <= melee.Attack.Range) { since.Value = 0; return null; }
+        double used = monster.KitReadyAt.GetValueOrDefault(melee.Effect);
+        if (now - used < MeleeTurnSeconds || distance > WalkUpFarthest) { since.Value = 0; return null; }
+        if (since.Value == 0) since.Value = now;
+        if (now - since.Value > WalkUpSeconds)
+        {
+            // It could not get there: the turn is spent, as if it had swung.
+            monster.KitReadyAt[melee.Effect] = now;
+            since.Value = 0;
+            return null;
+        }
+        return melee.Attack;
+    }
+
+    /// <summary>Puts a kit skill off for a while without using it: a summon whose monsters are at the cap, or whose
+    /// cooldown is not out, would otherwise be chosen again every step while the boss stands.</summary>
+    public static void Defer(SpawnedMonster monster, MonsterAttack attack, double until)
+    {
+        foreach (var entry in monster.Kit)
+            if (entry.Attack.SkillId == attack.SkillId) { monster.KitReadyAt[entry.Effect] = until; return; }
     }
 
     /// <summary>Records the swing just ordered: the skill it used goes on cooldown, and even one without a cooldown

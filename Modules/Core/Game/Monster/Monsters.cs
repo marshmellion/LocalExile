@@ -759,6 +759,8 @@ public static partial class Game
         // lockstep one (To is the Move's cell).
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, (int X, int Y) From, (int X, int Y) To)> MoveLegs = [];
         public readonly List<(uint Id, SpawnedMonster Monster, int Action)> Swings = [];
+        // A boss kit's teleport, movement skill or self-buff (BossMoves): its clip, then the boss where it lands.
+        public readonly List<(uint Id, SpawnedMonster Monster, MonsterKitSkill Entry, BossMoves.Kind Kind, int Action)> KitMoves = [];
         // Swings a lockstep client's monster began by itself when its chase walk-up got there (no 0x1ab: the client's
         // action is already swinging), with the start of the frame the swing began in.
         public readonly List<(uint Id, SpawnedMonster Monster, int Action, double BegunAt)> ArrivedSwings = [];
@@ -839,7 +841,17 @@ public static partial class Game
                 if (m.Hostile && GolemEnemyOrderLocked(conn, id, m, now, d)) continue;
                 // A boss's kit (BossKits): the skill that is ready and reaches the player, else its default swing. Never
                 // while a swing still runs: the attack an order names must stay the one its hit is applied with.
-                if (m.Kit.Count > 0 && now >= m.BusyUntil) m.Attack = BossKits.Choose(m, now, d);
+                if (m.Kit.Count > 0 && now >= m.BusyUntil)
+                {
+                    m.Attack = BossKits.Choose(m, now, d);
+                    // A summon that cannot happen now (its cooldown, or our cap of living summons) is put off, and the
+                    // boss does something else instead of standing until it can.
+                    if (m.Attack is { Summon: not null } summoning && !SummonReadyLocked(conn, id, m, summoning, now))
+                    {
+                        BossKits.Defer(m, summoning, Math.Max(now + 3, m.SummonReadyAt));
+                        m.Attack = BossKits.Choose(m, now, d);
+                    }
+                }
                 if (!m.Aggro && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
                 // No boss bar during an encounter's entrance: its script shows the bar as the fight starts.
                 if (m.Aggro && !m.BossBarShown && !m.EntranceGrace && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
@@ -985,6 +997,18 @@ public static partial class Game
                         plan.ArrivedSwings.Add((id, m, m.ActionGeneration, begun));
                         continue;
                     }
+                }
+                // A boss kit's move (BossMoves): a teleport, a leap or a buff is no swing at the player. It plays its own clip
+                // and puts the boss where it lands; the boss is busy for the clip and the settle after it.
+                if (m.Hostile && m.Kit.Count > 0 && m.Attack is { } kitAttack && d <= kitAttack.Range
+                    && BossMoves.MoveOf(conn, m, kitAttack) is { } kitMove)
+                {
+                    m.BusyUntil = now + Math.Clamp(kitMove.Entry.Attack.Seconds, .4, 3.5) / action + 0.8;
+                    m.LastTarget = null;
+                    m.SwingGeneration = null;
+                    BossKits.Consume(m, kitAttack, now);
+                    plan.KitMoves.Add((id, m, kitMove.Entry, kitMove.Kind, ++m.ActionGeneration));
+                    continue;
                 }
                 // Totems, statues, vines and the like (MovementSpeed 0) never walk: the estimate's minimum speed must not
                 // move them, so they get no chase. Neither does a type the client never walks (Pathfinding immobile),
@@ -1267,6 +1291,8 @@ public static partial class Game
         if (!CurrentGameWork) return;
         foreach (var (id, m, action) in plan.Swings)
             _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action);
+        foreach (var (id, m, entry, kind, action) in plan.KitMoves)
+            _ = BossMoves.Run(remote, stream, ciphers, conn, id, m, entry, kind, action);
         foreach (var (id, m, action, begun) in plan.ArrivedSwings)
             _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action, begun);
         foreach (var attack in plan.MinionSwings)

@@ -143,6 +143,41 @@ public sealed class BossKitsTests
         Assert.Equal(0x4000, BossKits.Choose(boss, 40, 500)!.SkillId);
     }
 
+    [Fact]
+    public void Merveil_teleports_summons_and_plays_her_whole_list()
+    {
+        InGame(conn =>
+        {
+            var catalog = Game.SkillsFor(conn);
+            // The Siren: her teleport is a move of the kit (BossMoves), not a skill left out, and Ice Spear reaching her
+            // whole aggro range no longer keeps her from walking up for her swing once it has waited its turn.
+            var siren = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/seawitchillusion/BossMerveil"));
+            var kit = BossKits.Kit(conn, siren, 13, Game.MavenNucleus.CombatEffect(catalog, siren));
+            Assert.Equal(BossMoves.Kind.Teleport, BossMoves.KindOf(catalog, 4007));
+            Assert.Contains(kit, k => k.Effect == 4007 && k.CooldownSeconds >= 8);
+            var boss = new SpawnedMonster("Merveil", new(0, 0, 1), 60, 2, maxLife: 100) { Kit = kit, Attack = kit[0].Attack, Variety = siren };
+            var melee = kit.First(k => k.Effect == 406);
+            foreach (var entry in kit) boss.KitReadyAt[entry.Effect] = 1;
+            Assert.Equal(melee.Attack.SkillId, BossKits.Choose(boss, 9, 30)!.SkillId);
+
+            // The Twisted: her daughters and spawn come (BossSummons), and every skill of her list is played within a
+            // minute instead of her five cooldowns taking every turn.
+            var twisted = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Seawitch/BossMerveil2"));
+            var second = BossKits.Kit(conn, twisted, 13, Game.MavenNucleus.CombatEffect(catalog, twisted));
+            Assert.Contains(second, k => k.Effect == 4022 && k.Attack.Summon is not null);
+            Assert.Contains(second, k => k.Effect == 4023 && k.Attack.Summon is not null);
+            var twin = new SpawnedMonster("Merveil", new(0, 0, 1), 60, 2, maxLife: 100) { Kit = second, Attack = second[0].Attack, Variety = twisted };
+            HashSet<int> played = [];
+            for (double t = 0; t < 60; t += 1.5)
+            {
+                var a = BossKits.Choose(twin, t, 30)!;
+                BossKits.Consume(twin, a, t);
+                played.Add(second.First(k => k.Attack.SkillId == a.SkillId).Effect);
+            }
+            Assert.Equal(second.Select(k => k.Effect).ToHashSet(), played);
+        });
+    }
+
     /// <summary>Runs the body with the game module mounted on a connection of its own, as BossStageTests does.</summary>
     static void InGame(Action<ClientState> body)
     {
