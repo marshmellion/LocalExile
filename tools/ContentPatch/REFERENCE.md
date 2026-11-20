@@ -5,7 +5,7 @@ writes them, ids, commands, the PC layout, how it was tested, and what is open. 
 this file (branch `modding-api` of marshmellion/LocalExile), the project doc `claude/modding-api-reference.md`, and
 `Z:\PATH OF EXILE LOCAL EDITION\Claude Stuff\modding-api-reference.md`. Update all three together.
 
-Last updated 2026-11-20 (first patched archive the real client loads).
+Last updated 2026-11-20 (Exciting marker works end to end: filter matches unidentified drops).
 
 ---
 
@@ -275,7 +275,11 @@ that row. HASH16/HASH32: see 3.3. Order: edits, then rows, then files, per pack.
 - 2026-11-20 first `inspect` on the real client: failed on Selkie in OozSharp (fixed with Oodle.cs, commit aa97d619);
   nothing was written (the crash came before the backup and any write).
 - 2026-11-20 real client: patched archive loads (after the word-16 fix). Exciting marker on a drop: the unidentified
-  tooltip shows no line for it. Waiting: whether `HasEnchantment "Exciting"` matched in the filter.
+  tooltip shows no line for it, and `HasEnchantment "Exciting"` matches unidentified drops (beam, colours, minimap
+  star, sound). The client accepts a filter naming our new enchantment.
+- Loot filters: the play client lists `Documents\My Games\Path of Exile` (not its `LocalExile` subfolder). Online
+  filters live in `OnlineFilters\<id>` (no extension, header lines `#name:` etc.) and the game rewrites them; Exciting
+  Items 1.2.1 (local copy) writes `<name> (Exciting).filter` beside them with the rule on top at every server start.
 - Play client setup notes: the copy's `Game.exe` had 13 bytes changed by another tool (kept as `Game.modified.exe`;
   `Claude Stuff\fix-play-client-exe.cmd` copies the clean `PathOfExile.exe` over it); `Game.patched.exe` has to be made
   for the play checkout's own `data/login-keys.json` (`Claude Stuff\patch-play-client.cmd`).
@@ -296,9 +300,10 @@ that row. HASH16/HASH32: see 3.3. Order: edits, then rows, then files, per pack.
 
 ## 9. Open items and next steps
 1. Done: play client separated, inspect identical, export (3.5).
-2. Exciting marker (3.4): applied on the play client; the client loads it and the tooltip shows no line for it.
-   Left: confirm the filter rule matches an unidentified drop.
-3. Exciting symbol (3.6): needs the uiimages1.txt export and the in-game layer's first hook.
+2. Done: Exciting marker (3.4) end to end on the play client.
+3. Exciting symbol (3.6): uiimages1.txt is exported (UTF-16LE lines: `"<sprite>" "<atlas .dds>" x1 y1 x2 y2`;
+   item symbols are 44×44, e.g. SynthesisedItemSymbol in `Art/Textures/Interface/2D/2DArt/UIImages/InGame/16.dds`
+   1713 1789 1756 1832). Needs the in-game layer's first hook.
 4. New currency/base type with its own art: needs PNG → DDS (write an uncompressed DDS writer, or ask for DDS).
    BaseItemTypes new row (HASH32), ItemVisualIdentity (DDSFile path, HASH16), CurrencyItems row, server-side item
    catalogue reads client.db so the server knows it.
