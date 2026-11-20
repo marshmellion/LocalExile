@@ -5,7 +5,7 @@ writes them, ids, commands, the PC layout, how it was tested, and what is open. 
 this file (branch `modding-api` of marshmellion/LocalExile), the project doc `claude/modding-api-reference.md`, and
 `Z:\PATH OF EXILE LOCAL EDITION\Claude Stuff\modding-api-reference.md`. Update all three together.
 
-Last updated 2026-11-20 (Exciting marker enchantment chosen, v1.2.0).
+Last updated 2026-11-20 (first patched archive the real client loads).
 
 ---
 
@@ -156,6 +156,9 @@ Little-endian. Offsets:
 60 u32 chunk compressed sizes[count], then the chunks
 ```
 Raw-block chunk: `CC 06` + up to 262 144 raw bytes; its size field = raw size + 2. `RawBundle.Write` / `TryReadRaw`.
+**Word 16 must be 1** (as in the client's own index). With 0 there, the real 3.29.3c client closed silently during
+startup (its log stops after "Selected XInput.dll", before "[ENGINE] Ready"); with 1 it loads (2026-11-20, commit
+b96a7ea0).
 
 ### 4.3 The index (`Bundles2/_.index.bin`, itself a bundle)
 Decompressed:
@@ -271,7 +274,11 @@ that row. HASH16/HASH32: see 3.3. Order: edits, then rows, then files, per pack.
   duplicates; restore → both sides original.
 - 2026-11-20 first `inspect` on the real client: failed on Selkie in OozSharp (fixed with Oodle.cs, commit aa97d619);
   nothing was written (the crash came before the backup and any write).
-- Not yet tested: the real index round trip, the client actually loading a patched archive.
+- 2026-11-20 real client: patched archive loads (after the word-16 fix). Exciting marker on a drop: the unidentified
+  tooltip shows no line for it. Waiting: whether `HasEnchantment "Exciting"` matched in the filter.
+- Play client setup notes: the copy's `Game.exe` had 13 bytes changed by another tool (kept as `Game.modified.exe`;
+  `Claude Stuff\fix-play-client-exe.cmd` copies the clean `PathOfExile.exe` over it); `Game.patched.exe` has to be made
+  for the play checkout's own `data/login-keys.json` (`Claude Stuff\patch-play-client.cmd`).
 
 ## 8. Relevant code elsewhere
 - `src/GameServer.Data/Ggpk/`: GameIndex (index reader), BundleFile (bundle reader, header offsets), GameFileSystem
@@ -289,9 +296,8 @@ that row. HASH16/HASH32: see 3.3. Order: edits, then rows, then files, per pack.
 
 ## 9. Open items and next steps
 1. Done: play client separated, inspect identical, export (3.5).
-2. Exciting marker (3.4): pack and server side written and tested on a fixture of the real Mods/ModType tables
-   (apply twice → one row each side). Next: `content-patch apply` on the play client, then a live drop test (filter
-   match on an unidentified drop; check the tooltip shows no empty enchant line).
+2. Exciting marker (3.4): applied on the play client; the client loads it and the tooltip shows no line for it.
+   Left: confirm the filter rule matches an unidentified drop.
 3. Exciting symbol (3.6): needs the uiimages1.txt export and the in-game layer's first hook.
 4. New currency/base type with its own art: needs PNG → DDS (write an uncompressed DDS writer, or ask for DDS).
    BaseItemTypes new row (HASH32), ItemVisualIdentity (DDSFile path, HASH16), CurrencyItems row, server-side item
