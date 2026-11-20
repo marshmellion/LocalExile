@@ -5,7 +5,7 @@ writes them, ids, commands, the PC layout, how it was tested, and what is open. 
 this file (branch `modding-api` of marshmellion/LocalExile), the project doc `claude/modding-api-reference.md`, and
 `Z:\PATH OF EXILE LOCAL EDITION\Claude Stuff\modding-api-reference.md`. Update all three together.
 
-Last updated 2026-11-20 (after the first real-client inspect).
+Last updated 2026-11-20 (Exciting marker enchantment chosen, v1.2.0).
 
 ---
 
@@ -252,7 +252,7 @@ that row. HASH16/HASH32: see 3.3. Order: edits, then rows, then files, per pack.
 - `Claude Stuff\`: scripts (update-main, apply-local-hooks, make-play-client, content-patch, dev-check…),
   `play-branches.txt`, `branch.txt` (dev copy's branch), `logs\`, `export\` (after `content-patch export`).
 - PC access from the Claude session: file staging/commit only (no shell). Files ≤ 400 MB per stage; paths > 7 folders
-  deep cannot be staged. Outputs go through fresh `/mnt/user-data/outputs/vN/` folders (v47 used last).
+  deep cannot be staged. Outputs go through fresh `/mnt/user-data/outputs/vN/` folders (v53 used last).
 
 ## 7. Testing in the Claude workspace
 - Build without NuGet: `/home/claude/build/build.sh <name> <srcdir> <exe|library> <asm> [refs]` (`OUT=` output folder,
@@ -288,11 +288,11 @@ that row. HASH16/HASH32: see 3.3. Order: edits, then rows, then files, per pack.
   UsedItem), applied by `Claude Stuff\apply-local-hooks.ps1`.
 
 ## 9. Open items and next steps
-1. marshmellion runs: make-play-client.cmd → update-main.cmd → `content-patch inspect` → `content-patch export`.
-2. Check `inspect` says the real index round-trips identical, and look at the header words 44-59 and whether records
-   are sorted by hash.
-3. Exciting mark: choose route (3.4) from paths.txt/ItemFrameType; build the Exciting Items content pack and the
-   server side (putting the marker mod or flag on items; filter rule in the mod's filter folder).
+1. Done: play client separated, inspect identical, export (3.5).
+2. Exciting marker (3.4): pack and server side written and tested on a fixture of the real Mods/ModType tables
+   (apply twice → one row each side). Next: `content-patch apply` on the play client, then a live drop test (filter
+   match on an unidentified drop; check the tooltip shows no empty enchant line).
+3. Exciting symbol (3.6): needs the uiimages1.txt export and the in-game layer's first hook.
 4. New currency/base type with its own art: needs PNG → DDS (write an uncompressed DDS writer, or ask for DDS).
    BaseItemTypes new row (HASH32), ItemVisualIdentity (DDSFile path, HASH16), CurrencyItems row, server-side item
    catalogue reads client.db so the server knows it.
