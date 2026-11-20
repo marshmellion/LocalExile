@@ -167,6 +167,9 @@ Little-endian. Offsets:
 60 u32 chunk compressed sizes[count], then the chunks
 ```
 Raw-block chunk: `CC 06` + up to 262 144 raw bytes; its size field = raw size + 2. `RawBundle.Write` / `TryReadRaw`.
+**Word 16 must be 1** (as in the client's own index). With 0 there, the real 3.29.3c client closed silently during
+startup (its log stops after "Selected XInput.dll", before "[ENGINE] Ready"); with 1 it loads (2026-11-20, commit
+b96a7ea0).
 
 ### 4.2b Textures (`X.dds` + `X.dds.header`)
 From the real Chaos Orb art (`Art/2DItems/Currency/CurrencyRerollRare.dds`, 80×80): a DX10 DDS, flags 0x21007, depth 1,
@@ -175,9 +178,6 @@ u32 21, size of the DDS that follows, size of X.dds, then a legacy DDS (flags 0x
 ff/ff00/ff0000/ff000000, caps 0x401008) of the mips from the first ≤ 20 px wide. `Texture.FromPng` writes both; on the
 Chaos Orb's own pixels its headers are byte-identical and its sizes equal. UI image list `art/uiimages1.txt`: UTF-16LE
 **without** a BOM, lines `"<sprite>" "<texture .dds>" x1 y1 x2 y2` (the item symbols span 43 in each direction).
-**Word 16 must be 1** (as in the client's own index). With 0 there, the real 3.29.3c client closed silently during
-startup (its log stops after "Selected XInput.dll", before "[ENGINE] Ready"); with 1 it loads (2026-11-20, commit
-b96a7ea0).
 
 ### 4.3 The index (`Bundles2/_.index.bin`, itself a bundle)
 Decompressed:
@@ -338,9 +338,7 @@ play setup's LocalHooks.CurrencyItemUse (reached for unknown currencies; corrupt
 2. Done: Exciting marker (3.4) end to end on the play client.
 3. Exciting symbol: radiant sun (`excitingitems/content/sun_symbol.png`, 44×44) + itemSymbols hook. Live test pending.
 3b. Radiant Orb (sun orb art, 80×80): live test pending (drops 1/400 per normal monster; `/exciting orb [n]`).
-4. New currency/base type with its own art: needs PNG → DDS (write an uncompressed DDS writer, or ask for DDS).
-   BaseItemTypes new row (HASH32), ItemVisualIdentity (DDSFile path, HASH16), CurrencyItems row, server-side item
-   catalogue reads client.db so the server knows it.
+4. Done (pending the live test): a new currency with its own art, the Radiant Orb (5.2).
 5. Done: live.ps1 runs `apply --if-changed` (modding-api branch).
 6. In-game overlay (UI, buttons, keybinds): not started. The client folder has `imgui.ini` and a 2012 `d3d11.dll`
    (another tool's), worth checking before choosing an injection route.
