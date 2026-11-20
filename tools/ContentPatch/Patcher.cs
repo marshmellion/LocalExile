@@ -285,6 +285,17 @@ public sealed class Patcher : IDisposable
             var taken = new HashSet<long>();
             for (int r = 0; r < table.RowCount; r++) if (r != row) taken.Add(table.GetInt(r, column));
             string id = table.HasColumn("Id") ? table.GetString(row, "Id") : row.ToString();
+            // A base type's HASH32 is MurmurHash2-32 (seed 0) of its Id's UTF-8, in every row of the client's own table,
+            // and the client relies on it: a base type with another value made the client close as the item appeared
+            // (2026-11-20). The HASH16 columns are not derived from the Id this way, so those only need to be unique.
+            if (table.Name == "BaseItemTypes" && column == "HASH32")
+            {
+                long derived = MurmurHash2(System.Text.Encoding.UTF8.GetBytes(id));
+                if (taken.Contains(derived)) throw new InvalidDataException($"BaseItemTypes: the Id {id} has the same HASH32 as another base type; choose another Id");
+                table.SetInt(row, column, derived);
+                _mirror?.Set(table.Name, row, column, derived);
+                continue;
+            }
             ulong seed = MurmurHash64A.Hash(System.Text.Encoding.UTF8.GetBytes(id));
             long mask = bits == 16 ? 0xffff : 0xffffffff;
             long value = (long)(seed & (ulong)mask);
@@ -292,6 +303,26 @@ public sealed class Patcher : IDisposable
             table.SetInt(row, column, value);
             _mirror?.Set(table.Name, row, column, value);
         }
+    }
+
+    /// <summary>MurmurHash2, 32-bit, seed 0.</summary>
+    static uint MurmurHash2(ReadOnlySpan<byte> data)
+    {
+        const uint m = 0x5bd1e995;
+        uint h = (uint)data.Length;
+        int i = 0;
+        for (; data.Length - i >= 4; i += 4)
+        {
+            uint k = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(data[i..]);
+            k *= m; k ^= k >> 24; k *= m;
+            h *= m; h ^= k;
+        }
+        int rest = data.Length - i;
+        if (rest == 3) h ^= (uint)data[i + 2] << 16;
+        if (rest >= 2) h ^= (uint)data[i + 1] << 8;
+        if (rest >= 1) { h ^= data[i]; h *= m; }
+        h ^= h >> 13; h *= m; h ^= h >> 15;
+        return h;
     }
 
     // ---- writing -------------------------------------------------------------------------------------------------

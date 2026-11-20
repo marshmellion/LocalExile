@@ -70,8 +70,11 @@ data half. Pure rules (drop chances, loot tables the server rolls, monster behav
 ### 3.3 Protocol ids (copied rows need their own)
 - Mods, WorldAreas, ItemVisualIdentity: **`HASH16`**. BaseItemTypes, Words: **`HASH32`**. The client and server name
   rows by these on the wire, so a copied row keeping its template's value shows as the template.
-- ContentPatch gives every new row a value from MurmurHash64A of its `Id` (masked to 16/32 bits; 0 and taken values
-  skipped), unless the pack sets the column itself. Same Id → same value on every apply, so saved items keep it.
+- **BaseItemTypes HASH32 = MurmurHash2-32, seed 0, of the Id's UTF-8** (every row of the client's own table) and the
+  client relies on it: a new base type with any other value closed the client the moment the item appeared
+  (2026-11-20). ContentPatch now derives it (and refuses an Id whose hash another base type has). The HASH16 columns
+  (Mods, ItemVisualIdentity, WorldAreas) are not derived this way: for those ContentPatch takes MurmurHash64A of the
+  `Id` masked to 16 bits (0 and taken values skipped). Same Id → same value on every apply, so saved items keep it.
   Example: test area "LocalExile_Test" got HASH16 4624 (template Lioneye's Watch: 9052).
 
 ### 3.4 Loot filter conditions the 3.29.3c client knows
@@ -315,6 +318,9 @@ play setup's LocalHooks.CurrencyItemUse (reached for unknown currencies; corrupt
 - Loot filters: the play client lists `Documents\My Games\Path of Exile` (not its `LocalExile` subfolder). Online
   filters live in `OnlineFilters\<id>` (no extension, header lines `#name:` etc.) and the game rewrites them; Exciting
   Items 1.2.1 (local copy) writes `<name> (Exciting).filter` beside them with the rule on top at every server start.
+- Play client settings: `Client\config.json` names the settings and saved-login files (`LocalExile\production_Config.ini`,
+  `LocalExile\production_login.credentials` under `Documents\My Games\Path of Exile`); without it the client used
+  the read-only `production_Config.ini` there and kept nothing. Loot filters are still listed from the parent folder.
 - Play client setup notes: the copy's `Game.exe` had 13 bytes changed by another tool (kept as `Game.modified.exe`;
   `Claude Stuff\fix-play-client-exe.cmd` copies the clean `PathOfExile.exe` over it); `Game.patched.exe` has to be made
   for the play checkout's own `data/login-keys.json` (`Claude Stuff\patch-play-client.cmd`).
