@@ -94,6 +94,37 @@ Exciting Items mark, candidate routes (not decided):
    sets the flag.
 The current Exciting Items (v1.1.0) marks items as synthesised (`SynthesisedItem True`).
 
+### 3.5 Real client export (2026-11-20)
+- `inspect` on the play client: 46 884 bundles, 1 245 702 files, records **not** sorted by hash (new records are
+  appended), index round trip **identical**. Original index kept in `MAIN GAME PLAY HERE\data\content-patch\`.
+- Exported (in `Claude Stuff\export\`): Mods (40 355 × 654 B), BaseItemTypes (5 461 × 374), ItemVisualIdentity
+  (15 516 × 604), CurrencyItems (1 962 × 205), ItemClasses (103 × 153), Words (4 117 × 64), ItemFrameType (14 × 111),
+  ModType (14 554 × 41): all round-trip byte-identical with the schema; row counts equal client.db's. `paths.txt`
+  (99 MB, lower-case paths). UI sprite lists to export next: `art/uiimages1.txt` (and uidivinationimages, uishopimages).
+- ItemFrameType rows: Normal, Magic, Rare, Unique, Gem, Currency, DivinationCard, Quest, Prophecy, Foil, SupporterFoil,
+  Necropolis, Gold, BreachGraftPseudoGem (header art names like ItemsHeaderRare; chosen by rarity, not per item).
+- UI art: atlases `art/textures/interface/2d/2dart/uiimages/common/<n>.dds` (+ `4k/`); sprite names
+  (`Art/2DArt/UIImages/InGame/…`) map to atlas rectangles in `art/uiimages1.txt`.
+
+### 3.6 Tooltip header symbols (beside the item name)
+Sprites the exe names: ShaperItemSymbol, ElderItemSymbol, CrusaderItemSymbol, BasiliskItemSymbol (Hunter),
+EyrieItemSymbol (Redeemer), JudicatorItemSymbol (Warlord), SynthesisedItemSymbol, FracturedItemSymbol,
+VeiledItemSymbol, ArchnemesisItemSymbol, BreachItemSymbol, VestigialUniqueItemsIcons, ExperimentedUniqueSymbol,
+RosePetalInfluencedItemSymbol, Heist/StolenItemSymbol, Deepwater/ContrabandItemSymbol, CleansingFireItemSymbol
+(Searing Exarch implicit), TangledItemSymbol (Eater implicit). Second users of most of them around 0x1416d1100.
+The picker near **0x140c99de7** reads byte flags of a tooltip-side item struct (rdi): kind == 0x4c → Archnemesis;
+`+0xf3d` → Stolen (with `+0xf3e` → Contraband); `+0xf36` or `+0xf35` → Synthesised (0x140c9a7cc); **`+0xf37` → Breach**;
+**`+0xf38` → Vestigial**; then veiled mods (count of 40-byte records at `+0xf58..+0xf60`), influences etc.
+Server side: the Mods component's u16 flags (InstanceItems.cs ~line 224): 0x2 mirrored, 0x4 split, 0x10 relic style,
+0x20 synthetic, 0x40 incubator, 0x80 a 0x1c8 record, 0x100 foreseeing, **0x400 vestigial** (`Item.Vestigial`; the
+client then refuses currency on the item). The client's debug dump of that component is 0x1421e7b00 (fields
+identified/duplicated/split/disable_mirrored_visuals +0x2e1/relic +0x2e3/synthetic +0x2e5, implicit/enchant/hellscape
+mods). Which network flag sets the tooltip's Breach byte `+0xf37` is not traced yet.
+Exciting mark options: (a) Vestigial: symbol + filter `Vestigial True`, already supported by the server, but blocks
+currency use unless the client's check is patched; (b) Breach symbol (more tracing; no filter condition of its own, so
+pair with a marker mod for `HasExplicitMod`); either way the sprite is pointed at our own texture by editing its line in
+uiimages1.txt (a `files` entry) rather than editing GGG's atlas.
+
 ## 4. Client file formats (as ContentPatch reads and writes them)
 
 ### 4.1 Content.ggpk (standalone client, GGPK version 3)
