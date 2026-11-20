@@ -5,7 +5,7 @@ writes them, ids, commands, the PC layout, how it was tested, and what is open. 
 this file (branch `modding-api` of marshmellion/LocalExile), the project doc `claude/modding-api-reference.md`, and
 `Z:\PATH OF EXILE LOCAL EDITION\Claude Stuff\modding-api-reference.md`. Update all three together.
 
-Last updated 2026-11-20.
+Last updated 2026-11-20 (after the first real-client inspect).
 
 ---
 
@@ -50,6 +50,13 @@ data half. Pure rules (drop chances, loot tables the server rolls, monster behav
 - Header `8C 06` is refused. A chunk with compressed size == size and **no** header is refused.
 - The server's managed decoder (OozSharp, `ManagedOodleDecoder`) reads raw-block chunks identically (tested 1 B to
   1 MB, multi-chunk).
+- **But OozSharp cannot read the client's own bundles**: the real 3.29.3c `_.index.bin` header says encoder **12**,
+  word16 = 1, 128 chunks, size 33 449 776, payload 20 825 916, head 560, words 44-59 zero, and its chunks hold
+  **Selkie** blocks ("Decoder type Selkie not supported"). Reading GGG's bundles needs the extractor's ooz-wasm worker in
+  Node (`Tools/ooz/ooz_worker.mjs` via `Tools/PoEDataExtractor/NodeOodleDecoder.cs`; node from PATH, `POE_NODE`, or
+  `C:\Program Files\nodejs\node.exe`; `POE_OOZ_WORKER` overrides the script). ContentPatch's `Oodle.cs` copies our raw
+  blocks out itself and sends every other chunk to that worker (started on first use). `GameFileSystem.Open(location)`
+  with no decoder fails the same way on this client: always pass one.
 
 ### 3.2 The servers never read the client
 - Servers read the client's tables from **`data/client.db`** (SQLite), built from the SQL in git (`sql/base/client/`,
@@ -159,6 +166,7 @@ Server-side reader: `GameServer.Data.Dat.DatFile.Parse(bytes).ReadRows(schemaTab
 | `ContentPack.cs` | loads packs from enabled mods: `Mods/Binaries/<id>/content/*.json` then `Mods/Source/<id>/content/*.json`, id order; skips ids `off` in `Mods/Binaries/mod-state.txt`; JSON allows comments and trailing commas |
 | `ServerMirror.cs` | replays the same row adds/sets into `data/client.db`; undoes the previous apply first (tables `localexile_content_tables(tbl, original_count)` and `localexile_content_undo(tbl,row,col,value)`); `Restore` |
 | `RawBundle.cs`, `IndexEditor.cs`, `DatEditor.cs` | formats (section 4) |
+| `Oodle.cs` | the decoder: raw blocks itself, others via the Node ooz worker (`NodeOodleDecoder.cs` is linked from Tools/PoEDataExtractor in the csproj) |
 | `test/` | fixture builders and checks (section 7), excluded from the build |
 
 Our bundle's index name: `LocalExile/Content` (`Patcher.OurBundle`). GGG's bundles are never touched.
@@ -228,7 +236,9 @@ that row. HASH16/HASH32: see 3.3. Order: edits, then rows, then files, per pack.
 - `test/DatRoundTrip.cs`, `test/BundleRoundTrip.cs`: the round-trip checks.
 - Results 2026-11-20: apply → client row 1935 + edit + new file, client.db row 1935 with HASH16 4624; apply again → no
   duplicates; restore → both sides original.
-- Not yet tested: the real client's index (needs `inspect` on the PC), the client actually loading a patched archive.
+- 2026-11-20 first `inspect` on the real client: failed on Selkie in OozSharp (fixed with Oodle.cs, commit aa97d619);
+  nothing was written (the crash came before the backup and any write).
+- Not yet tested: the real index round trip, the client actually loading a patched archive.
 
 ## 8. Relevant code elsewhere
 - `src/GameServer.Data/Ggpk/`: GameIndex (index reader), BundleFile (bundle reader, header offsets), GameFileSystem
