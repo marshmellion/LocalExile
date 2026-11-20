@@ -101,6 +101,83 @@ public sealed class IndexEditor
 
     public bool Has(string path) => _byHash.ContainsKey(PathHash(path));
 
+    /// <summary>
+    /// Lists new paths in the path table, the way the client's own files are (2026-11-20, from the real index): one
+    /// directory record per directory, u64 MurmurHash64A of the lower-case directory path without a trailing slash, the
+    /// offset and size of its block in the decompressed path table, and its subtree's size. A block is a stream of
+    /// (u32 n, NUL-terminated lower-case UTF-8 string); n = 0 toggles base mode (entering it clears the bases), else the
+    /// string is appended to base n − 1 when there is one. A new directory gets a block of its own at the end, its paths
+    /// written whole (n = 1, no bases); a directory the client already has gets a copy of its block at the end with the
+    /// new paths after it (its base mode left and its bases cleared first), and its record points there.
+    /// </summary>
+    public int AddToPathTable(IEnumerable<string> paths, Func<byte[], byte[]> decompress)
+    {
+        var table = new List<byte>(decompress(_tail));
+        int count = BinaryPrimitives.ReadInt32LittleEndian(_directories);
+        var records = new List<(ulong Hash, int Offset, int Size, int Recursive)>();
+        for (int i = 0; i < count; i++)
+        {
+            var d = _directories.AsSpan(4 + i * 20);
+            records.Add((BinaryPrimitives.ReadUInt64LittleEndian(d), BinaryPrimitives.ReadInt32LittleEndian(d[8..]),
+                BinaryPrimitives.ReadInt32LittleEndian(d[12..]), BinaryPrimitives.ReadInt32LittleEndian(d[16..])));
+        }
+        var four = new byte[4];
+        void Number(List<byte> to, int v) { BinaryPrimitives.WriteInt32LittleEndian(four, v); to.AddRange(four); }
+        int added = 0;
+        foreach (var group in paths.Select(p => p.Replace('\\', '/').ToLowerInvariant()).Distinct()
+            .GroupBy(p => p.Contains('/') ? p[..p.LastIndexOf('/')] : ""))
+        {
+            ulong hash = MurmurHash64A.Hash(Encoding.UTF8.GetBytes(group.Key));
+            int known = records.FindIndex(r => r.Hash == hash);
+            var block = new List<byte>();
+            if (known >= 0)
+            {
+                var (_, offset, size, recursive) = records[known];
+                block.AddRange(table.GetRange(offset, size));
+                // Leave base mode if the block ends in it, then enter and leave it once: no bases are left.
+                bool baseMode = false;
+                for (int pos = offset; pos + 4 <= offset + size;)
+                {
+                    int n = BinaryPrimitives.ReadInt32LittleEndian(table.GetRange(pos, 4).ToArray());
+                    pos += 4;
+                    if (n == 0) { baseMode = !baseMode; continue; }
+                    pos = table.IndexOf(0, pos) + 1;
+                }
+                if (baseMode) Number(block, 0);
+                Number(block, 0);
+                Number(block, 0);
+            }
+            foreach (string path in group)
+            {
+                Number(block, 1);
+                block.AddRange(Encoding.UTF8.GetBytes(path));
+                block.Add(0);
+                added++;
+            }
+            int at = table.Count;
+            table.AddRange(block);
+            if (known >= 0)
+            {
+                var r = records[known];
+                records[known] = (r.Hash, at, block.Count, r.Recursive + block.Count - r.Size);
+            }
+            else records.Add((hash, at, block.Count, block.Count));
+        }
+        var directories = new byte[4 + records.Count * 20];
+        BinaryPrimitives.WriteInt32LittleEndian(directories, records.Count);
+        for (int i = 0; i < records.Count; i++)
+        {
+            var d = directories.AsSpan(4 + i * 20);
+            BinaryPrimitives.WriteUInt64LittleEndian(d, records[i].Hash);
+            BinaryPrimitives.WriteInt32LittleEndian(d[8..], records[i].Offset);
+            BinaryPrimitives.WriteInt32LittleEndian(d[12..], records[i].Size);
+            BinaryPrimitives.WriteInt32LittleEndian(d[16..], records[i].Recursive);
+        }
+        _directories = directories;
+        _tail = RawBundle.Write(table.ToArray());
+        return added;
+    }
+
     /// <summary>Points a path at a slice of a bundle: its record when it has one, else a new record.</summary>
     public void Set(string path, int bundle, int offset, int size)
     {

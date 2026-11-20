@@ -309,7 +309,10 @@ public sealed class Patcher : IDisposable
             blob.Write(data);
         }
         int bundle = _index.Bundle(OurBundle, (int)blob.Length);
+        // New paths also go into the index's path table (its directory records), as the client's own files are listed.
+        var newPaths = places.Select(p => p.Path).Where(p => !_index.Has(p)).ToList();
         foreach (var (path, offset, size) in places) _index.Set(path, bundle, offset, size);
+        if (newPaths.Count > 0) _log($"{_index.AddToPathTable(newPaths, Decompress)} path(s) added to the index's path table");
         byte[] ourBundle = RawBundle.Write(blob.ToArray());
         byte[] index = RawBundle.Write(_index.Write());
 
