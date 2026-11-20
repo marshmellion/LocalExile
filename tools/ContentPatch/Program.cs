@@ -11,6 +11,7 @@ using LocalExile.ContentPatch;
 // <client> is the client folder or its Content.ggpk (default Client).
 const string Schema = "data/schema/schema.min.json";
 const string Backup = "data/content-patch";
+const string ClientDb = "data/client.db";
 
 if (args.Length == 0) { Console.WriteLine("usage: inspect | export <out> <path>... | apply [--mods <folder>] | restore   [client first, default Client]"); return 2; }
 string command = args[0];
@@ -48,7 +49,8 @@ try
             var packs = ContentPack.FromMods(mods);
             Log($"{packs.Count} content pack(s) in {mods}");
             byte[] root;
-            using (var p = new Patcher(ggpk, Schema, Backup, Log))
+            var mirror = new ServerMirror(ClientDb);
+            using (var p = new Patcher(ggpk, Schema, Backup, Log, mirror, ServerRows))
             {
                 foreach (var pack in packs) p.Apply(pack);
                 root = p.Commit();
@@ -57,6 +59,7 @@ try
             return 0;
         }
         case "restore":
+            if (File.Exists(ClientDb)) new ServerMirror(ClientDb).Restore(Log);
             if (Patcher.Restore(ggpk, Backup, Log) is { } restored) SaveRootHash(restored);
             return 0;
         default:
@@ -68,6 +71,20 @@ catch (Exception ex) when (ex is InvalidDataException or InvalidOperationExcepti
 {
     Console.Error.WriteLine($"[content] {ex.Message}");
     return 1;
+}
+
+// client.db's rows of a table as built from sql/ (the patcher's own rows from an earlier apply are not counted).
+static long ServerRows(string table)
+{
+    using var db = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={ClientDb};Mode=ReadOnly;Pooling=False");
+    db.Open();
+    using var c = db.CreateCommand();
+    c.CommandText = "SELECT name FROM sqlite_master WHERE name = 'localexile_content_tables'";
+    bool tracked = c.ExecuteScalar() is not null;
+    c.CommandText = tracked ? $"SELECT original_count FROM localexile_content_tables WHERE tbl = '{table.Replace("'", "''")}'" : "SELECT NULL";
+    if (c.ExecuteScalar() is long kept) return kept;
+    c.CommandText = $"SELECT COALESCE(MAX(_row) + 1, 0) FROM \"{table.Replace("\"", "")}\"";
+    return c.ExecuteScalar() is long n ? n : 0;
 }
 
 string Take() { string v = rest[0]; rest.RemoveAt(0); return v; }

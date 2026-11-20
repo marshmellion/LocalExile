@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Data\GameServer.Data.csproj" />
+    <ProjectReference Include="..\..\src\GameServer.Storage\GameServer.Storage.csproj" />
   </ItemGroup>
 
 </Project>

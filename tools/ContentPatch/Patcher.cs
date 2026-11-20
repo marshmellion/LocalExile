@@ -28,9 +28,16 @@ public sealed class Patcher : IDisposable
     readonly Dictionary<string, DatEditor> _tables = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, byte[]> _files = new(StringComparer.OrdinalIgnoreCase);
     readonly Action<string> _log;
+    readonly ServerMirror? _mirror;
+    readonly Func<string, long>? _serverRows;
 
-    public Patcher(string ggpkPath, string schemaFile, string backupFolder, Action<string> log)
+    /// <param name="serverRows">client.db's row count of a table, to check its rows line up with the client's; null to
+    /// skip the server side (export, tests).</param>
+    public Patcher(string ggpkPath, string schemaFile, string backupFolder, Action<string> log, ServerMirror? mirror = null,
+        Func<string, long>? serverRows = null)
     {
+        _mirror = mirror;
+        _serverRows = serverRows;
         _ggpkPath = ggpkPath;
         _backup = Path.Combine(backupFolder, "original_index.bin");
         _schema = DatSchema.LoadFile(schemaFile);
@@ -84,7 +91,12 @@ public sealed class Patcher : IDisposable
         if (_tables.TryGetValue(name, out var t)) return t;
         if (!_schema.TryGetValue(name, out var schema)) throw new KeyNotFoundException($"no table {name} in the schema");
         byte[] file = ReadOriginal($"Data/{schema.Name}.datc64") ?? throw new FileNotFoundException($"Data/{schema.Name}.datc64");
-        return _tables[name] = DatEditor.Parse(file, schema);
+        var editor = DatEditor.Parse(file, schema);
+        // A row's number is its id on both sides (references, client.db's _row): the server's copy of the table must
+        // have the client's rows, or every row this patch adds would land on another number there.
+        if (_serverRows?.Invoke(schema.Name) is long server && server != editor.RowCount)
+            throw new InvalidDataException($"{schema.Name}: the client has {editor.RowCount} rows, client.db {server}: they are not the same tables, so nothing is patched");
+        return _tables[name] = editor;
     }
 
     // ---- packs ---------------------------------------------------------------------------------------------------
@@ -111,8 +123,9 @@ public sealed class Patcher : IDisposable
             if (template < 0) throw new InvalidDataException($"{label}: no {table.Name} row matches {copyOf.ToJsonString()}");
             // A pack applied again (the same id) changes its own row instead of adding a second one.
             int row = e["set"]?["Id"] is JsonValue id && table.HasColumn("Id") && table.Find("Id", id.GetValue<string>()) is int found and >= 0
-                ? found : table.AddCopyOf(template);
+                ? found : AddRow(table, template);
             Set(table, row, e["set"]?.AsObject(), label);
+            UniqueHashes(table, row, template, e["set"]?.AsObject());
             _log($"{label}: {table.Name} row {row} from row {template}");
         }
         foreach (var node in pack.Json["files"]?.AsArray() ?? [])
@@ -123,6 +136,13 @@ public sealed class Patcher : IDisposable
             _files[path] = File.ReadAllBytes(from);
             _log($"{label}: file {path} ({(_original.TryGetFile(path, out _) ? "replaces the client's" : "new")})");
         }
+    }
+
+    int AddRow(DatEditor table, int template)
+    {
+        int row = table.AddCopyOf(template);
+        _mirror?.Add(table.Name, row, template);
+        return row;
     }
 
     static string Str(JsonNode? n, string what) => n?.GetValue<string>() ?? throw new InvalidDataException($"missing {what}");
@@ -161,23 +181,56 @@ public sealed class Patcher : IDisposable
         if (set is null) return;
         foreach (var (column, value) in set)
         {
+            void Mirror(object? sql) => _mirror?.Set(table.Name, row, column, sql);
             switch (value)
             {
-                case null: table.SetInt(row, column, -1); break;
-                case JsonObject reference: table.SetInt(row, column, RowOf(reference, label)); break;
+                case null: table.SetInt(row, column, -1); Mirror(null); break;
+                case JsonObject reference: { long target = RowOf(reference, label); table.SetInt(row, column, target); Mirror(target); break; }
                 case JsonArray array when array.All(x => x is JsonValue v && v.TryGetValue<string>(out _)):
-                    if (array.Count == 0) table.SetArray(row, column, []);
-                    else table.SetStringArray(row, column, array.Select(x => x!.GetValue<string>()).ToList());
+                {
+                    var strings = array.Select(x => x!.GetValue<string>()).ToList();
+                    if (strings.Count == 0) table.SetArray(row, column, []);
+                    else table.SetStringArray(row, column, strings);
+                    Mirror(System.Text.Json.JsonSerializer.Serialize(strings));
                     break;
+                }
                 case JsonArray array:
-                    table.SetArray(row, column, array.Select(x => x is JsonObject o ? RowOf(o, label) : x!.GetValue<long>()).ToList());
+                {
+                    var values = array.Select(x => x is JsonObject o ? RowOf(o, label) : x!.GetValue<long>()).ToList();
+                    table.SetArray(row, column, values);
+                    Mirror(System.Text.Json.JsonSerializer.Serialize(values));
                     break;
-                case JsonValue v when v.TryGetValue<string>(out var s): table.SetString(row, column, s); break;
-                case JsonValue v when v.TryGetValue<bool>(out var b): table.SetInt(row, column, b ? 1 : 0); break;
-                case JsonValue v when v.TryGetValue<long>(out var l): table.SetInt(row, column, l); break;
-                case JsonValue v when v.TryGetValue<double>(out var d): table.SetFloat(row, column, (float)d); break;
+                }
+                case JsonValue v when v.TryGetValue<string>(out var s): table.SetString(row, column, s); Mirror(s); break;
+                case JsonValue v when v.TryGetValue<bool>(out var b): table.SetInt(row, column, b ? 1 : 0); Mirror(b ? 1L : 0L); break;
+                case JsonValue v when v.TryGetValue<long>(out var l): table.SetInt(row, column, l); Mirror(l); break;
+                case JsonValue v when v.TryGetValue<double>(out var d): table.SetFloat(row, column, (float)d); Mirror(d); break;
                 default: throw new InvalidDataException($"{label}: {table.Name}.{column}: cannot write {value.ToJsonString()}");
             }
+        }
+    }
+
+    /// <summary>
+    /// A new row's protocol id: the client and the server name a base type by its HASH32 and a modifier, an area or a
+    /// visual by its HASH16, so a copy keeping its template's would be shown as the template. Unless the pack sets one,
+    /// the row gets a value of its own, from its Id (the same on every apply, so saved items keep it), moved on past
+    /// any value another row has.
+    /// </summary>
+    void UniqueHashes(DatEditor table, int row, int template, JsonObject? set)
+    {
+        foreach (var (column, bits) in new[] { ("HASH16", 16), ("HASH32", 32) })
+        {
+            if (!table.HasColumn(column) || set?.ContainsKey(column) == true) continue;
+            if (table.GetInt(row, column) != table.GetInt(template, column)) continue;
+            var taken = new HashSet<long>();
+            for (int r = 0; r < table.RowCount; r++) if (r != row) taken.Add(table.GetInt(r, column));
+            string id = table.HasColumn("Id") ? table.GetString(row, "Id") : row.ToString();
+            ulong seed = MurmurHash64A.Hash(System.Text.Encoding.UTF8.GetBytes(id));
+            long mask = bits == 16 ? 0xffff : 0xffffffff;
+            long value = (long)(seed & (ulong)mask);
+            while (value == 0 || taken.Contains(value)) value = (value + 1) & mask;
+            table.SetInt(row, column, value);
+            _mirror?.Set(table.Name, row, column, value);
         }
     }
 
@@ -210,6 +263,7 @@ public sealed class Patcher : IDisposable
         ((FileRecord)node!).Write(ourBundle);
         ((FileRecord)(_ggpk.Root.TryFindNode(ClientFiles.Index, out var ix) ? ix : throw new FileNotFoundException(ClientFiles.Index))!).Write(index);
         _log($"wrote {places.Count} file(s), {blob.Length:N0} bytes, into {OurBundleFile}; the index has {_index.FileCount:N0} files in {_index.Bundles.Count} bundles");
+        _mirror?.Commit(_log);
         return RootHash();
     }
 
