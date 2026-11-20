@@ -8,6 +8,7 @@ using LocalExile.ContentPatch;
 //   export  [client] <out> <path>...    copies files out of the client as it was before any patch (tables, art)
 //   apply   [client] [--mods <folder>]  applies every enabled mod's content packs (always from the original index)
 //   restore [client]                    puts the client's original index back
+//   paths   [client] <out.txt>          writes every path in the client's index (to find art, tables, UI files)
 // <client> is the client folder or its Content.ggpk (default Client).
 const string Schema = "data/schema/schema.min.json";
 const string Backup = "data/content-patch";
@@ -27,6 +28,16 @@ try
     switch (command)
     {
         case "inspect": return Inspect();
+        case "paths":
+        {
+            string outFile = Take();
+            using var fs = GameFileSystem.Open(client);
+            using var w = new StreamWriter(outFile);
+            int n = 0;
+            foreach (string path in fs.EnumeratePaths().Order(StringComparer.Ordinal)) { w.WriteLine(path); n++; }
+            Log($"{n:N0} paths written to {outFile}");
+            return 0;
+        }
         case "export":
         {
             string outFolder = Take();
