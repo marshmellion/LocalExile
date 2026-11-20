@@ -290,7 +290,7 @@ play setup's LocalHooks.CurrencyItemUse (reached for unknown currencies; corrupt
 - `Claude Stuff\`: scripts (update-main, apply-local-hooks, make-play-client, content-patch, dev-check…),
   `play-branches.txt`, `branch.txt` (dev copy's branch), `logs\`, `export\` (after `content-patch export`).
 - PC access from the Claude session: file staging/commit only (no shell). Files ≤ 400 MB per stage; paths > 7 folders
-  deep cannot be staged. Outputs go through fresh `/mnt/user-data/outputs/vN/` folders (v63 used last).
+  deep cannot be staged. Outputs go through fresh `/mnt/user-data/outputs/vN/` folders (v64 used last).
 
 ## 7. Testing in the Claude workspace
 - Build without NuGet: `/home/claude/build/build.sh <name> <srcdir> <exe|library> <asm> [refs]` (`OUT=` output folder,
