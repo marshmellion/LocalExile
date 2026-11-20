@@ -10,6 +10,11 @@
     <AssemblyName>ContentPatch</AssemblyName>
   </PropertyGroup>
 
+  <!-- test/: fixture builders and checks run by hand in a scratch folder (REFERENCE.md "Testing"), not part of the tool. -->
+  <ItemGroup>
+    <Compile Remove="test/**" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Data\GameServer.Data.csproj" />
     <ProjectReference Include="..\..\src\GameServer.Storage\GameServer.Storage.csproj" />

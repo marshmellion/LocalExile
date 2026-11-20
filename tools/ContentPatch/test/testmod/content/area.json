@@ -1,0 +1,8 @@
+{
+  // A new area copied from Lioneye's Watch, and Lioneye's Watch renamed.
+  "rows": [ { "table": "WorldAreas", "copyOf": { "Id": "1_1_town" },
+              "set": { "Id": "LocalExile_Test", "Name": "The Test Grounds", "AreaLevel": 77,
+                       "Connections_WorldAreasKeys": [ { "row": { "table": "WorldAreas", "Id": "1_1_1" } } ] } } ],
+  "edits": [ { "table": "WorldAreas", "where": { "Id": "1_1_town" }, "set": { "Name": "Lioneye's Watch (patched)" } } ],
+  "files": [ { "path": "Art/LocalExile/hello.txt", "from": "hello.txt" } ]
+}
