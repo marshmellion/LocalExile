@@ -39,6 +39,30 @@ public sealed class ServerMirror(string database)
             Run(db, tx, $"UPDATE \"{table}\" SET \"{column}\" = $v WHERE _row = $r", ("$v", value ?? DBNull.Value), ("$r", row));
         });
 
+    /// <summary>A row only the servers have (a client.db table that is not a client table, such as item_types): a copy of
+    /// the first row whose columns equal <paramref name="copyOf"/>, added at the end, with <paramref name="set"/> written
+    /// over it. Taken back like the patcher's other rows.</summary>
+    public void AddServerRow(string table, IReadOnlyDictionary<string, object?> copyOf, IReadOnlyDictionary<string, object?> set, string label) =>
+        _changes.Add((db, tx) =>
+        {
+            var columns = Columns(db, tx, table);
+            foreach (string c in copyOf.Keys.Concat(set.Keys))
+                if (!columns.Contains(c)) throw new InvalidDataException($"{label}: {database} table {table} has no column {c}");
+            KeepOriginalCount(db, tx, table);
+            using var find = Command(db, tx, $"SELECT _row FROM \"{table}\" WHERE " +
+                string.Join(" AND ", copyOf.Keys.Select((c, i) => $"\"{c}\" = $w{i}")) + " ORDER BY _row LIMIT 1");
+            int n = 0;
+            foreach (var v in copyOf.Values) find.Parameters.AddWithValue($"$w{n++}", v ?? DBNull.Value);
+            if (find.ExecuteScalar() is not long template) throw new InvalidDataException($"{label}: no {table} row to copy");
+            using var next = Command(db, tx, $"SELECT COALESCE(MAX(_row) + 1, 0) FROM \"{table}\"");
+            long row = (long)next.ExecuteScalar()!;
+            var rest = columns.Where(c => c != "_row").Select(c => $"\"{c}\"").ToList();
+            Run(db, tx, $"INSERT INTO \"{table}\" (_row, {string.Join(", ", rest)}) SELECT $r, {string.Join(", ", rest)} FROM \"{table}\" WHERE _row = $t",
+                ("$r", row), ("$t", template));
+            foreach (var (column, value) in set)
+                Run(db, tx, $"UPDATE \"{table}\" SET \"{column}\" = $v WHERE _row = $r", ("$v", value ?? DBNull.Value), ("$r", row));
+        });
+
     /// <summary>Undoes the previous apply, then writes this one's changes, in one transaction.</summary>
     public void Commit(Action<string> log)
     {

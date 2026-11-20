@@ -5,7 +5,7 @@ writes them, ids, commands, the PC layout, how it was tested, and what is open. 
 this file (branch `modding-api` of marshmellion/LocalExile), the project doc `claude/modding-api-reference.md`, and
 `Z:\PATH OF EXILE LOCAL EDITION\Claude Stuff\modding-api-reference.md`. Update all three together.
 
-Last updated 2026-11-20 (Exciting marker works end to end: filter matches unidentified drops).
+Last updated 2026-11-20 (textures from PNG, server-only rows, item symbol hook, Radiant Orb, apply at start).
 
 ---
 
@@ -124,8 +124,19 @@ Server side: the Mods component's u16 flags (InstanceItems.cs ~line 224): 0x2 mi
 client then refuses currency on the item). The client's debug dump of that component is 0x1421e7b00 (fields
 identified/duplicated/split/disable_mirrored_visuals +0x2e1/relic +0x2e3/synthetic +0x2e5, implicit/enchant/hellscape
 mods). Which network flag sets the tooltip's Breach byte `+0xf37` is not traced yet.
-Exciting symbol plan: a new sprite line in uiimages1.txt pointing at our own texture, and a hook in the picker that
-draws it when the item has the marker enchantment (not one of the retired flags above). Needs the in-game layer.
+**Item symbol hook (itemSymbols, 2026-11-20, not yet seen live).** Pickers: tooltip header 0x140c99e27 (struct rdi)
+and item header/label 0x1416d11a0 (struct rbx); both pick by struct bytes, neither has the item. The builder
+0x142401e00 (struct r15, item handle at rsp+0x6718, its +8 the entity) is hooked at 0x142402b2c (before its two paths
+split on rsp+0x67b8): it reads the Mods component (0x14013fb60, looked up by name "Mods"; returns 0 without one), walks
+the enchant mods (component +0xf0..+0xf8, 0x38 bytes each, +0x28 → Mods row, row+0 → Id as UTF-16; layout from the
+component's debug dump 0x1421e7b00: implicit +0xc0, explicit +0xd8, enchant +0xf0, hellscape +0x108) and writes the
+answer into struct padding: +0x1022 u16 0x584C, +0x1024 table index + 1, +0x1025 its complement. Every byte
++0xf2d..+0xf51 is a used, copied field (copy routine 0x1416edcb0), so padding was the only free place; the copy
+routine does not copy padding (gaps +0x1021..+0x1027, +0xf52..+0xf57 …). The pickers check it before the synthesised/
+fractured symbols and jump to the client's own draw code with rdx = our sprite name (tooltip → 0x140c9a7e0, label →
+0x1416d11b0). Code: `hooks/item_symbols.py` (keystone) → `hooks/ItemSymbolsCode.cs`; installed by `ClientHooks` into a
+section ".lxhook" (RWX, 0x2000, RVA 0x4D9A000 = the release's SizeOfImage) added to `Client/Game.patched.exe`, the
+signature dropped; table at +0x800 (u32 count, {u32 Id offset, u32 sprite offset}), strings at +0xA00.
 
 ## 4. Client file formats (as ContentPatch reads and writes them)
 
@@ -156,6 +167,14 @@ Little-endian. Offsets:
 60 u32 chunk compressed sizes[count], then the chunks
 ```
 Raw-block chunk: `CC 06` + up to 262 144 raw bytes; its size field = raw size + 2. `RawBundle.Write` / `TryReadRaw`.
+
+### 4.2b Textures (`X.dds` + `X.dds.header`)
+From the real Chaos Orb art (`Art/2DItems/Currency/CurrencyRerollRare.dds`, 80×80): a DX10 DDS, flags 0x21007, depth 1,
+DXGI format 28 (R8G8B8A8, uncompressed), full mip chain (7 for 80×80). `.dds.header`: u32 3, width, height, mip count,
+u32 21, size of the DDS that follows, size of X.dds, then a legacy DDS (flags 0x2100f, pitch w×4, masks
+ff/ff00/ff0000/ff000000, caps 0x401008) of the mips from the first ≤ 20 px wide. `Texture.FromPng` writes both; on the
+Chaos Orb's own pixels its headers are byte-identical and its sizes equal. UI image list `art/uiimages1.txt`: UTF-16LE
+**without** a BOM, lines `"<sprite>" "<texture .dds>" x1 y1 x2 y2` (the item symbols span 43 in each direction).
 **Word 16 must be 1** (as in the client's own index). With 0 there, the real 3.29.3c client closed silently during
 startup (its log stops after "Selected XInput.dll", before "[ENGINE] Ready"); with 1 it loads (2026-11-20, commit
 b96a7ea0).
@@ -224,8 +243,19 @@ misalign).
 ```
 Values: string, integer, float, true/false, null (a null row), arrays of numbers or strings, and row references
 `{ "row": { "table": T, <column>: value, ... } }` (also inside arrays; may name a row an earlier pack or entry adds).
-`where`/`copyOf`/references match string and integer columns. A new row whose `Id` already exists in this run updates
-that row. HASH16/HASH32: see 3.3. Order: edits, then rows, then files, per pack.
+`where`/`copyOf`/references match string and integer columns, and row-reference columns by a `{ "row": … }`. A new row
+whose `Id` already exists in this run updates that row. HASH16/HASH32: see 3.3. Order: edits, rows, serverRows, files.
+More entry kinds:
+- `files[]` with `"image": "x.png"` (path ending .dds): writes the texture pair (4.2b) from an 8-bit RGBA/RGB PNG.
+- `files[]` with `"appendLines": [ … ]`: lines added to a client text file in its own encoding (UTF-16LE with or
+  without BOM, else UTF-8), e.g. a sprite line in `Art/UIImages1.txt`.
+- `"serverRows": [{ "table": "item_types", "copyOf": { "type": … }, "set": { … } }]`: rows only client.db has (arrays as
+  JSON). A new base type needs its `item_types` row (components; the server's ItemCatalog reads it).
+- `"itemSymbols": [{ "mod": <Mods Id of an enchantment>, "sprite": <UI image name> }]`: the client hook (3.6).
+A new currency (Radiant Orb, `excitingitems/content/radiantorb.json`): ItemVisualIdentity, BaseItemTypes (InheritsFrom
+StackableCurrency: no .it file of its own is needed, Chaos Orb has none either), CurrencyItems copied from the Divine
+Orb's (client then allows it on magic/rare/unique), item_types server row, texture. The server's use comes from the
+play setup's LocalHooks.CurrencyItemUse (reached for unknown currencies; corrupted/mirrored targets are refused first).
 
 ### 5.3 Running it on the PC
 `Z:\PATH OF EXILE LOCAL EDITION\Claude Stuff\content-patch.cmd <command>` (cd's to MAIN GAME PLAY HERE, runs
@@ -235,6 +265,11 @@ that row. HASH16/HASH32: see 3.3. Order: edits, then rows, then files, per pack.
 - `export` (read-only): copies Mods, BaseItemTypes, ItemVisualIdentity, CurrencyItems, ItemClasses, Words,
   ItemFrameType, ModType tables and `paths.txt` (every client path) into `Claude Stuff\export\`.
 - `apply` / `restore`: refused while `MAIN GAME PLAY HERE\Client` is still a junction (shared client).
+  `content-patch-apply.cmd` / `content-patch-restore.cmd` are double-click versions.
+- `apply --if-changed` (what live.ps1 runs before the client data is opened, play setup only): skips when the packs'
+  folders, the patcher's own code (module version id) and the client's patched state match `data/content-patch/
+  applied.txt`; restores when no packs are left. Item symbols are checked every time (a re-made Game.patched.exe gets
+  its hook again). Output in `logs\content-patch.log` of the checkout.
 - Close the game and stop the servers first (the client holds Content.ggpk open).
 - After apply: start the play setup normally (Waypoint/live.ps1); client.db and client-constants.json are updated.
 
@@ -255,7 +290,7 @@ that row. HASH16/HASH32: see 3.3. Order: edits, then rows, then files, per pack.
 - `Claude Stuff\`: scripts (update-main, apply-local-hooks, make-play-client, content-patch, dev-check…),
   `play-branches.txt`, `branch.txt` (dev copy's branch), `logs\`, `export\` (after `content-patch export`).
 - PC access from the Claude session: file staging/commit only (no shell). Files ≤ 400 MB per stage; paths > 7 folders
-  deep cannot be staged. Outputs go through fresh `/mnt/user-data/outputs/vN/` folders (v53 used last).
+  deep cannot be staged. Outputs go through fresh `/mnt/user-data/outputs/vN/` folders (v63 used last).
 
 ## 7. Testing in the Claude workspace
 - Build without NuGet: `/home/claude/build/build.sh <name> <srcdir> <exe|library> <asm> [refs]` (`OUT=` output folder,
@@ -301,13 +336,12 @@ that row. HASH16/HASH32: see 3.3. Order: edits, then rows, then files, per pack.
 ## 9. Open items and next steps
 1. Done: play client separated, inspect identical, export (3.5).
 2. Done: Exciting marker (3.4) end to end on the play client.
-3. Exciting symbol (3.6): uiimages1.txt is exported (UTF-16LE lines: `"<sprite>" "<atlas .dds>" x1 y1 x2 y2`;
-   item symbols are 44×44, e.g. SynthesisedItemSymbol in `Art/Textures/Interface/2D/2DArt/UIImages/InGame/16.dds`
-   1713 1789 1756 1832). Needs the in-game layer's first hook.
+3. Exciting symbol: radiant sun (`excitingitems/content/sun_symbol.png`, 44×44) + itemSymbols hook. Live test pending.
+3b. Radiant Orb (sun orb art, 80×80): live test pending (drops 1/400 per normal monster; `/exciting orb [n]`).
 4. New currency/base type with its own art: needs PNG → DDS (write an uncompressed DDS writer, or ask for DDS).
    BaseItemTypes new row (HASH32), ItemVisualIdentity (DDSFile path, HASH16), CurrencyItems row, server-side item
    catalogue reads client.db so the server knows it.
-5. Hook ContentPatch into the play start (apply before the servers start, when packs changed).
+5. Done: live.ps1 runs `apply --if-changed` (modding-api branch).
 6. In-game overlay (UI, buttons, keybinds): not started. The client folder has `imgui.ini` and a 2012 `d3d11.dll`
    (another tool's), worth checking before choosing an injection route.
 7. C# API surface for mods (registering items/currencies/mods in code and generating packs), passive tree

@@ -6,7 +6,10 @@ using LocalExile.ContentPatch;
 // Run from the repository root, with the client closed:
 //   inspect [client]                    what the client's index looks like (and whether it is patched)
 //   export  [client] <out> <path>...    copies files out of the client as it was before any patch (tables, art)
-//   apply   [client] [--mods <folder>]  applies every enabled mod's content packs (always from the original index)
+//   apply   [client] [--mods <folder>] [--if-changed]
+//                                       applies every enabled mod's content packs (always from the original index);
+//                                       --if-changed does nothing when the packs, their files, this patcher and the
+//                                       client's state are what the last apply saw (live.ps1 runs it at every start)
 //   restore [client]                    puts the client's original index back
 //   paths   [client] <out.txt>          writes every path in the client's index (to find art, tables, UI files)
 // <client> is the client folder or its Content.ggpk (default Client).
@@ -59,6 +62,24 @@ try
             int m = rest.IndexOf("--mods");
             string mods = m >= 0 ? rest[m + 1] : "Mods";
             var packs = ContentPack.FromMods(mods);
+            Log(ClientHooks.Apply(PatchedExe(), ItemSymbols(packs)));
+            string stamp = Path.Combine(Backup, "applied.txt");
+            string print = Fingerprint(packs);
+            if (rest.Contains("--if-changed"))
+            {
+                bool patched = IsPatched();
+                if (packs.Count == 0 && !patched) { Log("no content packs, client not patched: nothing to do"); return 0; }
+                if (packs.Count == 0)
+                {
+                    Log("no content packs any more: restoring the client and client.db");
+                    if (File.Exists(ClientDb)) new ServerMirror(ClientDb).Restore(Log);
+                    if (Patcher.Restore(ggpk, Backup, Log) is { } back) SaveRootHash(back);
+                    if (File.Exists(stamp)) File.Delete(stamp);
+                    return 0;
+                }
+                if (patched && File.Exists(stamp) && File.ReadAllText(stamp).Trim() == print)
+                { Log($"{packs.Count} content pack(s) unchanged since the last apply: nothing to do"); return 0; }
+            }
             Log($"{packs.Count} content pack(s) in {mods}");
             byte[] root;
             var mirror = new ServerMirror(ClientDb);
@@ -68,9 +89,13 @@ try
                 root = p.Commit();
             }
             SaveRootHash(root);
+            Directory.CreateDirectory(Backup);
+            File.WriteAllText(stamp, print);
             return 0;
         }
         case "restore":
+            if (File.Exists(Path.Combine(Backup, "applied.txt"))) File.Delete(Path.Combine(Backup, "applied.txt"));
+            Log(ClientHooks.Apply(PatchedExe(), []));
             if (File.Exists(ClientDb)) new ServerMirror(ClientDb).Restore(Log);
             if (Patcher.Restore(ggpk, Backup, Log) is { } restored) SaveRootHash(restored);
             return 0;
@@ -100,6 +125,33 @@ static long ServerRows(string table)
 }
 
 string Take() { string v = rest[0]; rest.RemoveAt(0); return v; }
+
+// The copy of the client LocalExile starts (GameServer.Auth patch), beside Content.ggpk.
+string PatchedExe() => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(ggpk))!, "Game.patched.exe");
+
+// Every pack's "itemSymbols": [{ "mod": <Mods Id of an enchantment>, "sprite": <UI image name> }], in pack order.
+static List<ClientHooks.ItemSymbol> ItemSymbols(List<ContentPack> packs) =>
+    [.. packs.SelectMany(p => p.Json["itemSymbols"]?.AsArray() ?? [])
+        .Select(n => new ClientHooks.ItemSymbol(n!["mod"]!.GetValue<string>(), n["sprite"]!.GetValue<string>()))];
+
+// Whether the client's index is one this patcher wrote: raw blocks (GGG's never are) naming our bundle.
+bool IsPatched() => ClientFiles.TryReadFile(ggpk, ClientFiles.Index) is { } raw && RawBundle.TryReadRaw(raw) is { } index
+    && index.AsSpan().IndexOf(System.Text.Encoding.UTF8.GetBytes(Patcher.OurBundle)) >= 0;
+
+// The packs, every file in their content folders, and this patcher's own code: what an apply depends on.
+static string Fingerprint(List<ContentPack> packs)
+{
+    using var sha = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+    void Add(string text) => sha.AppendData(System.Text.Encoding.UTF8.GetBytes(text + "\n"));
+    Add(typeof(Patcher).Assembly.ManifestModule.ModuleVersionId.ToString());
+    foreach (string folder in packs.Select(p => p.Folder).Distinct().Order(StringComparer.Ordinal))
+        foreach (string file in Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+        {
+            Add(Path.GetRelativePath(folder, file) + "@" + folder);
+            sha.AppendData(File.ReadAllBytes(file));
+        }
+    return Convert.ToHexString(sha.GetHashAndReset());
+}
 
 // The patch server tells the client its data is current only when the client's root hash is the one in
 // data/client-constants.json (GameServer.Patch's SaveRootHash does the same after its gateway-list write).

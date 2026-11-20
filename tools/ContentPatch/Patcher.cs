@@ -132,13 +132,65 @@ public sealed class Patcher : IDisposable
             UniqueHashes(table, row, template, e["set"]?.AsObject());
             _log($"{label}: {table.Name} row {row} from row {template}");
         }
+        foreach (var node in pack.Json["serverRows"]?.AsArray() ?? [])
+        {
+            // Rows only client.db has (the servers' own tables, such as item_types): no client file changes.
+            var e = node!.AsObject();
+            string table = Str(e["table"], "serverRows[].table");
+            if (_mirror is null) throw new InvalidOperationException($"{label}: serverRows need data/client.db");
+            object? Sql(JsonNode? v) => v switch
+            {
+                null => null,
+                JsonArray or JsonObject => v.ToJsonString(),
+                JsonValue j when j.TryGetValue(out string? t) => t,
+                JsonValue j when j.TryGetValue(out bool b) => b ? 1L : 0L,
+                JsonValue j when j.TryGetValue(out long l) => l,
+                JsonValue j => j.GetValue<double>(),
+                _ => throw new InvalidDataException($"{label}: unsupported value {v.ToJsonString()}"),
+            };
+            var copyOf = (e["copyOf"] as JsonObject ?? throw new InvalidDataException($"{label}: serverRows[].copyOf missing"))
+                .ToDictionary(kv => kv.Key, kv => Sql(kv.Value));
+            var set = (e["set"] as JsonObject ?? new JsonObject()).ToDictionary(kv => kv.Key, kv => Sql(kv.Value));
+            _mirror.AddServerRow(table, copyOf, set, label);
+            _log($"{label}: server-only {table} row from {string.Join(", ", copyOf.Select(kv => $"{kv.Key}={kv.Value}"))}");
+        }
         foreach (var node in pack.Json["files"]?.AsArray() ?? [])
         {
             var e = node!.AsObject();
             string path = Str(e["path"], "files[].path").Replace('\\', '/');
-            string from = Path.Combine(pack.Folder, Str(e["from"], "files[].from"));
-            _files[path] = File.ReadAllBytes(from);
-            _log($"{label}: file {path} ({(_original.TryGetFile(path, out _) ? "replaces the client's" : "new")})");
+            string Kind(string p) => _files.ContainsKey(p) ? "changed again" : _original.TryGetFile(p, out _) ? "replaces the client's" : "new";
+            if (e["image"] is { } image)
+            {
+                // A PNG becomes the client's texture pair: path (.dds) and path.header (Texture).
+                if (!path.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException($"{label}: files[].image needs a path ending in .dds ({path})");
+                var (dds, header) = Texture.FromPng(File.ReadAllBytes(Path.Combine(pack.Folder, image.GetValue<string>())));
+                _log($"{label}: texture {path} + .header ({Kind(path)})");
+                _files[path] = dds;
+                _files[path + ".header"] = header;
+            }
+            else if (e["appendLines"] is JsonArray append)
+            {
+                // Lines added at the end of a text file the client has (or an earlier entry wrote), in its own encoding:
+                // UTF-16LE, with or without a byte order mark (art/uiimages1.txt has none), or UTF-8.
+                byte[] current = _files.TryGetValue(path, out var had) ? had : ReadOriginal(path)
+                    ?? throw new InvalidDataException($"{label}: {path} is not in the client, nothing to append to");
+                bool bom = current.Length >= 2 && current[0] == 0xFF && current[1] == 0xFE;
+                bool utf16 = bom || (current.Length >= 2 && current[0] != 0 && current[1] == 0);
+                var enc = utf16 ? (System.Text.Encoding)new System.Text.UnicodeEncoding(false, false) : new System.Text.UTF8Encoding(false);
+                string text = enc.GetString(current, bom ? 2 : 0, current.Length - (bom ? 2 : 0));
+                if (text.Length > 0 && !text.EndsWith('\n')) text += "\r\n";
+                foreach (var line in append) text += line!.GetValue<string>() + "\r\n";
+                byte[] body = enc.GetBytes(text);
+                _files[path] = bom ? [0xFF, 0xFE, .. body] : body;
+                _log($"{label}: {append.Count} line(s) appended to {path}");
+            }
+            else
+            {
+                string from = Path.Combine(pack.Folder, Str(e["from"], "files[].from"));
+                _log($"{label}: file {path} ({Kind(path)})");
+                _files[path] = File.ReadAllBytes(from);
+            }
         }
     }
 
@@ -153,6 +205,8 @@ public sealed class Patcher : IDisposable
 
     IEnumerable<int> Matching(DatEditor table, JsonObject where)
     {
+        var resolved = new Dictionary<JsonObject, long>(ReferenceEqualityComparer.Instance);
+        long Resolved(JsonObject o) => resolved.TryGetValue(o, out long row) ? row : resolved[o] = RowOf(o, $"{table.Name} where");
         for (int r = 0; r < table.RowCount; r++)
         {
             bool all = true;
@@ -162,6 +216,8 @@ public sealed class Patcher : IDisposable
                 {
                     JsonValue v when v.TryGetValue<string>(out var s) => table.GetString(r, column) == s,
                     JsonValue v when v.TryGetValue<long>(out var l) => table.GetInt(r, column) == l,
+                    // A row reference: { "row": { "table": T, column: value } } (resolved once per call below).
+                    JsonObject o when o["row"] is not null => table.GetInt(r, column) == Resolved(o),
                     _ => false,
                 };
                 if (!all) break;
