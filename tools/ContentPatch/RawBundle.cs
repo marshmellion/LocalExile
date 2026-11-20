@@ -8,7 +8,9 @@ namespace LocalExile.ContentPatch;
 /// (0x142c9d520, run in Unicorn by scripts/re/formats/oodle_client.py) returns such a chunk byte for byte, for 1 byte to
 /// a full 256 KiB chunk; a chunk stored with its compressed size equal to its size (no header) is refused.
 /// <para>Header, as BundleFile reads it: u32 size, u32 payload size, u32 head size, u32 first-file encoder (8 Kraken),
-/// u32 0, u64 size, u64 payload size, u32 chunk count, u32 granularity, 4 × u32 0, u32 chunk sizes[count].</para>
+/// u32 1, u64 size, u64 payload size, u32 chunk count, u32 granularity, 4 × u32 0, u32 chunk sizes[count]. The word
+/// at 16 is 1 as in the client's own bundles (its index has 1 there). With 0 there (the first version) the 3.29.3c
+/// client closed during startup; this word is the first suspect.</para>
 /// </summary>
 public static class RawBundle
 {
@@ -28,7 +30,7 @@ public static class RawBundle
         BinaryPrimitives.WriteInt32LittleEndian(w[4..], payload);
         BinaryPrimitives.WriteInt32LittleEndian(w[8..], head);
         BinaryPrimitives.WriteInt32LittleEndian(w[12..], Kraken);
-        BinaryPrimitives.WriteInt32LittleEndian(w[16..], 0);
+        BinaryPrimitives.WriteInt32LittleEndian(w[16..], 1);
         BinaryPrimitives.WriteInt64LittleEndian(w[20..], data.Length);
         BinaryPrimitives.WriteInt64LittleEndian(w[28..], payload);
         BinaryPrimitives.WriteInt32LittleEndian(w[36..], chunks);
