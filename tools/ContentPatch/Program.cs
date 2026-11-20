@@ -31,7 +31,8 @@ try
         case "paths":
         {
             string outFile = Take();
-            using var fs = GameFileSystem.Open(client);
+            using var oodle = new Oodle();
+            using var fs = GameFileSystem.Open(client, oodle);
             using var w = new StreamWriter(outFile);
             int n = 0;
             foreach (string path in fs.EnumeratePaths().Order(StringComparer.Ordinal)) { w.WriteLine(path); n++; }
@@ -116,7 +117,8 @@ int Inspect()
     Log($"index bundle: size {BinaryPrimitives.ReadInt32LittleEndian(h):N0}, payload {BinaryPrimitives.ReadInt32LittleEndian(h[4..]):N0}, head {BinaryPrimitives.ReadInt32LittleEndian(h[8..])}, " +
         $"encoder {BinaryPrimitives.ReadInt32LittleEndian(h[12..])}, word16 {BinaryPrimitives.ReadInt32LittleEndian(h[16..])}, chunks {BinaryPrimitives.ReadInt32LittleEndian(h[36..])}, " +
         $"granularity {BinaryPrimitives.ReadInt32LittleEndian(h[40..])}, words44-59 {Convert.ToHexString(h[44..60])}, raw blocks {(RawBundle.TryReadRaw(raw) is not null ? "yes (patched by us)" : "no")}");
-    byte[] content = RawBundle.TryReadRaw(raw) ?? BundleFile.DecompressWhole(raw, new ManagedOodleDecoder());
+    using var oodle = new Oodle();
+    byte[] content = RawBundle.TryReadRaw(raw) ?? BundleFile.DecompressWhole(raw, oodle);
     var index = IndexEditor.Parse(content);
     Log($"{index.Bundles.Count:N0} bundles, {index.FileCount:N0} files, records sorted by hash: {index.SortedByHash}; ours: {(index.Bundles.Any(b => b.Name == Patcher.OurBundle) ? "present" : "absent")}");
     bool same = index.Write().AsSpan().SequenceEqual(content);

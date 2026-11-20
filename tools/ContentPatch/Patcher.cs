@@ -21,7 +21,7 @@ public sealed class Patcher : IDisposable
     readonly string _backup;
     readonly GGPK _ggpk;
     readonly IReadOnlyDictionary<string, SchemaTable> _schema;
-    readonly IOodleDecoder _oodle = new ManagedOodleDecoder();
+    readonly Oodle _oodle = new();
     readonly Dictionary<int, byte[]> _bundleCache = [];
     GameIndex _original = null!;
     IndexEditor _index = null!;
@@ -46,7 +46,11 @@ public sealed class Patcher : IDisposable
         LoadOriginalIndex();
     }
 
-    public void Dispose() => _ggpk.Dispose();
+    public void Dispose()
+    {
+        _ggpk.Dispose();
+        _oodle.Dispose();
+    }
 
     byte[] ReadGgpk(string path) =>
         _ggpk.Root.TryFindNode(path, out var node) && node is FileRecord fr ? fr.Read() : throw new FileNotFoundException(path);

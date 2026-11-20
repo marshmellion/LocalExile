@@ -13,6 +13,8 @@
   <!-- test/: fixture builders and checks run by hand in a scratch folder (REFERENCE.md "Testing"), not part of the tool. -->
   <ItemGroup>
     <Compile Remove="test/**" />
+    <!-- The extractor's ooz-wasm decoder (Oodle.cs): kept in one place, main's. -->
+    <Compile Include="..\..\Tools\PoEDataExtractor\NodeOodleDecoder.cs" Link="NodeOodleDecoder.cs" />
   </ItemGroup>
 
   <ItemGroup>
