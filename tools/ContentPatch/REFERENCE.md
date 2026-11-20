@@ -5,7 +5,7 @@ writes them, ids, commands, the PC layout, how it was tested, and what is open. 
 this file (branch `modding-api` of marshmellion/LocalExile), the project doc `claude/modding-api-reference.md`, and
 `Z:\PATH OF EXILE LOCAL EDITION\Claude Stuff\modding-api-reference.md`. Update all three together.
 
-Last updated 2026-11-20 (textures from PNG, server-only rows, item symbol hook, Radiant Orb, apply at start).
+Last updated 2026-11-20 (orb and sun confirmed live; docs PR #1201; no session links).
 
 ---
 
@@ -25,8 +25,9 @@ Last updated 2026-11-20 (textures from PNG, server-only rows, item symbol hook, 
     synthesised flag: a graphic beside the item name when it drops, matchable by loot filters, not a new influence.
 - Standing rules that still apply: public posts (PRs, comments) need marshmellion's approval of the text; never
   install software or change system settings on the PC; start the client only via live.ps1/Waypoint; never commit game
-  files or secrets. Commits: author marshmellion, trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` and
-  the `Claude-Session:` line.
+  files or secrets. Commits: author marshmellion (`14154274+marshmellion@users.noreply.github.com`), trailer
+  `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. **No session links** (`Claude-Session:` or claude.ai/code
+  URLs) in commits or pull requests: marshmellion's rule, 2026-11-20.
 
 ## 2. Two halves of the API
 
@@ -120,14 +121,14 @@ VeiledItemSymbol, ArchnemesisItemSymbol, BreachItemSymbol, VestigialUniqueItemsI
 RosePetalInfluencedItemSymbol, Heist/StolenItemSymbol, Deepwater/ContrabandItemSymbol, CleansingFireItemSymbol
 (Searing Exarch implicit), TangledItemSymbol (Eater implicit). Second users of most of them around 0x1416d1100.
 The picker near **0x140c99de7** reads byte flags of a tooltip-side item struct (rdi): kind == 0x4c → Archnemesis;
-`+0xf3d` → Stolen (with `+0xf3e` → Contraband); `+0xf36` or `+0xf35` → Synthesised (0x140c9a7cc); **`+0xf37` → Breach**;
+`+0xf3d` → Stolen (with `+0xf3e` → Contraband); `+0xf36` → Synthesised, else `+0xf35` → Fractured (0x140c9a7cc); **`+0xf37` → Breach**;
 **`+0xf38` → Vestigial**; then veiled mods (count of 40-byte records at `+0xf58..+0xf60`), influences etc.
 Server side: the Mods component's u16 flags (InstanceItems.cs ~line 224): 0x2 mirrored, 0x4 split, 0x10 relic style,
 0x20 synthetic, 0x40 incubator, 0x80 a 0x1c8 record, 0x100 foreseeing, **0x400 vestigial** (`Item.Vestigial`; the
 client then refuses currency on the item). The client's debug dump of that component is 0x1421e7b00 (fields
 identified/duplicated/split/disable_mirrored_visuals +0x2e1/relic +0x2e3/synthetic +0x2e5, implicit/enchant/hellscape
 mods). Which network flag sets the tooltip's Breach byte `+0xf37` is not traced yet.
-**Item symbol hook (itemSymbols, 2026-11-20, not yet seen live).** Pickers: tooltip header 0x140c99e27 (struct rdi)
+**Item symbol hook (itemSymbols; live 2026-11-20: the sun shows beside the name in the tooltip and on the ground label).** Pickers: tooltip header 0x140c99e27 (struct rdi)
 and item header/label 0x1416d11a0 (struct rbx); both pick by struct bytes, neither has the item. The builder
 0x142401e00 (struct r15, item handle at rsp+0x6718, its +8 the entity) is hooked at 0x142402b2c (before its two paths
 split on rsp+0x67b8): it reads the Mods component (0x14013fb60, looked up by name "Mods"; returns 0 without one), walks
@@ -293,7 +294,7 @@ play setup's LocalHooks.CurrencyItemUse (reached for unknown currencies; corrupt
 - `Claude Stuff\`: scripts (update-main, apply-local-hooks, make-play-client, content-patch, dev-check…),
   `play-branches.txt`, `branch.txt` (dev copy's branch), `logs\`, `export\` (after `content-patch export`).
 - PC access from the Claude session: file staging/commit only (no shell). Files ≤ 400 MB per stage; paths > 7 folders
-  deep cannot be staged. Outputs go through fresh `/mnt/user-data/outputs/vN/` folders (v64 used last).
+  deep cannot be staged. Outputs go through fresh `/mnt/user-data/outputs/vN/` folders (v68 used last).
 
 ## 7. Testing in the Claude workspace
 - Build without NuGet: `/home/claude/build/build.sh <name> <srcdir> <exe|library> <asm> [refs]` (`OUT=` output folder,
@@ -342,9 +343,10 @@ play setup's LocalHooks.CurrencyItemUse (reached for unknown currencies; corrupt
 ## 9. Open items and next steps
 1. Done: play client separated, inspect identical, export (3.5).
 2. Done: Exciting marker (3.4) end to end on the play client.
-3. Exciting symbol: radiant sun (`excitingitems/content/sun_symbol.png`, 44×44) + itemSymbols hook. Live test pending.
-3b. Radiant Orb (sun orb art, 80×80): live test pending (drops 1/400 per normal monster; `/exciting orb [n]`).
-4. Done (pending the live test): a new currency with its own art, the Radiant Orb (5.2).
+3. Done (live): radiant sun beside exciting items' names (tooltip and ground label).
+3b. Done (live): Radiant Orb drops, stacks, shows its art, is used on items. `radiantorb-test.json` (Divine art copy) can go.
+3c. Findings sent upstream as docs: LocalExile PR #1201 (branch `docs/client-data-findings`).
+4. Done: a new currency with its own art, the Radiant Orb (5.2).
 5. Done: live.ps1 runs `apply --if-changed` (modding-api branch).
 6. In-game overlay (UI, buttons, keybinds): not started. The client folder has `imgui.ini` and a 2012 `d3d11.dll`
    (another tool's), worth checking before choosing an injection route.
