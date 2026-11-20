@@ -86,13 +86,17 @@ BaseEnergyShield, BaseWard, BaseDefencePercentile, AlternateQuality. Actions: Se
 SetBackgroundColor, SetFontSize, PlayAlertSound(Positional), CustomAlertSound(Optional), PlayEffect, MinimapIcon,
 DisableDropSound, EnableDropSound(IfAlertSound), Continue. Operators include WHOLEWORD/PARTIAL/INWORD/STARTSWITH/ENDSWITH.
 
-Exciting Items mark, candidate routes (not decided):
-1. A marker modifier named e.g. "Exciting" (a new Mods row, no stats) → `HasExplicitMod "Exciting"`.
-2. A retired mechanic's item flag the server never sends today (Scourged, Foulborn, Vestigial, Imbued…) → filter
-   `Scourged True`; replace the art that flag draws with an Exciting symbol through a content pack `files` entry.
-   Needs: which art each flag draws (search `Claude Stuff\export\paths.txt`), and how the server's item payload
-   sets the flag.
-The current Exciting Items (v1.1.0) marks items as synthesised (`SynthesisedItem True`).
+Exciting Items mark (decided, v1.2.0): an **enchantment** of our own, `LocalExileExcitingMarker`, Name "Exciting",
+Domain 1, GenerationType 10, no stats, its own ModType row (`excitingitems/content/marker.json`; client row 40355,
+HASH16 24961 at the 2026-11-20 export). Filter: `HasEnchantment "Exciting"` (enchant mods match by their Name, e.g.
+"Enchantment Word of Blades"). Why an enchantment: `MagicProperties.Write` sends the explicit list only for an
+identified item; implicit, enchant, scourge and hidden lists go for every item, so `HasExplicitMod` can't see an
+unidentified drop. Side effects: `AnyEnchantment True` also matches; a bench or lab enchant that replaces the
+Enchant section drops the marker. Without the patched data the mod falls back to synthesised.
+**Rule: never reuse a retired mechanic's flag or symbol** (Vestigial, Breach, Scourged, Foulborn, Imbued…) for our
+content: they are to be reimplemented one day. New marks get new data (a modifier) and new art (a new sprite).
+Item names can't carry a filterable mark: filters have no name condition, and a rare's name isn't sent until it is
+identified.
 
 ### 3.5 Real client export (2026-11-20)
 - `inspect` on the play client: 46 884 bundles, 1 245 702 files, records **not** sorted by hash (new records are
@@ -120,10 +124,8 @@ Server side: the Mods component's u16 flags (InstanceItems.cs ~line 224): 0x2 mi
 client then refuses currency on the item). The client's debug dump of that component is 0x1421e7b00 (fields
 identified/duplicated/split/disable_mirrored_visuals +0x2e1/relic +0x2e3/synthetic +0x2e5, implicit/enchant/hellscape
 mods). Which network flag sets the tooltip's Breach byte `+0xf37` is not traced yet.
-Exciting mark options: (a) Vestigial: symbol + filter `Vestigial True`, already supported by the server, but blocks
-currency use unless the client's check is patched; (b) Breach symbol (more tracing; no filter condition of its own, so
-pair with a marker mod for `HasExplicitMod`); either way the sprite is pointed at our own texture by editing its line in
-uiimages1.txt (a `files` entry) rather than editing GGG's atlas.
+Exciting symbol plan: a new sprite line in uiimages1.txt pointing at our own texture, and a hook in the picker that
+draws it when the item has the marker enchantment (not one of the retired flags above). Needs the in-game layer.
 
 ## 4. Client file formats (as ContentPatch reads and writes them)
 
