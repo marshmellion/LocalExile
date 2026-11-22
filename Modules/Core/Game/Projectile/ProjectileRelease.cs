@@ -19,7 +19,9 @@ public static partial class Game
     /// it must not keep flying to the generic projectile range. Arrow Nova's payload arrow lands at the aim before its
     /// volley, so it stops there too. Other projectiles keep their full range.</summary>
     public static double PrimaryRange(string? effect, double range, double targetDistance, bool toTarget = false) =>
+        // Caustic Arrow stops and bursts at the aimed point, where the client draws its impact (live 2026-11-17).
         toTarget || effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
+            || effect?.StartsWith("CausticArrow", StringComparison.Ordinal) == true
             ? Math.Min(range, Math.Max(.001, targetDistance)) : range;
 
     /// <summary>The shared client fan for a multi-arrow use. Attack gems and ordinary bow shots otherwise used the
@@ -369,19 +371,22 @@ public static partial class Game
             + Own(PlayerHitDamage.VsBlindedDamageStat);
         var blindedRows = hitInputs is null || additionalBlindedIncreased == 0 ? null
             : SupportedAilmentRowsFrom(hitInputs, hand, additionalBlindedIncreased);
+        bool weaponAttack = !spell && local is not null && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).RequiresShield(gem.Effect);
         var shot = new ProjectileOffense(
             hitInputs is null ? DamagePacket.Empty : SupportedHitFrom(hitInputs, suppress: false),
             spell, handWeapon is null ? PlayerAccuracy(conn, player) : HandAccuracy(conn, swingHand, player),
             SupportedCriticalChanceFor(conn, skillId, release: true, weaponCritical: handCritical),
             SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
+            WeaponAttack = weaponAttack,
+            TinctureKill = weaponAttack && totem is null ? TinctureKillBonusFor(conn, player, swingHand) : null,
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(player, own),
             // Child stages and release specialization can introduce areas after this root is resolved.
             AreaHit = areaHitInputs is null ? DamagePacket.Empty : SupportedHitFrom(areaHitInputs, suppress: false),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true, handCritical),
             VsGroundCriticalChance = SupportedCriticalChanceVsGround(conn, skillId, release: true, handCritical),
             ActualCaster = totem is null ? null : TotemCasterStats(player), FromTotem = totem is not null,
-            Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
+            Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId, Gem = gem.Gem,
             SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(conn, hitInputs,
                 AddedEffectiveness(conn, gem.Effect, gem.Level), local: local,

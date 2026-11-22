@@ -116,7 +116,7 @@ public static partial class Game
         var types = Supports.Of(aura.Effect)?.Types.ToHashSet();
         return (increased, webs, ignited, bleeding, lowLife) =>
         {
-            int TargetStat(string name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife);
+            int TargetStat(string name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack: false);
             increased += SpiderDamageIncrease(Get, webs);
             var woven = SpiderRawDamage(raw, Get, webs, AddedEffectiveness(conn, aura.Effect, aura.Level));
             var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion,
@@ -140,7 +140,7 @@ public static partial class Game
         return SkillRadius(conn, basis > 0 ? basis : fallback, skill.Stats, spell: false, aura.Effect, player);
     }
 
-    static void ReservationDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    internal static void ReservationDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         AuraCatalog.Aura aura, (int X, int Y) at, double now, uint target = 0)
     {
         using var statScope = new PlayerStatScope(conn, fresh: true);
@@ -228,9 +228,12 @@ public static partial class Game
                         && IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, now) is { } packets)
                         (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, now));
                 }
-                CommitAcceptedHitLocked(conn, id, m, hit, damage, now, aura.Name, playerKill: true);
+                var to = m.Walk.Position(now);
+                // Immediate kind 3 before the life update reaches the client's result consumer; 0xffff has no consuming action.
                 conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(PlayerId, 0xffff, id,
-                    flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), aura.Name + " triggered hit", id, m, WorldId: PlayerId));
+                    flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
+                    angle: HitAngle(to.X - at.X, to.Y - at.Y)), aura.Name + " triggered hit", id, m, WorldId: PlayerId));
+                CommitAcceptedHitLocked(conn, id, m, hit, damage, now, aura.Name, playerKill: true);
                 if (ignited is { } packetsToSend)
                     for (int i = 0; i < packetsToSend.Count; i++)
                         conn.Minions.OutputQueue.Add(new(packetsToSend[i],
@@ -261,7 +264,8 @@ public static partial class Game
                 m.LastHitBy = conn;
                 if (m.HeraldBurns.Buff is not null) continue;
                 m.HeraldBurns.Buff = conn.NextBuff++;
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, m.HeraldBurns.Buff.Value, 877, PlayerId), "Herald of Ash burn", id, m, WorldId: id));
+                ushort? burnVisual = aura.ArtVariation != 0 ? Art.BuffVisual("herald_of_ash_burning_buff", aura.ArtVariation) : null;
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, m.HeraldBurns.Buff.Value, 877, PlayerId, visual: burnVisual), "Herald of Ash burn", id, m, WorldId: id));
             }
     }
 

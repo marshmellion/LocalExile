@@ -45,6 +45,8 @@ public static partial class Game
         foreach (var (key, value) in golem.Own)
         {
             string name = Stats.Name(key) ?? "";
+            // Spell Totem changes the summoning skill, not the actor that skill summons.
+            if (name is "is_totem" or "base_skill_is_totemified" or "skill_is_totemified" or "is_ranged_attack_totem") continue;
             if (name.StartsWith("minion_", StringComparison.Ordinal)) name = name[7..];
             // SupportedSkill already projects its global added damage into the attack and spell forms.
             if (name.StartsWith("global_", StringComparison.Ordinal) && name.Contains("_added_", StringComparison.Ordinal)
@@ -53,6 +55,14 @@ public static partial class Game
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
+        if (golem.CombatCharges is { } charges)
+        {
+            int frenzy = charges.Held(ChargeType.Frenzy);
+            values["attack_speed_+%"] = values.GetValueOrDefault("attack_speed_+%") + 4 * frenzy;
+            values["cast_speed_+%"] = values.GetValueOrDefault("cast_speed_+%") + 4 * frenzy;
+            values["critical_strike_chance_+%"] = values.GetValueOrDefault("critical_strike_chance_+%")
+                + 50 * charges.Held(ChargeType.Power);
+        }
         int Get(string n) => GolemStat(player, n);
         // Ancient Skull's real MinionCriticalStrikeChanceMaximumPowerChargeUnique__1 row uses the owner's maximum Power
         // Charges, not the charges held and not a minion's ability scheduling count. Charges.LimitsOf is the same
@@ -220,6 +230,7 @@ public static partial class Game
                 }
             else if (catalog.IsAttack(effect) && Raw("base_deal_no_damage") == 0)
             {
+                if (crit == 0) crit = MinionWeaponCritical(conn, golem);
                 var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
                 damage = (golem.Weapon is { } equipped ? equipped.LocalDamage ?? DamagePacket.Of(DamageType.Physical, equipped.MinDamage, equipped.MaxDamage)
                     : DamagePacket.Of(DamageType.Physical, min, max)).Scale(multiplier);
@@ -248,7 +259,8 @@ public static partial class Game
             {
                 string slug = type.ToString().ToLowerInvariant();
                 conversion.AddSkill(DamageType.Physical, type, Raw($"base_physical_damage_%_to_convert_to_{slug}") + Raw($"skill_physical_damage_%_to_convert_to_{slug}"));
-                conversion.AddGlobal(DamageType.Physical, type, mods[$"physical_damage_%_to_convert_to_{slug}"]);
+                conversion.AddGlobal(DamageType.Physical, type, mods[$"physical_damage_%_to_convert_to_{slug}"]
+                    + mods[$"base_physical_damage_%_to_convert_to_{slug}"]);
                 conversion.AddGain(DamageType.Physical, type, mods[$"physical_damage_%_to_add_as_{slug}"]);
             }
             if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
@@ -261,6 +273,7 @@ public static partial class Game
                 * Math.Max(0, 1 + Own("minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Raw("active_skill_damage_+%_final") / 100.0)
                 * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(player, "damage") / 100.0) : 1);
+            more *= 1 + .04 * (golem.CombatCharges?.Held(ChargeType.Frenzy) ?? 0);
             if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(player, "active_skill_non_reaper_minion_damage_+%_final") / 100d);
             var types = new HashSet<int>();
             if (spell) types.Add(1);
@@ -294,9 +307,11 @@ public static partial class Game
             string id = catalog.EffectId(effect) ?? "";
             double range = spell ? Math.Max(20, 70 * (1 + Raw("spell_maximum_action_distance_+%") / 100.0)) : variety.AttackRange;
             if (!spell && golem.Weapon is { } weapon) range = weapon.Melee ? weapon.Range : 70;
+            if (effect == 9638) range = Math.Max(range, Raw("smite_lightning_target_range"));
             if (id.Contains("Whirling", StringComparison.Ordinal) || id.Contains("Cyclone", StringComparison.Ordinal) || id.Contains("Leap", StringComparison.Ordinal)) range = 45;
             double radius = Raw("active_skill_base_area_of_effect_radius");
-            if (radius <= 0) radius = id.Contains("Slam", StringComparison.Ordinal) ? 15 : 10;
+            if (radius <= 0) radius = SpectreChargeRoar(golem, effect) is not null ? 60
+                : id.Contains("Slam", StringComparison.Ordinal) ? 15 : 10;
             radius *= (1 + Raw("active_skill_area_of_effect_radius_+%_final") / 100.0)
                 * Math.Sqrt(Math.Max(0, 1 + (mods["base_skill_area_of_effect_+%"] + Raw("base_skill_area_of_effect_+%")) / 100.0));
             ushort skill = (ushort)(0x4000 + index);
@@ -324,6 +339,16 @@ public static partial class Game
             MinionAilmentProfiles.Add(ability, new(ignite, bleed, poison, chance));
         }
         return result;
+    }
+
+    static int MinionWeaponCritical(ClientState conn, GolemState.Golem golem)
+    {
+        // Natural minion weapons have 5% base crit. Animated weapons use the equipped item's local chance.
+        if (golem.Weapon is not { } weapon || golem.Equipment.GetValueOrDefault((byte)2) is not { } item
+            || ItemsFor(conn).ByHash(item.TypeHash) is not { } type) return 500;
+        return AddedBaseCriticalStrike.LocalWeaponChance(ItemsFor(conn).WeaponCritical(type),
+            weapon.LocalSources?.GetValueOrDefault("local_critical_strike_chance") ?? 0,
+            weapon.LocalSources?.GetValueOrDefault("local_critical_strike_chance_+%") ?? 0);
     }
 
     static int GolemTether(IReadOnlyDictionary<uint, int> player, string kind)
@@ -374,6 +399,11 @@ public static partial class Game
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         if (Stats.Key("dexterity") is uint dexKey) hash.Add((dexKey, player.GetValueOrDefault(dexKey)));
         hash.Add(OwnerMaximumPowerCharges(player));
+        if (golem.CombatCharges is { } charges)
+        {
+            hash.Add(charges.Held(ChargeType.Frenzy));
+            hash.Add(charges.Held(ChargeType.Power));
+        }
         int inheritedCoefficient = GolemStat(player, "minions_gain_x_percent_of_your_resistances");
         GolemOwnerResistances? ownerResistances = inheritedCoefficient == 0 ? null : GolemOwnerResistancesFor(conn);
         if (ownerResistances is { } resistanceHash) hash.Add(resistanceHash);
@@ -425,9 +455,12 @@ public static partial class Game
             conn.MinionOrigins[golem.Id] = origin with { Object = SyncLifeMaximum(origin.Object, m, maximum) };
         golem.ShieldPool.SetMaximum(NativeEnergyShield(pools.MaximumEnergyShield));
         PublishEnergyShieldLocked(conn, golem);
-        golem.Abilities = GolemAbilities(conn, m.Variety!, m.Level, golem, player, now, ownerResistances);
-        golem.Skills = GolemNativeSkills(conn, m.Level, golem.Abilities);
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
+        if (!golem.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal))
+        {
+            golem.Abilities = GolemAbilities(conn, m.Variety!, m.Level, golem, player, now, ownerResistances);
+            golem.Skills = GolemNativeSkills(conn, m.Level, golem.Abilities);
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
+        }
         conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id,
             [(StatKeys.MovementVelocityPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m, WorldId: golem.Id));
         if (conn.MinionOrigins.TryGetValue(golem.Id, out origin))

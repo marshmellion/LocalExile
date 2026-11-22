@@ -23,33 +23,33 @@ public static partial class Game
     {
         if (m.Attack is not { } a || conn.PlayerLife == 0) return null;
         MinionTarget? best = null;
+        var beast = conn.Beasts.Active;
+        var stats = beast?.Id == id && ReferenceEquals(beast.Monster, m) ? beast.SkillStats : null;
+        var (aggressive, defensive) = stats is null ? default : MinionStance(stats, CharacterPlayerStats(conn), false, false);
+        int range = aggressive ? Math.Max(AggressiveMinionMinimumRange, m.AggroRange) : m.AggroRange;
+        int ownerRange = defensive ? Math.Min(DefensiveMinionMaximumRange, range) : range;
         double nearest = double.MaxValue;
         foreach (var (targetId, t) in conn.Monsters)
         {
             if (targetId == id || !t.Hostile || t.Dead || t.Life == 0 || double.IsPositiveInfinity(t.BusyUntil)) continue;
             var to = t.Walk.Position(now);
             double d = Dist(to, at);
-            if (d >= nearest || d > m.AggroRange || Dist(to, player) > m.AggroRange) continue;
+            bool prey = stats is not null && IsPrey(conn, stats, targetId, t, now);
+            if (!prey && (d >= nearest || d > range || Dist(to, player) > ownerRange)) continue;
             nearest = d;
             double reach = MinionReach(a, t), f = d > 0 ? Math.Max(0, reach - 1) / d : 0;
             best = new(targetId, t, to, d <= reach,
                 ((int)Math.Round(to.X + (at.X - to.X) * f), (int)Math.Round(to.Y + (at.Y - to.Y) * f)));
+            if (prey) break;
         }
         return best;
     }
 
-    /// <summary>
-    /// A fighting minion's hit at its swing's contact, under the Monsters lock: both still there and the target in reach,
-    /// the minion's accuracy (DefaultMonsterStats at its level) against the target's evasion, the target's block
-    /// (Stalwart), then the attack's damage (the minion's own, with the player's minion modifiers it was summoned with)
-    /// mitigated by the target as any hit. It is the minion's hit, not the player's (no hit-recently). Null when it did not
-    /// land.
-    /// </summary>
-    public static (MonsterHit Hit, int Damage)? MinionHitLocked(ClientState conn, uint id, SpawnedMonster m, MinionTarget target,
-        double now, Random random) =>
-        MinionHitTargetLocked(conn, id, m, target.Id, target.Monster, now, random, checkReach: true);
+    internal static byte[] MinionActionHit(uint attacker, uint target, byte code, byte angle) =>
+        InstanceProtocol.ActionHit(attacker, 0xffff, target,
+            flags: MonsterHitFlags(blocked: false, critical: false), kind: 0x03, code: code, angle: angle);
 
-    static (MonsterHit Hit, int Damage)? MinionHitTargetLocked(ClientState conn, uint id, SpawnedMonster m,
+    internal static (MonsterHit Hit, int Damage, byte HitCode)? MinionHitTargetLocked(ClientState conn, uint id, SpawnedMonster m,
         uint targetId, SpawnedMonster targetMonster, double now, Random random, bool checkReach,
         MonsterAttack? attack = null, int? accuracy = null)
     {
@@ -71,12 +71,18 @@ public static partial class Game
             ? conn.Golems.OwnerStats.GetValueOrDefault(key) : 0;
         if (supported is null && Flat("maximum") > 0) offense = offense.Add(GameServer.Core.World.DamageType.Physical,
             new GameServer.Core.World.DamageRange(Flat("minimum"), Flat("maximum")).Scale(Math.Max(0, 1 + m.Mods.Effects["damage_+%"] / 100.0)));
-        int damage = MonsterTakesRolled(t, offense.Roll(random), spell: false, now: now);
-        return ApplyMonsterHitLocked(conn, t, damage, allyAt: at) is { } hit ? (hit, damage) : null;
+        if (supported is not null && conn.Beasts.Active is { } companion)
+            offense = offense.Scale(MeatShieldDamage(conn, companion.SkillStats, t, now));
+        var mitigated = DamageModel.Mitigate(offense.Roll(random), type => MonsterHitResistance(t, type, default, now));
+        int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now);
+        if (ApplyMonsterHitLocked(conn, t, damage, allyAt: at) is not { } hit) return null;
+        if (!t.Dead && damage > 0 && supported is not null && conn.Beasts.Active is { } beast)
+            MinionExposureOnHitLocked(beast.SkillStats, t, mitigated, now, random);
+        return (hit, damage, HitCode(mitigated));
     }
 
     // A fighting minion attacks its target: its skill aimed at it (0x1ab with the target's id, as a monster's swing at the
-    // player), and at the contact point (half the attack time) the hit lands (MinionHitLocked): 0x1af from the minion, then
+    // player), and at the contact point (half the attack time) the hit lands (MinionHitTargetLocked): 0x1af from the minion, then
     // the target's hit and death as for the player's hits. Its kills give the player their experience, items and quest
     // progress, but are not his for his on-kill effects.
     static void StartMinionSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -137,7 +143,7 @@ public static partial class Game
             if (wait == 0) break;
             await AreaWait(PlayerUpdateRole.MonsterAction, wait);
         }
-        (MonsterHit Hit, int Damage)? landed = null;
+        (MonsterHit Hit, int Damage, byte HitCode)? landed = null;
         (int X, int Y) at, to;
         while (true)
         {
@@ -154,7 +160,7 @@ public static partial class Game
                         return;
                     }
                     conn.Minions.Attacks.Remove(id);
-                    landed = MinionHitLocked(conn, id, m, target, now, Random.Shared);
+                    landed = MinionHitTargetLocked(conn, id, m, target.Id, target.Monster, now, Random.Shared, checkReach: true);
                     if (landed is { Hit.StageStarts: true } staged)
                     {
                         CommitBossStage(remote, stream, ciphers, conn, target.Id, target.Monster, now);
@@ -162,8 +168,9 @@ public static partial class Game
                     }
                     if (landed is { } accepted)
                     {
-                        conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(id, 0xffff, target.Id, flags: 0x4601, kind: 0x02,
-                            u34: 450, angle: HitAngle(to.X - at.X, to.Y - at.Y)),
+                        // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
+                        conn.Minions.OutputQueue.Add(new(MinionActionHit(id, target.Id, accepted.HitCode,
+                            HitAngle(to.X - at.X, to.Y - at.Y)),
                             $"0x01af minion 0x{id:x} hit on monster 0x{target.Id:x}", target.Id, target.Monster, WorldId: id));
                         CommitMinionHitLocked(conn, target.Id, target.Monster, accepted.Hit, accepted.Damage, now, $"minion 0x{id:x} ({m.Label})");
                     }

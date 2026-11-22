@@ -11,9 +11,12 @@ public sealed record ProjectileOffenseAlternate(DamagePacket Hit, DamagePacket? 
 public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int CriticalChance,
     int CriticalMultiplier, string Label)
 {
+    public bool WeaponAttack { get; init; }
+    public Game.TinctureKillBonus? TinctureKill { get; init; }
     public bool NoExtraCriticalDamage { get; init; }
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>
     public IReadOnlyDictionary<uint, int>? ActualCaster { get; init; }
+    public SpawnedMonster? BrandedTarget { get; init; }
     public object? Owner { get; init; }
     public bool IntimidatingCryExerted { get; init; }
     public double HitProfileMore { get; init; } = 1;
@@ -40,6 +43,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public SkillCriticalRoll? CriticalRoll { get; init; }
     /// <summary>Released by the player's own totem: its kills are the player's own device's (OwnedKills).</summary>
     public bool FromTotem { get; init; }
+    /// <summary>Thrown by a trap or mine: Bear Trap's damage taken from traps and mines applies (MonsterTakesTrapOrMineHit).</summary>
+    public bool FromTrapOrMine { get; init; }
     /// <summary>The local stats of the weapon an attack was made with (GamblerModifiers.ForWeapon); null for a spell.</summary>
     public IReadOnlyDictionary<string, int>? WeaponLocal { get; init; }
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
@@ -49,6 +54,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public long? RampageEpoch { get; init; }
     public RampageCatalog.SkillLevel? RampageSkill { get; init; }
     public int Level { get; init; } = 1;
+    /// <summary>The skill's gem type, for the art its worn skill effects pick.</summary>
+    public uint Gem { get; init; }
     public int Quality { get; init; }
     public int AccuracyMoreUnique { get; init; }
     public int AccuracyMoreClose { get; init; }
@@ -72,6 +79,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public string? AreaVisual { get; init; }
     public string? FlightVisual { get; init; }
     public Game.SupportedGem? MirageSource { get; init; }
+    /// <summary>A Mirage Archer's shot: damage it deals later (Caustic Arrow's ground) takes the mirage's less damage.</summary>
+    public bool Mirage { get; init; }
     /// <summary>The client spawns this use's primary projectiles itself (its own skill use), so the server sends no object
     /// for them; continuation children still get one.</summary>
     public bool ClientPredicted { get; init; }
