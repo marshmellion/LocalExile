@@ -608,6 +608,13 @@ public sealed partial class PlayerInventories
         return changed;
     }
 
+    /// <summary>Set by a mod: the hands take any pair (a bow with a shield, a quiver without a bow, two weapons with a
+    /// two-handed one), as <see cref="HandConflict"/> would otherwise refuse. The client may still refuse on its side.</summary>
+    public static bool IgnoreHandRules { get; set; }
+
+    /// <summary>Set by a mod: the off hand also takes a two-handed weapon (to wield two of them).</summary>
+    public static bool TwoHandedInOffHand { get; set; }
+
     static readonly string[] OneHand = ["Claw", "Dagger", "Wand", "One Hand Sword", "Thrusting One Hand Sword", "One Hand Axe", "One Hand Mace", "Sceptre", "Rune Dagger"];
     static readonly string[] TwoHand = ["Bow", "Staff", "Two Hand Sword", "Two Hand Axe", "Two Hand Mace", "Warstaff", "FishingRod"];
 
@@ -618,7 +625,7 @@ public sealed partial class PlayerInventories
     {
         1 => itemClass == "Body Armour",
         2 or 14 => OneHand.Contains(itemClass) || TwoHand.Contains(itemClass),
-        3 or 15 => OneHand.Contains(itemClass) || itemClass is "Shield" or "Quiver",
+        3 or 15 => OneHand.Contains(itemClass) || itemClass is "Shield" or "Quiver" || (TwoHandedInOffHand && TwoHand.Contains(itemClass)),
         4 => itemClass == "Helmet",
         5 => itemClass == "Amulet",
         6 or 7 or 102 => itemClass == "Ring",
@@ -650,7 +657,7 @@ public sealed partial class PlayerInventories
     /// </summary>
     string? HandConflict(byte row, string itemClass, Func<Item, Shape?> shapeOf)
     {
-        if (row is not (Weapon1 or Offhand1 or Weapon2 or Offhand2)) return null;
+        if (row is not (Weapon1 or Offhand1 or Weapon2 or Offhand2) || IgnoreHandRules) return null;
         bool main = row is Weapon1 or Weapon2;
         byte other = main ? (byte)(row + 1) : (byte)(row - 1);
         string? otherClass = _items.TryGetValue(other, out var l) && l.Count > 0 ? shapeOf(l[0].Item)?.Class : null;
