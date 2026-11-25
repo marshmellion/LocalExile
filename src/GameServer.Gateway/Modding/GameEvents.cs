@@ -338,6 +338,17 @@ public static class GameEvents
     /// <summary>Whether a subscriber of the connection's league fills the row's sub-area (<see cref="FeatureFilled"/>).</summary>
     public static bool FillsFeature(Player player, string row) => FeatureFilled.For(player).Any(run => run(player, row));
 
+    /// <summary>What a chest or strongbox drops, after the server rolled it and before it lies on the ground: a
+    /// subscriber may add, change or remove drops. The kind is "chest" or "strongbox", the id the chest's or the box
+    /// type's own.</summary>
+    public static readonly GameEvent<Action<Player, string, string, List<ItemDrops.Drop>>> ChestDrops = new();
+
+    public static void RunChestDrops(Player player, string kind, string id, List<ItemDrops.Drop> drops)
+    {
+        foreach (var (owner, run) in ChestDrops.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(ChestDrops), () => run(player, kind, id, drops));
+    }
+
     /// <summary>A killed monster's drops, before they are rolled: scale them, add items, or cancel them.</summary>
     public static readonly GameEvent<Action<DropRoll>> Drops = new();
 

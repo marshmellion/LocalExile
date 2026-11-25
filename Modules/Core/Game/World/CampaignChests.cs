@@ -585,6 +585,7 @@ public static class CampaignChests
                 if (rng.Next(100) < 25 && drops.Gold(level, MonsterRarity.Normal, rng, multiplier: 0.4, increasedRarity: areaIir, quantityFactor: areaIiq) is { } smallGold) rolled.Add(smallGold);
                 break;
         }
+        GameEvents.RunChestDrops(player, "chest", def.Id, rolled);
         if (rolled.Count == 0) return;
         var stacked = ItemDrops.Stacked(rolled);
         foreach (var drop in stacked)
