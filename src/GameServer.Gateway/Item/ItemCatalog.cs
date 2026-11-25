@@ -300,7 +300,8 @@ public sealed class ItemCatalog
 
         /// <summary>The level as the client derives it (0x1424763d0): the levels whose threshold the experience reaches, up
         /// to the cap. Experience -1 is the cap + 1 (0x1424755d0; a guess: the corrupted gems over their cap).</summary>
-        public int Level(int experience) => experience == -1 ? MaxLevel + 1 : Thresholds.Count(t => t <= experience);
+        // Above the cap: -1 is one level over it (a Vaal Orb's), -2 two levels (a mod's second corruption) and so on.
+        public int Level(int experience) => experience < 0 ? MaxLevel - experience : Thresholds.Count(t => t <= experience);
 
         /// <summary>The experience a gem of this level starts with (the level clamped to 1 … the cap).</summary>
         public int ExperienceFor(int level) => Thresholds.Count == 0 ? 0 : Thresholds[Math.Clamp(level, 1, MaxLevel) - 1];

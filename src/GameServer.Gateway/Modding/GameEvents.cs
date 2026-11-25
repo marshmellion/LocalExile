@@ -339,7 +339,7 @@ public static class GameEvents
     public static bool FillsFeature(Player player, string row) => FeatureFilled.For(player).Any(run => run(player, row));
 
     /// <summary>What a chest or strongbox drops, after the server rolled it and before it lies on the ground: a
-    /// subscriber may add, change or remove drops. The kind is "chest" or "strongbox", the id the chest's or the box
+    /// subscriber may add, change or remove drops. The kind is "chest", "strongbox" or "corrupted strongbox", the id the chest's or the box
     /// type's own.</summary>
     public static readonly GameEvent<Action<Player, string, string, List<ItemDrops.Drop>>> ChestDrops = new();
 

@@ -892,7 +892,7 @@ public static partial class MapStrongboxes
         // and Cartographer's Strongboxes "do not drop extra items for additional party members".
         if (type.Kind is not (StrongboxCatalog.Contents.Card or StrongboxCatalog.Contents.Map))
             contents.AddRange(PartyCurrency(player, contents, AreaRng(player)));
-        GameEvents.RunChestDrops(player, "strongbox", box.Type, contents);
+        GameEvents.RunChestDrops(player, box.Corrupted ? "corrupted strongbox" : "strongbox", box.Type, contents);
         var items = ItemDrops.Stacked(contents);
         foreach (var drop in items)
         {
