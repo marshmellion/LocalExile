@@ -668,6 +668,11 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCast = new();
     /// <summary>A currency used; true when it was this module's.</summary>
     public static readonly GameEvent<Func<Player, byte, InventoryItem, ItemCatalog.BaseType, Task<bool>>> ItemUse = new();
+    /// <summary>A currency used on an item: the item the target becomes, or null when the currency is not this
+    /// subscriber's. Asked before the server's own currencies, after its refusals (a mirrored or corrupted target); the
+    /// first answer wins. The arguments: the target, the currency item itself, the currency's type, and the use's
+    /// random (seeded while the target is under Hinekora's Lock, so the preview and the use agree).</summary>
+    public static readonly GameEvent<Func<Player, Item, Item, ItemCatalog.BaseType, Random, Item?>> CurrencyOnItem = new();
     /// <summary>A warcry with open_nearby_chests_on_warcry went off: a module opens its chests within the radius (cells).</summary>
     public static readonly GameEvent<Func<Player, (int X, int Y), int, Task>> ChestsOpened = new();
     /// <summary>A party line ("%…"), cleaned: the party is a module's to know, the text is the Chat module's; true when
@@ -828,6 +833,18 @@ public static class GameEvents
     public static bool? RunSkillCast(Player player, string? effect, ushort skillId, (int X, int Y) from, Func<bool> current)
     {
         foreach (var run in SkillCast.For(player)) if (run(player, effect, skillId, from, current) is { } taken) return taken;
+        return null;
+    }
+
+    /// <summary>What a subscriber's currency makes of the item (<see cref="CurrencyOnItem"/>); null when none answers.</summary>
+    public static Item? RunCurrencyOnItem(Player player, Item target, Item used, ItemCatalog.BaseType currency, Random random)
+    {
+        foreach (var (owner, run) in CurrencyOnItem.Subscribers(player))
+        {
+            Item? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(CurrencyOnItem), () => answer = run(player, target, used, currency, random))
+                && answer is not null) return answer;
+        }
         return null;
     }
 
