@@ -668,9 +668,9 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCast = new();
     /// <summary>A currency used; true when it was this module's.</summary>
     public static readonly GameEvent<Func<Player, byte, InventoryItem, ItemCatalog.BaseType, Task<bool>>> ItemUse = new();
-    /// <summary>A currency used on an item: the item the target becomes, or null when the currency is not this
-    /// subscriber's. Asked before the server's own currencies, after its refusals (a mirrored or corrupted target); the
-    /// first answer wins. The arguments: the target, the currency item itself, the currency's type, and the use's
+    /// <summary>A currency used on an item: the item the target becomes, the target itself to refuse (nothing is spent
+    /// and nothing else is asked), or null when the currency is not this subscriber's. Asked before the server's own
+    /// currencies and before its refusals (a mirrored or corrupted target): the subscriber decides. The first answer wins. The arguments: the target, the currency item itself, the currency's type, and the use's
     /// random (seeded while the target is under Hinekora's Lock, so the preview and the use agree).</summary>
     public static readonly GameEvent<Func<Player, Item, Item, ItemCatalog.BaseType, Random, Item?>> CurrencyOnItem = new();
     /// <summary>A warcry with open_nearby_chests_on_warcry went off: a module opens its chests within the radius (cells).</summary>

@@ -1918,7 +1918,13 @@ public static partial class Game
         // is not modelled.
         bool foreseeing = target.Item.Foreseeing;
         var random = foreseeing ? ItemRolls.ForeseeRandom(target.Item, used.Item.TypeHash) : AreaRng(player);
-        Item? result = type?.Id == CurrencyEffects.HinekorasLock
+        // A module's or a mod's own currency first (GameEvents.CurrencyOnItem), before the server's refusals: it decides for
+        // itself what it may change. Its answer is the new item, the target itself to refuse (nothing is spent and the
+        // server's own currencies are not asked), or null when the currency is not its.
+        Item? own = type is null || type.Id == CurrencyEffects.HinekorasLock ? null
+            : GameEvents.RunCurrencyOnItem(player, target.Item, used.Item, type, random);
+        Item? result = own is not null ? (ReferenceEquals(own, target.Item) ? null : own)
+            : type?.Id == CurrencyEffects.HinekorasLock
             ? RollsFor(player).ApplyLock(target.Item, random)
             : target.Item.Mirrored || target.Item.Vestigial ? null
             : target.Item.Corrupted && type?.Id != Wisdom && !CurrencyEffects.TaintedIds.Contains(type?.Id ?? "") ? null
@@ -1926,9 +1932,7 @@ public static partial class Game
                 ? (ItemsFor(player).ByHash(target.Item.TypeHash) is { } lensGemType
                     ? CurrencyEffects.ApplyFacetorsLens(target.Item, ItemsFor(player).Gem(lensGemType), used.Item.GemExperience)
                     : null)
-            // A module's or a mod's own currency first (GameEvents.CurrencyOnItem), then the server's.
-            : (type is null ? null : GameEvents.RunCurrencyOnItem(player, target.Item, used.Item, type, random))
-                ?? CurrencyResult(player, target.Item, used.Item.TypeHash, random);
+            : CurrencyResult(player, target.Item, used.Item.TypeHash, random);
         // Hinekora's Lock: the next currency commits exactly the previewed result (from 0x29d/0x2a0) and clears the
         // state; without a stored preview the seeded result is the same item. A refused currency keeps the state.
         if (foreseeing && type?.Id != CurrencyEffects.HinekorasLock)
