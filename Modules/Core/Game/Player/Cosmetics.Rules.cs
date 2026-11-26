@@ -15,8 +15,23 @@ public static partial class Game
             && Cosmetics.Portals.FirstOrDefault(p => p.Index == player.Character.CosmeticPortalVariation) is { Hash: not 0 } portal
             && Mtx.ByHash(portal.Hash) is { } record)
             worn[InstanceMicrotransactions.PortalSlot] = new CharacterSaves.SavedCosmetic(record.Id, Hash: record.MtxTypeHash);
-        return player.Character.WornCosmetics = Mtx.Equipped(worn);
+        var equipped = Mtx.Equipped(worn);
+        // Only what the player owns stays worn (GameEvents.OwnedCosmetics); the Portal slot's random choice has no record.
+        if (GameEvents.OwnedCosmetics.Any)
+        {
+            var hashes = OwnedCosmeticHashes(player);
+            equipped = [.. equipped.Where(e => e.Id == 0 || hashes.Contains(e.MtxTypeHash))];
+        }
+        return player.Character.WornCosmetics = equipped;
     }
+
+    /// <summary>The hashes of the cosmetics this player owns (every one without a <see cref="GameEvents.OwnedCosmetics"/> subscriber).</summary>
+    public static HashSet<uint> OwnedCosmeticHashes(Player player) =>
+        [.. GameEvents.CosmeticsOwnedBy(player, Mtx.Owned).Select(r => r.MtxTypeHash)];
+
+    /// <summary>The record with this id the player owns (a mod's copy too), or null.</summary>
+    public static InstanceMicrotransactions.Record? OwnedRecord(Player player, uint id) =>
+        GameEvents.OwnedCosmetics.Any ? GameEvents.CosmeticsOwnedBy(player, Mtx.Owned).FirstOrDefault(r => r.Id == id) : Mtx.Find(id);
 
     public static async Task SendWornCosmetics(Player player, string why)
     {
@@ -48,12 +63,14 @@ public static partial class Game
         var places = SkillCosmeticPlaces(player);
         var worn = CharacterSaves.SkillCosmetics(character);
         var slots = new List<InstanceMicrotransactions.SkillSlot>();
+        HashSet<uint>? owned = null;
         var previous = player.Character.SkillSlots.Values.ToDictionary(s => (s.Inventory, s.Socket, s.GemHash, s.SlotType), s => s.Key);
         foreach (var place in places)
         {
             uint key = previous.TryGetValue(place, out uint existing) ? existing : checked(player.Character.NextSkillCosmeticKey++);
             var slot = new InstanceMicrotransactions.SkillSlot(key, place.Gem, place.Row, place.Socket, place.SlotType);
             slots.Add(worn.TryGetValue(CharacterSaves.SkillCosmeticKey(place.Gem, place.SlotType), out var w) && Mtx.Resolve(w) is { } record
+                && (owned ??= GameEvents.OwnedCosmetics.Any ? OwnedCosmeticHashes(player) : null) is var o && (o is null || o.Contains(record.MtxTypeHash))
                 ? slot with { RecordId = record.Id, MtxTypeHash = record.MtxTypeHash } : slot);
         }
         player.Character.SkillSlots = slots.ToDictionary(s => s.Key);

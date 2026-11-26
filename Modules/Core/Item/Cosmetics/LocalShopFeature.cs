@@ -284,12 +284,13 @@ public static class LocalShopFeature
     public static IReadOnlyList<InstanceMicrotransactions.Record> CombinedOwned(Player player)
     {
         var local = LocalRecordsOf(player);
-        return local.Count == 0 ? Mtx.Owned : [.. Mtx.Owned, .. local];
+        return GameEvents.CosmeticsOwnedBy(player, local.Count == 0 ? Mtx.Owned : [.. Mtx.Owned, .. local]);
     }
 
     /// <summary>Resolves an owned record from either local grants or the base catalog.</summary>
     public static InstanceMicrotransactions.Record? FindRecord(Player player, uint recordId) =>
-        recordId >= FirstLocalGrantId
+        GameEvents.OwnedCosmetics.Any ? CombinedOwned(player).FirstOrDefault(r => r.Id == recordId)
+        : recordId >= FirstLocalGrantId
             ? LocalRecordsOf(player).FirstOrDefault(r => r.Id == recordId)
             : Mtx.Find(recordId);
 

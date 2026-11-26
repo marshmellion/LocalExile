@@ -136,9 +136,15 @@ static class HideoutEditingFeature
             Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what} at ({place.X},{place.Y}): out of bounds or unwalkable cell");
             return;
         }
-        if ((place.ByHash ? place.Id : global::Game.Mtx.Find(place.Id)?.MtxTypeHash) is not uint hash)
+        if ((place.ByHash ? place.Id : global::Game.OwnedRecord(player, place.Id)?.MtxTypeHash) is not uint hash)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what}: not an owned record");
+            return;
+        }
+        if (place.ByHash && GameEvents.OwnedCosmetics.Any && global::Game.Mtx.ByHash(hash) is not null
+            && !global::Game.OwnedCosmeticHashes(player).Contains(hash))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what}: a cosmetic the player does not own");
             return;
         }
         if (HideoutCatalog.DoodadByHash(hash) is ({ } deviceType, _) && HideoutCatalog.IsMapDevice(deviceType))
