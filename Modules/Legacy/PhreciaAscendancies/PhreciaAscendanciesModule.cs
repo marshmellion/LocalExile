@@ -8,17 +8,8 @@ public sealed class PhreciaAscendanciesModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        // What the family's nodes need is in place before its classes can be chosen.
-        GameEvents.AttackHit.Add(module.Manifest.Id, PhreciaStats.MaximumAttackDamage);
-        GameEvents.DerivedStats.Add(module.Manifest.Id, PhreciaStats.DurationPerTenStrength);
-        GameEvents.PoolSources.Add(module.Manifest.Id, PhreciaStats.ManaPerDexterity);
-        GameEvents.CastSpeedMore.Add(module.Manifest.Id, PhreciaStats.CastSpeedWithFishingRod);
-        // The Paladin's Light of Divinity (Augury of Penitence, 2551: nearby enemies take increased elemental damage), the
-        // Surfcaster's Ghost of the Deep (Torment Touched, 2550: a permanent buff on the player) and the Ancestral
-        // Commander's Born under Fire (2552: nearby enemies' physical damage converts to fire).
-        PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken");
-        PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyIllegalFisherman");
-        PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyEnemyPhysicalDamageConvertedToFire");
+        // The family's node stats and buffs (PhreciaNodeStats, its three aura templates) are the Game module's, for every
+        // league: a jewel can allocate one of these nodes on any character.
         AscendancyPolicies.Register(module.Lifetime, new PhreciaFamilyPolicy());
         var gameplay = new Classes.Harbinger.HarbingerGameplay();
         GameEvents.CompanionTick.Add(module.Manifest.Id, gameplay.Tick);

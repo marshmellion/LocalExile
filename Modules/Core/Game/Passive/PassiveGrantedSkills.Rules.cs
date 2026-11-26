@@ -27,7 +27,7 @@ public static partial class Game
     {
         var passives = PassivesFor(player);
         var passiveGrants = (LeagueFor(player).HardMode ? RuthlessGrantedSkills : GrantedSkills)
-            .For([.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated])
+            .For(EffectiveNodes(player))
             .Where(g => passives.Find(g.Node)?.Stats.Any(s => s.Key == key && s.Value != 0) == true);
         return passiveGrants.Concat(TattooTriggeredGrantsLocked(player, key));
     }
@@ -76,7 +76,7 @@ public static partial class Game
     static IReadOnlyList<PassiveGrantedSkills.Grant> GrantedSkillsOf(Player player)
     {
         ushort[] nodes;
-        nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
+        nodes = [.. EffectiveNodes(player)];
         return [.. (LeagueFor(player).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes)
             .Where(g => AuraCatalog.Supported(g.EffectId) || IsRelicSkill(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId)))];
@@ -104,7 +104,9 @@ public static partial class Game
     static (PassiveGrantedSkills.Grant Grant, int AllyRadius)? RelicTriggerOf(Player player)
     {
         var passives = player.Character.Passives;
-        var ascendancy = player.Character.MainAscendancy.Allocated;
+        // The ascendancy's nodes and those socketed jewels allocate (JewelAllocatedPassives).
+        IReadOnlyCollection<ushort> ascendancy = player.Character.MainAscendancy.Allocated;
+        if (JewelAllocatedNodes(player) is { Count: > 0 } jewelNodes) ascendancy = [.. ascendancy, .. jewelNodes];
         if (passives.Count == 0 && ascendancy.Count == 0) return null;
         bool hardMode = LeagueFor(player).HardMode;
         int hash = 17;
@@ -194,7 +196,7 @@ public static partial class Game
     {
         if (player.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(player, updates)) return;
         List<ushort> nodes;
-        nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
+        nodes = [.. EffectiveNodes(player)];
         bool has = (LeagueFor(player).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes)
             .Any(s => PassiveGrantedSkills.IsFootstepSkill(s.EffectId));
         var timer = FootstepTimers.GetOrCreateValue(updates);
@@ -248,7 +250,7 @@ public static partial class Game
     {
         List<ushort> nodes;
         if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0 || PlayerActionBlocked(player, now, now)) return [];
-        nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
+        nodes = [.. EffectiveNodes(player)];
         var skills = (LeagueFor(player).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes).Where(s => PassiveGrantedSkills.IsFootstepSkill(s.EffectId)).ToList();
         if (skills.Count == 0 || InTown(player) || InGracePeriod(player)) return [];
         return [.. skills.Where(s => ActorSkillDisabledCore(player, s.Effect, null) is null)];
@@ -287,7 +289,7 @@ public static partial class Game
         bool CurrentSource() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules) && source?.IsActive != false
             && ReferenceEquals(AscendancyPolicies.SourceOwner(player), source);
         if (!CurrentSource() || player.Closed || player.LeavingArea || player.PlayerLife == 0
-            || !player.Character.Passives.Contains(skill.Node) && !player.Character.MainAscendancy.Allocated.Contains(skill.Node)) return;
+            || !EffectiveNodes(player).Contains(skill.Node)) return;
         var own = SkillsFor(player).EffectStats(skill.Effect, skill.Level).ToDictionary(v => v.Item1, v => v.Item2);
         var area = SkillAreaStats(player, own, skill.Effect);
         int radius = SkillArea.Radius(PassiveGrantedSkills.FootstepExplosionRadius,

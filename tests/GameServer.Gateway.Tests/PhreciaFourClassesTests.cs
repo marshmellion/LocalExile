@@ -99,7 +99,7 @@ public sealed class PhreciaFourClassesTests
     [Fact]
     public void The_familys_own_stats_keep_their_values_in_the_module()
     {
-        var hit = PhreciaStats.MaximumAttackDamage(DamagePacket.Of(DamageType.Physical, 10, 20).Add(DamageType.Fire, new(4, 8)),
+        var hit = PhreciaNodeStats.MaximumAttackDamage(DamagePacket.Of(DamageType.Physical, 10, 20).Add(DamageType.Fire, new(4, 8)),
             key => key == Stat.MaximumAttackDamagePlusPctFinalFromAscendancy ? 30 : 0);
         Assert.Equal(10, hit[DamageType.Physical].Min);
         Assert.Equal(26, hit[DamageType.Physical].Max, 9);
@@ -107,14 +107,14 @@ public sealed class PhreciaFourClassesTests
         Assert.Equal(10.4, hit[DamageType.Fire].Max, 9);
 
         var stats = new PlainStatMap(new() { [Stat.Strength] = 455, [Stat.SkillEffectDurationPlusPct] = 10 });
-        PhreciaStats.DurationPerTenStrength(null!, stats);
+        PhreciaNodeStats.DurationPerTenStrength(null!, stats);
         Assert.Equal(10, stats[Stat.SkillEffectDurationPlusPct]);
         stats[Stat.SkillEffectDurationPlusPctPer10Strength] = 1;
-        PhreciaStats.DurationPerTenStrength(null!, stats);
+        PhreciaNodeStats.DurationPerTenStrength(null!, stats);
         Assert.Equal(55, stats[Stat.SkillEffectDurationPlusPct]);
 
         var sources = new Dictionary<uint, int> { [Stat.BaseMaximumMana] = 15, [Stat.XManaPerDexterity] = 2 };
-        PhreciaStats.ManaPerDexterity(null!, sources, (0, 107, 0));
+        PhreciaNodeStats.ManaPerDexterity(null!, sources, (0, 107, 0));
         Assert.Equal(229, sources[Stat.BaseMaximumMana]);
     }
 
@@ -134,14 +134,14 @@ public sealed class PhreciaFourClassesTests
         DamageRange Swing() => Game.AttackHit(weapon, withMore, melee: true, accuracy: new(Game.PlayerAccuracy(player)))[DamageType.Physical];
         var plain = Swing();
         Assert.True(plain.Max > 0);
-        using (GameEvents.AttackHit.Add("Game", PhreciaStats.MaximumAttackDamage))
+        using (GameEvents.AttackHit.Add("Game", PhreciaNodeStats.MaximumAttackDamage))
         {
             Assert.Equal(plain.Min, Swing().Min, 9);
             Assert.Equal(plain.Max * 1.3, Swing().Max, 9);
         }
 
         int durationBefore = Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.SkillEffectDurationPlusPct);
-        using (GameEvents.DerivedStats.Add("Game", PhreciaStats.DurationPerTenStrength))
+        using (GameEvents.DerivedStats.Add("Game", PhreciaNodeStats.DurationPerTenStrength))
         using (GameEvents.PlayerStatSources.Add("Game", (p, s) => !Mine(p) ? s
             : new Dictionary<uint, int>(s) { [Stat.SkillEffectDurationPlusPctPer10Strength] = 1 }))
         {
@@ -157,7 +157,7 @@ public sealed class PhreciaFourClassesTests
         Assert.True(dexterity > 1000);
         using (GameEvents.PlayerStatSources.Add("Game", (p, s) => !Mine(p) ? s
             : new Dictionary<uint, int>(s) { [Stat.XManaPerDexterity] = 2 }))
-        using (GameEvents.PoolSources.Add("Game", PhreciaStats.ManaPerDexterity))
+        using (GameEvents.PoolSources.Add("Game", PhreciaNodeStats.ManaPerDexterity))
             Rebuild();
         var manaPerDexterity = player.Pools.Mana;
         Assert.True(manaPerDexterity > manaBefore);
@@ -168,7 +168,7 @@ public sealed class PhreciaFourClassesTests
             Assert.Equal(player.Pools.Mana, manaPerDexterity);
         }
 
-        using (GameEvents.CastSpeedMore.Add("Game", PhreciaStats.CastSpeedWithFishingRod))
+        using (GameEvents.CastSpeedMore.Add("Game", PhreciaNodeStats.CastSpeedWithFishingRod))
         {
             int Speed() => Game.FinalCastSpeedPct(key => key == Stat.CastSpeedPlusPctFinalWhileHoldingFishingRod ? 50 : 0, player, 0);
             Assert.Equal(0, Speed());
