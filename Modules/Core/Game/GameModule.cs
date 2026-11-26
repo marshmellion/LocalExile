@@ -37,8 +37,11 @@ public sealed class GameModule : IModule, IDisposable
     /// clean-ups that lifetime owns (the fights' CleanupOnUnload) have read the rule tables by now.</summary>
     public void Dispose()
     {
+        Rules.ClearInstancePackCache();
         Rules.ForgetClaimedCharacters();
         Rules.ResetAchievementCache();
+        Rules.RetirePactConditions();
+        Rules.ClearReaveCounters();
         RuleTables.Empty();
     }
 
@@ -132,6 +135,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadEssenceProjectiles();
         Rules.LoadRemnantAuraData();
         Rules.LoadSelfBuffSkillsData();
+        Rules.LoadPactConditionData();
         Rules.LoadMapAreaStats();
         Rules.LoadAchievementsData();
     }
@@ -146,6 +150,7 @@ public sealed class GameModule : IModule, IDisposable
         global::Game.LoadStats(module);
         module.Lifetime.Own(Rules.CleanupTemporaryAuras());
         module.Lifetime.Own(Rules.CleanupEssenceAuras());
+        module.Lifetime.Own(Rules.CleanupNearbyChills());
         module.Lifetime.Own(Rules.CleanupMonsterSummons());
         module.Lifetime.Own(Rules.CleanupRemnantAuras());
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(global::Sirus.Area, global::Sirus.Tick));
@@ -167,14 +172,15 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => Rules.ClearPlayerMonsterAurasAsync(player));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => global::Sirus.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
-        // The Phrecia ascendancies' node stats and buffs, in every league (a jewel can allocate those nodes anywhere): the
+        // The Phrecia ascendancies' node stats and buffs, in every league (a jewel can allocate those nodes anywhere; where
+        // the phreciaascendancies mod runs, its own count instead): the
         // Polytheist's maximum attack damage, the Antiquarian's duration per Strength, the Whisperer's mana per Dexterity,
         // the Surfcaster's cast speed with a Fishing Rod; the Paladin's Light of Divinity, the Surfcaster's Ghost of the
         // Deep and the Ancestral Commander's Born under Fire.
-        GameEvents.AttackHit.Add(module.Manifest.Id, PhreciaNodeStats.MaximumAttackDamage);
-        GameEvents.DerivedStats.Add(module.Manifest.Id, PhreciaNodeStats.DurationPerTenStrength);
-        GameEvents.PoolSources.Add(module.Manifest.Id, PhreciaNodeStats.ManaPerDexterity);
-        GameEvents.CastSpeedMore.Add(module.Manifest.Id, PhreciaNodeStats.CastSpeedWithFishingRod);
+        GameEvents.AttackHit.Add(module.Manifest.Id, PhreciaNodeStats.MaximumAttackDamageUnlessMod);
+        GameEvents.DerivedStats.Add(module.Manifest.Id, PhreciaNodeStats.DurationPerTenStrengthUnlessMod);
+        GameEvents.PoolSources.Add(module.Manifest.Id, PhreciaNodeStats.ManaPerDexterityUnlessMod);
+        GameEvents.CastSpeedMore.Add(module.Manifest.Id, PhreciaNodeStats.CastSpeedWithFishingRodUnlessMod);
         PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken");
         PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyIllegalFisherman");
         PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyEnemyPhysicalDamageConvertedToFire");
@@ -456,6 +462,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IW
         Rules.ClearPlayerDecay(player);
         Rules.ClearCorruptedBlood(player);
         Rules.ClearEssenceAuraExposure(player);
+        Rules.ClearReaveStages(player);
         player.RetirePlayerUpdates();
         Rules.FortificationOf(player).Clear();
         Rules.LeechOf(player).Clear(Rules.AreaTime(player));

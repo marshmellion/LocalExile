@@ -2,9 +2,41 @@ using GameServer.Core.World;
 
 /// <summary>The stats only the Phrecia ascendancies' nodes give, at the game's hand-overs. The game's rules do not name
 /// them: each stays in the node's stats (the client is sent it) and is given its effect here. They are the game's in
-/// every league, not only Phrecia's: a jewel that allocates such a node (JewelAllocatedPassives) brings it anywhere.</summary>
+/// every league, not only Phrecia's: a jewel that allocates such a node (JewelAllocatedPassives) brings it anywhere.
+/// The phreciaascendancies mod (LocalExile-Mods) gives the same four where it runs: there these stand aside, so each
+/// counts once.</summary>
 public static class PhreciaNodeStats
 {
+    /// <summary>The mod with the Phrecia classes, which hands over the same four.</summary>
+    public const string PhreciaMod = "phreciaascendancies";
+
+    // AttackHit runs every subscriber for every player: the mod's applies wherever it is loaded.
+    static bool ModGivesAttackHit() => GameEventOwners.Count(PhreciaMod) > 0;
+
+    // The other three run for the players of the leagues that list the mod.
+    static bool ModRunsFor<T>(GameEvent<T> e, Player player) where T : Delegate =>
+        e.Subscribers(player).Any(s => string.Equals(s.Owner, PhreciaMod, StringComparison.OrdinalIgnoreCase));
+
+    public static DamagePacket MaximumAttackDamageUnlessMod(DamagePacket hit, Func<uint, int> get) =>
+        get(Stat.MaximumAttackDamagePlusPctFinalFromAscendancy) == 0 || ModGivesAttackHit() ? hit : MaximumAttackDamage(hit, get);
+
+    public static void DurationPerTenStrengthUnlessMod(Player player, StatMap stats)
+    {
+        if (stats.GetValueOrDefault(Stat.SkillEffectDurationPlusPctPer10Strength) != 0 && !ModRunsFor(GameEvents.DerivedStats, player))
+            DurationPerTenStrength(player, stats);
+    }
+
+    public static void ManaPerDexterityUnlessMod(Player player, Dictionary<uint, int> sources,
+        (int Strength, int Dexterity, int Intelligence) attributes)
+    {
+        if (sources.GetValueOrDefault(Stat.XManaPerDexterity) != 0 && !ModRunsFor(GameEvents.PoolSources, player))
+            ManaPerDexterity(player, sources, attributes);
+    }
+
+    public static int CastSpeedWithFishingRodUnlessMod(Player player, Func<uint, int> get) =>
+        get(Stat.CastSpeedPlusPctFinalWhileHoldingFishingRod) == 0 || ModRunsFor(GameEvents.CastSpeedMore, player) ? 0
+            : CastSpeedWithFishingRod(player, get);
+
     /// <summary>The Polytheist's Devout of Ryslatha, "30% more Maximum Attack Damage"
     /// (<c>maximum_attack_damage_+%_final_from_ascendancy</c>): the maximum of every final component of an attack's hit.
     /// PoB CalcOffence applies MaxDamage MORE to each type's own maximum and carries it through conversion, which is the
