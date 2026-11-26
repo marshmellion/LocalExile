@@ -1892,7 +1892,15 @@ public static partial class Game
             await SendItemError(player, InstanceItems.ItemErrorItemEquipped);
             return;
         }
-        if (RefusedByState(player, used.Item, target.Item) is ushort stateError)
+        // A module's or a mod's own currency first (GameEvents.CurrencyOnItem), before the server's refusals (the corrupted
+        // and mirrored ones here included): it decides for itself what it may change. Its answer is the new item, the target
+        // itself to refuse (nothing is spent and the server's own currencies are not asked), or null when the currency is
+        // not its.
+        bool foreseeing = target.Item.Foreseeing;
+        var random = foreseeing ? ItemRolls.ForeseeRandom(target.Item, used.Item.TypeHash) : AreaRng(player);
+        Item? own = type is null || type.Id == CurrencyEffects.HinekorasLock ? null
+            : GameEvents.RunCurrencyOnItem(player, target.Item, used.Item, type, random);
+        if (own is null && RefusedByState(player, used.Item, target.Item) is ushort stateError)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use {type?.Name ?? "item"} on item {use.TargetId}: refused, target is {(target.Item.Mirrored ? "mirrored" : "corrupted")}{where}");
             await SendItemError(player, stateError);
@@ -1916,13 +1924,6 @@ public static partial class Game
         // A corrupted item takes no currency but a Scroll of Wisdom and Tainted currency (which needs one). A mirrored item takes
         // no currency at all: the wiki says a mirrored copy cannot be altered in any way except a Reflective Oil, which
         // is not modelled.
-        bool foreseeing = target.Item.Foreseeing;
-        var random = foreseeing ? ItemRolls.ForeseeRandom(target.Item, used.Item.TypeHash) : AreaRng(player);
-        // A module's or a mod's own currency first (GameEvents.CurrencyOnItem), before the server's refusals: it decides for
-        // itself what it may change. Its answer is the new item, the target itself to refuse (nothing is spent and the
-        // server's own currencies are not asked), or null when the currency is not its.
-        Item? own = type is null || type.Id == CurrencyEffects.HinekorasLock ? null
-            : GameEvents.RunCurrencyOnItem(player, target.Item, used.Item, type, random);
         Item? result = own is not null ? (ReferenceEquals(own, target.Item) ? null : own)
             : type?.Id == CurrencyEffects.HinekorasLock
             ? RollsFor(player).ApplyLock(target.Item, random)
