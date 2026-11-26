@@ -359,6 +359,31 @@ public static class GameEvents
     /// <summary>The experience of a kill, after the level penalty, before the character and its gems gain it.</summary>
     public static readonly GameEvent<Action<ExperienceGain>> Experience = new();
 
+    /// <summary>A gem skill's own stats at a level, as the game data has them (GrantedEffects Id, gem level, stats by
+    /// <c>Stats.dat</c> row + 1): change, add or remove them. Every league's, as the game data is the same for all.</summary>
+    public static readonly GameEvent<Action<string, int, Dictionary<uint, int>>> GemLevelStats = new();
+
+    public static void RunGemLevelStats(string effect, int level, Dictionary<uint, int> stats)
+    {
+        foreach (var subscriber in GemLevelStats.Snapshot)
+        {
+            var (owner, run) = (subscriber.Owner, subscriber.Run);
+            GameEventOwners.Guard(owner, nameof(GemLevelStats), () => run(effect, level, stats));
+        }
+    }
+
+    /// <summary>Whether a corpse may be raised by a minion skill (the skill's SummonCatalog family: "Spectre", "Zombie",
+    /// ...): true or false decides, null leaves it to the game (no unique monsters, the corpse's own rules).</summary>
+    public static readonly GameEvent<Func<Player, SpawnedMonster, string, bool?>> CorpseRaisable = new();
+
+    public static bool? RunCorpseRaisable(Player player, SpawnedMonster corpse, string family)
+    {
+        bool? said = null;
+        foreach (var (owner, run) in CorpseRaisable.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(CorpseRaisable), () => { if (run(player, corpse, family) is bool b) said = b; });
+        return said;
+    }
+
     /// <summary>Stats added to the character's own, by <c>Stats.dat</c> id, whenever the server rebuilds its stats.</summary>
     public static readonly GameEvent<Action<StatSheet>> Stats = new();
 
