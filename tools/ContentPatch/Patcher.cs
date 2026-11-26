@@ -201,12 +201,51 @@ public sealed class Patcher : IDisposable
     {
         int row = table.AddCopyOf(template);
         _mirror?.Add(table.Name, row, template);
+        // A copy has its template's text until the pack sets its own: indexed under it meanwhile.
+        foreach (var ((name, column), index) in _textIndex)
+            if (name == table.Name) Indexed(index, table.GetString(row, column)).Add(row);
         return row;
+    }
+
+    // Rows by a text column's value (an Id), built the first time a pack looks a table up by it and kept up to date as
+    // rows are added and set: a pack of thousands of rows that name other rows by Id stays one pass per lookup table.
+    readonly Dictionary<(string Table, string Column), Dictionary<string, List<int>>> _textIndex = [];
+
+    static List<int> Indexed(Dictionary<string, List<int>> index, string key) =>
+        index.TryGetValue(key, out var rows) ? rows : index[key] = [];
+
+    Dictionary<string, List<int>> TextIndex(DatEditor table, string column)
+    {
+        if (_textIndex.TryGetValue((table.Name, column), out var index)) return index;
+        index = new(StringComparer.Ordinal);
+        for (int r = 0; r < table.RowCount; r++) Indexed(index, table.GetString(r, column)).Add(r);
+        return _textIndex[(table.Name, column)] = index;
+    }
+
+    void SetText(DatEditor table, int row, string column, string value)
+    {
+        if (_textIndex.TryGetValue((table.Name, column), out var index))
+        {
+            Indexed(index, table.GetString(row, column)).Remove(row);
+            var rows = Indexed(index, value);
+            rows.Add(row);
+            rows.Sort();
+        }
+        table.SetString(row, column, value);
     }
 
     static string Str(JsonNode? n, string what) => n?.GetValue<string>() ?? throw new InvalidDataException($"missing {what}");
 
     IEnumerable<int> Matching(DatEditor table, JsonObject where)
+    {
+        // One text column (an Id): from the index, in row order.
+        if (where.Count == 1 && where.First() is var (only, node) && node is JsonValue text && text.TryGetValue<string>(out var key)
+            && table.HasColumn(only))
+            return TextIndex(table, only).TryGetValue(key, out var hits) ? [.. hits] : [];
+        return MatchingScan(table, where);
+    }
+
+    IEnumerable<int> MatchingScan(DatEditor table, JsonObject where)
     {
         var resolved = new Dictionary<JsonObject, long>(ReferenceEqualityComparer.Instance);
         long Resolved(JsonObject o) => resolved.TryGetValue(o, out long row) ? row : resolved[o] = RowOf(o, $"{table.Name} where");
@@ -264,7 +303,7 @@ public sealed class Patcher : IDisposable
                     Mirror(System.Text.Json.JsonSerializer.Serialize(values));
                     break;
                 }
-                case JsonValue v when v.TryGetValue<string>(out var s): table.SetString(row, column, s); Mirror(s); break;
+                case JsonValue v when v.TryGetValue<string>(out var s): SetText(table, row, column, s); Mirror(s); break;
                 case JsonValue v when v.TryGetValue<bool>(out var b): table.SetInt(row, column, b ? 1 : 0); Mirror(b ? 1L : 0L); break;
                 case JsonValue v when v.TryGetValue<long>(out var l): table.SetInt(row, column, l); Mirror(l); break;
                 case JsonValue v when v.TryGetValue<double>(out var d): table.SetFloat(row, column, (float)d); Mirror(d); break;
