@@ -26,12 +26,34 @@ Mods/Binaries/<id>/
 ```
 
 - Every field of `mod.json` is optional. `id` must be the folder's name; `version` is free text (default `0`); `kind`
-  is `feature` (default), `league` or `script`; `depends` lists the ids that load first; `assembly` defaults to
+  is `feature` (default), `league` (a package, below) or `script`; `depends` lists the ids that load first; `assembly` defaults to
   `<id>.dll`; `enabled: false` keeps it unloaded until `/mod_enable`. Comments and trailing commas are allowed.
 - A mod whose dependency is missing or failed does not load (`/mod` says which). It loads by itself once that
   dependency does.
 - `Mods/Binaries/` is relative to the repository root, like `data/`, and gitignored. `Game_MODS_FOLDER` moves it;
   `Game_MODS=0` loads no mods.
+
+## Packages
+
+A mod's folder may carry leagues and modules, laid out as the repository's own: a league or a game system that is not
+part of the current game ships this way, and moves between the repository and a package with its folder.
+
+```
+Mods/Binaries/<id>/
+  mod.json            { "id": "<id>", "kind": "league", ... }   its own assembly is optional
+  Leagues/<Name>/     league.json, modules.json, Source/
+  Modules/.../<id>/   module.json and the module's build, at any depth
+```
+
+- Its leagues and modules join the repository's when a server starts, and are [leagues and modules](modules.md) in
+  every way: any league may list its modules. A change to which packages are on needs a restart; a new build of a
+  loaded one hot-reloads.
+- A name is one league and an id one module: the repository's own comes first, and a second is a log line.
+- Off (`enabled: false`, `/mod_disable`, `Game_MODS=0`) gives no leagues or modules at the next start. Their characters
+  are listed and cannot be entered, as for a deleted league.
+- A module's project in another repository imports `src/GameServer.Modding/Module.props` from its LocalExile checkout, as
+  `Modules/Directory.Build.props` does, and reaches another module by `$(LocalExileDir)Modules\...`. It sees what is
+  public: the internals the repository's modules open to each other stay theirs.
 
 ## Scripts
 
@@ -162,14 +184,15 @@ in the leagues that list it; a mod's run in every league, after the modules'.
 | `AreaGenerated` | the area is ready: after the client's "area generated", with the monsters and objects placed | |
 | `ObjectUse` | a click on an object the Gateway's own objects did not take | `true`: it was this owner's |
 | `MonsterKilled` | a hostile monster died by the player's hand: before its experience and drops, right after them for a projectile's kill (a bow, a spell) | |
-| `Drops` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them), `Stacks` (stackable items with a count, split at the item's stack size), `Made` (extra items, already made and rolled) |
+| `Drops` | its drops, before they roll | `Quantity`, `Rarity`, `Gold`, `MapRelated` (multipliers, on top of the league's), `Weights` (factors on the server's own kill roll: the kinds, a map's base card and scarab chances and its extra card, scarab and currency drops, and single currency, card and scarab types), `Cancel`, `Items` (extra items, named as `/item` takes them), `Stacks` (stackable items with a count, split at the item's stack size), `Made` (extra items, already made and rolled), `AddTransform` (a change to the rolled drops) |
+| `Gambles` | a gamble window as it opens (an NPC whose shop is the black market, window kind 10), with `CharacterLevel` and `PriceLevel` | `Offers` (add, remove or reprice offers) |
 | `FeatureFilled` | asked with an `ExtraTerrainFeatures` row's Id when a map links that row's sub-area to it (the Sacred Grove) | `true`: this owner fills it; without one the gates into it are not shown |
 | `InventorySlot` | each of the player's inventories as it is registered with the client on entering an area (S→C 0xc0) | another kind or flags for the row; the first answer wins |
-| `InventoryRefusal` | the held item about to go into an inventory row (C→S 0x2a, 0x4a) | a reason refuses it; the first one wins |
+| `InventoryRefusal`, `InventoryPlacementRefusal` | the held item about to go into an inventory row (C→S 0x2a, 0x4a); `InventoryPlacementRefusal` also carries `Replaced`, the single item swapped onto the cursor if any | a reason refuses it; the first one wins |
 | `Experience` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
 | `Stats` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like the `gm-commands` mod's `/god`: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
 | `CharacterAtRest` | the character has left the game (a logout or a disconnect, not an area change) and its save is written; a login of it waits for the subscribers | the character's save, which nothing of the ended connection writes again |
-| `PlayerLeaving`, `HideoutReady`, `EnterMessages`, `AreaHeader`, `NpcOption` | the connection closing, the hideout loaded, the messages sent on entering an area, the area header, a picked NPC option | |
+| `PlayerLeaving`, `HideoutReady`, `EnterMessages`, `BeforeEnterMessages`, `AreaHeader`, `NpcOption` | the connection closing, the hideout loaded, the messages sent on entering an area (after 0x21, or before it for what the client's UI reads as it attaches to the area), the area header, a picked NPC option | |
 
 The other `GameEvents` entries (kills, damage, skills, items, travel, …) are the game module's hand-overs to the other
 modules; a mod subscribes to them the same way.
@@ -184,7 +207,7 @@ Switches are plain Gateway members, held under the owner's id until it unloads:
 | `GameEventOwners.Own(id, disposable)` | anything else the owner wants released when it unloads |
 | `CharacterBuildApi.For(mod).Capture(player)` / `Prepare(player, json)` | capture the admitted record or validate a version-1 native build; the disposable plan expires after five minutes; `plan.Confirm()` accepts once, then the server drains the old connection and atomically replaces build-owned data; unload cancels unaccepted plans |
 
-A connection (`ClientState`) is one player in one area; `Program.PlayerOf(conn)` is its `IPlayer` and `Program.WorldOf(conn)`
+A connection (`Player`) is one player in one area; `Program.PlayerOf(conn)` is its `IPlayer` and `Program.WorldOf(conn)`
 its `IPlayerWorld`, both the Gateway's (character, account,
 league, level, area, position, `Tell`, `Send`). An area change is a new connection.
 A subscriber that throws is logged as `[events] <owner> <event> failed (skipped)` with its stack trace; a failed command
@@ -202,22 +225,18 @@ Gateway's log does with `[mods]`.
 
 - A reload starts the mod's state over: its fields and statics are new. What it saved (its settings, its own files) stays.
 - The assemblies and symbols load from a private disk copy under the system temporary directory, so a build can
-  overwrite the originals while the mod runs. Path-backed loading avoids the loader/finalizer failure reproduced
-  with collectible `LoadFromStream` assemblies on Windows .NET 10. The copy is removed after its context is collected;
-  a retained context or a failed file removal is logged. No client files are involved.
+  overwrite the originals while the mod runs. Each version loads into a load context that is never unloaded: the runtime
+  ignores precompiled code in a collectible one, so an unloaded version stays in memory, inert, until the Gateway
+  restarts (its copy is removed at a later start). Before its entries' `Load` runs, every method of a version is compiled
+  (`[mods] <id>: n methods compiled in x ms`), so nothing of it compiles on a first call in game; a mod built in
+  `Mods/Source/` is precompiled at build time as the modules are (`Directory.Build.targets`). No client files are involved.
 - `/mod` lists the loaded mods first, with their version, kind and hook count, then why the others did not load.
   `/mod_reload [id]` reloads one (with its dependents) or all.
 - `/mod_disable <id>` unloads a mod and its dependents; `/mod_enable <id>` loads it and them again. The choice lasts across
   restarts and rebuilds, and is kept in `mod-state.txt` in `Mods/Binaries/`, over the manifest's `enabled`. A running
   Gateway also applies that file when another program (a launcher) rewrites it.
-- After an unload the Gateway checks that the mod's load context was freed, and logs
-  `an unloaded mod (<id>) is still in memory` when its collections stopped freeing anything: a thread, timer or task of the mod still runs, or
-  something outside the mod holds one of its objects. Stop what the mod started in `Dispose`. Work per connection
-  belongs on `GameEvents.Tick` or waits on `Lifetime.Stopping`, and a `ConditionalWeakTable` keyed by a connection or an
-  instance holds the mod until its key goes: empty it in `Dispose`. To find what holds one, take `dotnet-gcdump collect`
-  of the Gateway after the line and look for objects whose type's module is the old private copy
-  (`localexile-mod-copy\<folder>`); `dotnet-dump`'s `gcroot` misses the compiler's collection classes and lists the
-  runtime's weak handles for statics as roots. Attaching either while modules unload crashed the runtime here.
+- An unloaded version gets no more calls from the server (its hooks go with it), but what it started itself keeps
+  running: stop it in `Dispose`. Work per connection belongs on `GameEvents.Tick` or waits on `Lifetime.Stopping`.
 
 Suggestions while working on a mod with the client in game: `dotnet build Mods\Source\<Name>` and watch the chat line;
 `live.ps1` builds every mod in `Mods\Source\` before it starts the Gateway (one that fails to build is left out with a
@@ -228,8 +247,22 @@ warning).
 A project mod compiles against the Gateway, Core and the Game module beside `GameServer.Modding` (`Mod.props`, and
 LocalExile-Mods' `mods/Directory.Build.props`), and lists `"Game"` in `depends` when it uses the game's rules: it then
 reloads whenever the Game module does. It subscribes to `GameEvents` with its id as the owner, as a module does with its
-own, and those subscriptions run in every league while it is loaded; the host releases them when it unloads. A mod
-breaks when what it uses in the server changes, as a module would, and is fixed in its own repository.
+own, and those subscriptions run in every league while it is loaded; the host releases them when it unloads.
+
+A player with no client: `Program.DriveByServer(player, name, takesPartIn)` makes a `Player` one the server drives. The
+rules run for it and the others' clients see it; what is sent to it is dropped. The mod builds the `Player`, gives it its
+inputs (`Game.OnClientMessages`), sets its network mode, and ends it as a connection ends: the framework has no rules for
+one. `Player.HasClient` is false for it; `takesPartIn` says whether its account earns progress (`EarnsProgress`:
+achievements, play time, kill and death counts) and whether it is found by name (`Listed`), both off by default. The
+PlayerBots module is the example.
+
+The PR tests check compiled official mods against the proposed server. From the repository root, run
+`dotnet build GameServer.slnx -c Release`, then `dotnet run --project scripts/dev/mod-compat -c Release`.
+The check verifies each release ZIP's SHA-256 and reports the mod and signature for each missing server reference.
+For an offline run, append `-- . <zip-directory>` to the second command. The ZIPs keep their release filenames.
+When adding support for another published DLL, add its mod id, version and ZIP SHA-256 to
+`scripts/dev/mod-compat/releases.json`. Keep older entries for as long as their binaries are supported.
+Script mods compile from source when loaded. Command behavior needs a separate runtime test.
 
 When a mod needs the framework to hand it something it does not, its LocalExile pull request adds a **general hook or
 event**, one any mod could use ("before an item is rolled", "when currency lands"), and nothing else. The feature's
@@ -239,6 +272,8 @@ LocalExile Update").
 ## Limits
 
 - A mod can use the framework, the server's `GameServer.*` assemblies, the assemblies of the mods and modules it depends
-  on and the files in its folder. A league never lists a mod, so `ProvideLeagueRules` is a module's only.
+  on and the files in its folder. A league's rules come from its modules, so `ProvideLeagueRules` is a module's only.
+- A mod's hooks run in every league, unless a league's `league.json` says which mods it takes (`"mods"`:
+  [leagues](modules.md)). What a mod sets outside its hooks (a chat route, exchange rates) is not held back.
 - Not built yet: a mod replacing rows of the catalogs (`Catalogs` only picks between the game files' two data sets), and the rest of
   the systems moved behind the API ([roadmap](../../roadmap/setup-and-tooling.md)).

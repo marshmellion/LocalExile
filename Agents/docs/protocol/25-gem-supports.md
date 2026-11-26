@@ -53,7 +53,9 @@ take `support_lifetap_damage_+%_final_while_buffed` and flasks recover 20% incre
 same Life cost.
 The Blood Magic keystone (the passive tree node or an item's `keystone_blood_magic`, for example Malachai's Awakening)
 converts every skill's whole Mana cost to Life the same way, without Lifetap's multiplier, counter or buff; a skill is
-refused when its Life cost is not below current Life. Mana reservation is unchanged.
+refused when its Life cost is not below current Life. It also removes all Mana (maximum 0, like `no_mana` and
+`base_no_mana`), gives 10% more maximum Life and moves every skill's Mana reservation to Life. Only the reminder text
+(`ReminderTextKeystoneBloodMagic`) states these: the node and the item mods carry just `keystone_blood_magic`.
 Overheat Support consumes all of the player's Fortification once per use, at the start of the use (before its hit or
 any projectile it releases), and stores per skill `(1 + per_3 * floor(consumed / 3) / 100)` as more Ailment damage for
 that use's ailments. It is an exceptional gem: `support_overheat_ailment_damage_+%_final_per_3_fortification_consumed`
@@ -331,3 +333,15 @@ The falling arrow of a rain skill is one clip, index 0, that reaches the ground 
 `rain_of_arrows/rig.ao` (no default animation) at 0.218 s, `blast_rain/arrow_drop.ao` at its contact, 0.333 s.
 The existing spell volley and Spark wander/duration specialization still runs before server presentation is selected.
 Native targeting, visual parity and threshold timing require client verification.
+
+## Native linked spell payloads
+
+3.29.3d skill rows supply the offset pulse and split counts for Shock Nova of Procession and Arc of Surging,
+Glacial Cascade's burst sequence and last-burst multiplier, and the target limit for Lightning Conduit of the Heavens.
+The server estimates lance hitboxes, ring spacings, cascade spacings and the first single-meteor delay.
+The base Cascade knocks enemies along the burst axis.
+
+The catalogue combines repeated per-level stat entries, including the cold adjustment for Vortex of Projection.
+Its ground can replace nearby Frostbolts. Manabond's cost uses maximum Mana, while its wing reach and added Lightning
+Damage read the filled and missing portions of unreserved Mana respectively.
+Triggered Firestorm uses the same storm and impact objects as the placed release.

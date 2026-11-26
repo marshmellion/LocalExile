@@ -8,13 +8,13 @@ using System.Collections.Concurrent;
 /// The limits (maximum, minimum, duration) and the periodic stats are not polled: <see cref="Observe"/> takes them
 /// whenever the character's stats are worked out (an item, a passive, an aura, /set_stat, a level all do that).
 /// <see cref="Die"/> takes every gained charge at once. <see cref="Presentation"/> says which charge buffs the client
-/// must get or lose. Not thread-safe: the Gateway calls it under the connection's Monsters lock.
+/// must get or lose. Not thread-safe: the Gateway calls it in the area's frame.
 /// </summary>
 public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType, double>? gained = null,
     Func<double>? clock = null, Func<double, double, double>? movingSeconds = null)
 {
     /// <summary>How often the ticker steps (seconds): expiry and periodic gains are this precise.</summary>
-    public const double StepSeconds = 0.05;
+    public static double StepSeconds => Program.FrameMs / 1000.0;
 
     /// <summary>PoE's "recently": the last 4 seconds.</summary>
     public const double RecentlySeconds = 4;
@@ -27,7 +27,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     readonly Charges.Limits[] limits = [Default, Default, Default];
     readonly int[] applied = new int[3];
     Charges.Shown[] shown => State.Presented;
-    Dictionary<string, int> observed = [];
+    Dictionary<uint, int> observed = [];
     double lastStep = double.NaN;
     // The gained charges as the session last left them (State.Held): a lower count at the next step is a loss someone
     // else made (a skill's State.Lose), which the loss triggers count too.
@@ -46,7 +46,11 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     /// <summary>The charges the character has now (the minimum counts).</summary>
     public int Effective(ChargeType type) => State.Effective(type, limits[(int)type]);
 
-    public void Enqueue(ChargeEvent e) => events.Enqueue(e);
+    public void Enqueue(ChargeEvent e) { events.Enqueue(e); Woken?.Invoke(); }
+
+    /// <summary>An event was queued: the ticker steps again if it had stopped.</summary>
+    public Action? Woken;
+    internal Action<double, double>? OnslaughtFromFrenzy;
 
     /// <summary>Events wait: the ticker works the character's stats out (outside the lock) before the next step.</summary>
     public bool Pending => !events.IsEmpty;
@@ -74,7 +78,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
 
     // With nothing held the ticker may have left the rate as it last was (TimesCharges): a gain rolled with these stats
     // is timed by their rate. Held charges keep the ticker's, as their deadlines always did.
-    void TimeGains(double now, Func<string, int> stats)
+    void TimeGains(double now, Func<uint, int> stats)
     {
         if (!Holds) State.SetExpiryRate(now, RecipientEffectTime.Rate(3, stats));
     }
@@ -84,11 +88,11 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     /// the stats the session reads between events (the periodic gains, the gain-to-maximum chances, the duration
     /// stats), kept until the next observation.
     /// </summary>
-    public void Observe(Func<string, int> get)
+    public void Observe(Func<uint, int> get)
     {
         SettleDegeneration(clock?.Invoke() ?? (double.IsNaN(lastStep) ? 0 : lastStep));
-        var seen = new Dictionary<string, int>(StringComparer.Ordinal);
-        int Record(string name) => seen[name] = get(name);
+        var seen = new Dictionary<uint, int>();
+        int Record(uint name) => seen[name] = get(name);
         foreach (var type in Charges.Types)
         {
             limits[(int)type] = ChargeMaxima.LimitsOf(type, Record, State.Held(type));
@@ -97,14 +101,15 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
             Record(Charges.MinimumConversionFlag(type));
         }
         foreach (var p in ChargeGains.Periodics) Record(p.Stat);
-        foreach (string name in ChargeTriggers.Observed) Record(name);
+        foreach (uint name in ChargeTriggers.Observed) Record(name);
+        Record(Stat.KeystoneQuietMight);
         observed = seen;
     }
 
-    int Observed(string name) => observed.GetValueOrDefault(name);
+    int Observed(uint name) => observed.GetValueOrDefault(name);
 
     /// <summary>A stat the session observes (<see cref="ChargeTriggers.Observed"/> and the limits'), as last observed.</summary>
-    public int ObservedStat(string name) => Observed(name);
+    public int ObservedStat(uint name) => Observed(name);
 
     /// <summary>Whether the type's charges are its special type's (Brutal, Affliction, Absorption) as last observed:
     /// the "gain … instead of" flag (<see cref="Charges.ConversionFlag"/>).</summary>
@@ -147,11 +152,11 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     /// events are waiting (their gain chances); without them the events wait for the next step. While dead every gained
     /// charge is lost and the events are dropped; in towns no periodic charge is gained.
     /// </summary>
-    public StepResult Step(double now, Func<string, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
+    public StepResult Step(double now, Func<uint, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
         bool inTown, Random rng) =>
         Step(now, stats, weapon, alive, moving, inTown, rng, mineDetonatedRecently: false);
 
-    public StepResult Step(double now, Func<string, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
+    public StepResult Step(double now, Func<uint, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
         bool inTown, Random rng, bool mineDetonatedRecently)
     {
         var log = new List<string>();
@@ -175,7 +180,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
 
     // An admitted contact resolves only its own events at the original contact time. It never steps periodic/moving
     // timers, drains unrelated queued events, or changes lastStep. Call in the same mutation transaction as the hit.
-    public StepResult Admit(double now, IEnumerable<ChargeEvent> accepted, Func<string, int> stats,
+    public StepResult Admit(double now, IEnumerable<ChargeEvent> accepted, Func<uint, int> stats,
         Func<WeaponProfile> weapon, bool alive, Random rng)
     {
         var log = new List<string>();
@@ -195,19 +200,25 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
 
     /// <summary>Spends one charge of the type above the minimum (a cooldown bypass); the next step presents the count.
     /// False when none can be spent.</summary>
-    public bool Spend(ChargeType type)
-    {
-        SettleDegeneration(clock?.Invoke() ?? (double.IsNaN(lastStep) ? 0 : lastStep));
-        if (!CanSpend(type)) return false;
-        var (_, left) = State.Lose(type, 1, limits[(int)type]);
-        limits[(int)type] = ChargeMaxima.LimitsOf(type, Observed, left);
-        // The loss triggers run at the next step, which finds the count lower than it left it (Settle).
-        return true;
-    }
+    public bool Spend(ChargeType type) =>
+        Spend(type, 1, clock?.Invoke() ?? (double.IsNaN(lastStep) ? 0 : lastStep)) > 0;
 
-    void ApplyEvent(ChargeEvent e, double now, Func<string, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)
+    internal int Spend(ChargeType type, int count, double now)
     {
         SettleDegeneration(now);
+        if (count <= 0 || !CanSpend(type)) return 0;
+        var (before, left) = State.Lose(type, count, limits[(int)type]);
+        limits[(int)type] = ChargeMaxima.LimitsOf(type, Observed, left);
+        // The loss triggers run at the next step, which finds the count lower than it left it (Settle).
+        int spent = before - left;
+        if (spent > 0) Woken?.Invoke();
+        return spent;
+    }
+
+    void ApplyEvent(ChargeEvent e, double now, Func<uint, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)
+    {
+        SettleDegeneration(now);
+        observed[Stat.KeystoneQuietMight] = stats(Stat.KeystoneQuietMight);
         if (e is ChargeEvent.WhenHit) { LastHitAt = now; Degeneration.HitUntil = now + RecentlySeconds; }
         if (e is ChargeEvent.Hit { Critical: true }) Degeneration.CritUntil = now + RecentlySeconds;
         if (e is ChargeEvent.Set set)
@@ -220,13 +231,42 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
             log.Add(set.Type is { } t ? $"{Charges.Name(t)} charges set to {set.Count}" : "charges cleared");
             return;
         }
+        if (e is ChargeEvent.Hit { Primary: true, Skill: { } skill }
+            && skill(Stat.FrenzyConsumeChargesToOnslaughtForMsPerCharge) is > 0 and var perCharge)
+            FrenzyOfOnslaughtHit(now, perCharge, rng, log);
         foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng)) Apply(gain, now, rng, log);
+    }
+
+    void FrenzyOfOnslaughtHit(double now, int perCharge, Random rng, List<string> log)
+    {
+        const ChargeType frenzy = ChargeType.Frenzy;
+        if (State.Held(frenzy) > 0 && now >= State.ExpiresAt(frenzy))
+        {
+            ExpireCharges(now, log);
+            Settle(now, rng, log);
+        }
+        var limit = Limits(frenzy);
+        int held = Effective(frenzy);
+        int removable = !Converted(frenzy) && now < State.ExpiresAt(frenzy) && held >= limit.Maximum
+            ? Math.Max(0, held - limit.Minimum) : 0;
+        if (removable == 0)
+        {
+            Apply(new(frenzy, 1, "Frenzy of Onslaught hit"), now, rng, log);
+            return;
+        }
+        Apply(new(frenzy, -removable, "Frenzy of Onslaught"), now, rng, log);
+        OnslaughtFromFrenzy?.Invoke(now, (double)perCharge * removable / 1000);
+    }
+
+    void ExpireCharges(double now, List<string> log)
+    {
+        foreach (var type in State.Expire(now)) log.Add($"{Charges.Name(type)} charges expired");
     }
 
     StepResult Finish(double now, List<string> log, Random? rng = null)
     {
         SettleDegeneration(now);
-        foreach (var type in State.Expire(now)) log.Add($"{Charges.Name(type)} charges expired");
+        ExpireCharges(now, log);
         foreach (var type in Charges.Types)
             if (State.Clamp(type, limits[(int)type])) log.Add($"{Charges.Name(type)} charges down to the maximum {limits[(int)type].Maximum}");
         Settle(now, rng ?? Random.Shared, log);
@@ -271,6 +311,8 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
 
     void Apply(ChargeGains.Gain gain, double now, Random rng, List<string> log)
     {
+        if (gain is { Type: ChargeType.Frenzy, Count: > 0 } && Observed(Stat.KeystoneQuietMight) != 0)
+            gain = gain with { Type = ChargeType.Power };
         var current = limits[(int)gain.Type];
         if (gain.Count < 0)
         {

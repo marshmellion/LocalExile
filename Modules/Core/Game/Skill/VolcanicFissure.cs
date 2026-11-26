@@ -20,12 +20,18 @@ public static class VolcanicFissureSweep
 
     public static double ContactDistance((int X, int Y) from, (int X, int Y) end, (int X, int Y) target, int radius)
     {
-        var direction = GroundSlamWave.Direction(from, end);
-        double length = Game.Dist(from, end);
-        double dx = target.X - from.X, dy = target.Y - from.Y;
-        double along = Math.Clamp(dx * direction.X + dy * direction.Y, 0, length);
-        double x = dx - direction.X * along, y = dy - direction.Y * along;
-        return x * x + y * y <= (double)radius * radius ? along : double.PositiveInfinity;
+        var origin = new ProjectileVector(from.X, from.Y);
+        var path = new ProjectileVector(end.X, end.Y) - origin;
+        return ContactDistance(origin, path.Unit, 0, path.Length, target, radius);
+    }
+
+    internal static double ContactDistance(ProjectileVector origin, ProjectileVector direction, double start, double end,
+        (int X, int Y) target, int radius)
+    {
+        var relative = new ProjectileVector(target.X, target.Y) - origin;
+        double along = Math.Clamp(relative.Dot(direction), start, end);
+        var offset = relative - direction * along;
+        return offset.Dot(offset) <= (double)radius * radius ? along : double.PositiveInfinity;
     }
 }
 
@@ -33,7 +39,7 @@ public static partial class Game
 {
     static bool IsVolcanicFissure(int effect) => Skills.EffectId(effect) == "VolcanicFissure";
 
-    static void ScheduleFissureEruption(ClientState conn, ProjectileSession session, ushort skillId,
+    static void ScheduleFissureEruption(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) end, double now, int epoch, SkillCriticalRoll roll,
         ushort sequence, int repeat, double more, bool cryExerted)
@@ -42,15 +48,15 @@ public static partial class Game
         var direction = (origin - ProjectileSession.Vector(from)).Unit;
         var aim = direction.Length > 0 ? origin + direction * 20 : origin + new ProjectileVector(20, 0);
         var target = ((int)Math.Round(aim.X), (int)Math.Round(aim.Y));
-        var use = CaptureGemProjectile(conn, session, skillId, gem, target, roll, sequence,
+        var use = CaptureGemProjectile(player, session, skillId, gem, target, roll, sequence,
             cryExerted: cryExerted, repeat: repeat);
         var shot = (ProjectileOffense)use.Payload!;
         var profile = use.Profile with
         {
-            NativeVolley = new() { Angles = RandomVolleyAngles(sequence, use.Profile.Count, PlayerId, aim - origin, (uint)repeat) }
+            NativeVolley = new() { Angles = RandomVolleyAngles(sequence, use.Profile.Count, player.Id, aim - origin, (uint)repeat) }
         };
         session.Schedule(ProjectileRuntime.Time(now + GroundSlamWave.AdvanceSeconds(Dist(from, end))),
-            () => conn.ProjectileActive(epoch) && conn.PlayerLife > 0,
+            () => player.ProjectileActive(epoch) && player.PlayerLife > 0,
             () => use with
             {
                 Origin = origin, Aim = aim, Profile = profile,

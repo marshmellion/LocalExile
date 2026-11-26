@@ -14,6 +14,10 @@ public sealed class LeagueRuntime(League definition, IReadOnlySet<string> module
     public string Name => definition.Name;
     public IReadOnlySet<string> Modules => modules;
 
+    readonly HashSet<string>? mods = definition.Mods?.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Whether a mod's hooks run for this league's players: every mod's, unless its <c>league.json</c> "mods" says.</summary>
+    public bool Takes(string mod) => mods is null || mods.Contains(mod);
+
     /// <summary>Uses the game files' HardMode data; fixed for the connection, as its items and skills are.</summary>
     public bool HardMode { get; } = definition.DataSet == "HardMode";
 
@@ -47,7 +51,16 @@ public static class ServerLeagues
     }
 
     /// <summary>A league's modules, by id: its modules.json lists paths under Modules/, and a module's id is its folder's name.</summary>
-    public static IReadOnlySet<string> ModulesOf(League league) => league.Modules.Select(path => Path.GetFileName(path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    /// A league's list is fixed once it is loaded (init-only), so its ids are built once: every LeagueRuntime.Rules read
+    /// built this set again, under the area's lock in the skill checks (CPU profile 2026-11-18: ~300 ms of other threads'
+    /// lock waits in 25 s of Caustic Arrow).
+    public static IReadOnlySet<string> ModulesOf(League league)
+    {
+        // Made on first use, not by an initializer: a hot reload that adds the field runs none.
+        var ids = moduleIds ?? Interlocked.CompareExchange(ref moduleIds, new(), null) ?? moduleIds!;
+        return ids.GetValue(league, l => l.Modules.Select(path => Path.GetFileName(path)).ToHashSet(StringComparer.OrdinalIgnoreCase));
+    }
+    static System.Runtime.CompilerServices.ConditionalWeakTable<League, IReadOnlySet<string>>? moduleIds;
 
     /// <summary>Every module any loaded league lists, and the game itself: the others do not load.</summary>
     public static IReadOnlySet<string> Wanted(LeagueCatalog leagues) =>

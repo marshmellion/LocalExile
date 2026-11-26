@@ -5,6 +5,8 @@ public static partial class Game
     public sealed record GemRequirementSnapshot(int Level, int Strength, int Dexterity, int Intelligence,
         IReadOnlyList<(byte Row, InventoryItem Item)> Equipment, IReadOnlySet<uint> Inactive)
     {
+        public bool IgnoreAttributeRequirements { get; init; }
+
         public IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> Places => PlacesIn(Equipment);
 
         public static IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> PlacesIn(
@@ -16,19 +18,32 @@ public static partial class Game
 
     // Same supported attribute calculation as pool construction, from a single current equipment read.
     // No PoolsFor/SupportedSkill recursion, pool assignment/refill or old-snapshot cache publication.
-    public static GemRequirementSnapshot CurrentGemRequirements(ClientState conn,
+    public static GemRequirementSnapshot CurrentGemRequirements(Player player,
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
     {
-        lock (conn.Monsters)
+        equipment ??= ItemsOf(player).EquipmentSnapshot();
+        var (sources, attributes, inactive, _) = EquipmentStatSources(player, equipment);
+        var cls = SkillsFor(player).ClassFor(player.Character.ClassRow);
+        int god = player.God ? 1000 : 0;
+        var (str, dex, intel) = attributes.Apply(cls.Strength + god, cls.Dexterity + god, cls.Intelligence + god);
+        return new(player.Pools.Level, RequirementAttribute(player, Stat.Strength, str),
+            RequirementAttribute(player, Stat.Dexterity, dex),
+            RequirementAttribute(player, Stat.Intelligence, intel), equipment, inactive)
         {
-            equipment ??= ItemsOf(conn).EquipmentSnapshot();
-            var (_, attributes, inactive, _) = EquipmentStatSources(conn, equipment);
-            var cls = SkillsFor(conn).ClassFor(conn.ClassRow);
-            int god = conn.God ? 1000 : 0;
-            var (str, dex, intel) = attributes.Apply(cls.Strength + god, cls.Dexterity + god, cls.Intelligence + god);
-            return new(conn.Pools.Level, RequirementAttribute(conn, "strength", str),
-                RequirementAttribute(conn, "dexterity", dex),
-                RequirementAttribute(conn, "intelligence", intel), equipment, inactive);
-        }
+            IgnoreAttributeRequirements = sources.GetValueOrDefault(Stat.KeystoneSupremeProdigy) != 0
+        };
+    }
+
+    static bool SocketedGemAttributeRequirementsIgnored(ItemCatalog catalog, Item host) =>
+        ItemModStats.LocalValue(host, catalog.Mods, Stat.LocalGemsSocketedHaveNoAttributeRequirements) != 0;
+
+    static InventoryItem? GemRequirementHost(Player player, Item gem, GemRequirementSnapshot? snapshot, uint? targetId)
+    {
+        var equipment = snapshot?.Equipment ?? ItemsOf(player).EquipmentSnapshot();
+        foreach (var (_, host) in equipment)
+            if (targetId is uint id ? host.Id == id
+                : host.Item.Sockets.Any(socket => socket.Colour != SocketColour.Abyss && ReferenceEquals(socket.Gem, gem)))
+                return host;
+        return null;
     }
 }

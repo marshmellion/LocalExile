@@ -6,10 +6,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 1. Quality of life
 
-Essence item crafting is implemented (105 currencies, class-specific guaranteed modifiers;
-see Status and protocol/13-items.md).
-Imprisoned essence encounters, Remnant of Corruption on monsters and stash-tab essence upgrading remain separate
-features.
+Essence item crafting (105 currencies, class-specific guaranteed modifiers) and campaign/map imprisoned Essence
+encounters are implemented (see Status and protocol/13-items.md). Remnant of Corruption on monsters and stash-tab
+essence upgrading remain separate features.
 
 ## 3. Gameplay
 
@@ -30,6 +29,8 @@ features.
   (#60's follow-ups), and area and monster mods (#61).
   The Mud Flats glyphs are quest items (`Metadata/Items/QuestItems/Glyphs/Glyph1..3`,
   [12](../docs/protocol/12-quests.md)).
+  Divine Vessels capture Pantheon souls from matching Atlas map bosses into the Map Device for Sin's upgrades
+  ([pantheon](../docs/game/campaign/pantheon.md)).
 - **Start:** special mods and the uniques' own mechanics (#60, 13 §2e: `UniqueCatalog`
   has every unique's base, mods and rolls, the mechanics behind those mods are the open part), and chancing.
   Mageblood's "effects cannot be removed" waits for a server mechanic that removes flask effects (13 §2e).
@@ -62,8 +63,9 @@ features.
   it natively. See [the evidence](../docs/re/exalted-coe.md).
   Chaos rerolls the same rare pool, keeps metamod locks and refuses flasks/empty pools. Recheck it natively. See
   [the evidence](../docs/re/chaos-coe.md).
-  Vaal's local outcome rule has validated admission (corrupted/mirrored/unique/unsupported/empty refused); official
-  CoE Vaal outcomes remain separate. See [the boundary](../docs/re/vaal-coe.md).
+  Vaal Orb implements the 3.29 retail outcome tables across gems, equipment (normal through unique), maps/MapKeys,
+  jewels (standard, Abyss, Cluster) and flasks in `Modules/Core/Game/Item/VaalCorruption.cs`; fresh real-client
+  verification remains pending. See [the notes](../docs/re/vaal-coe.md).
   Chance's local 30/70 rule has validated admission; CoE beta has no Chance handler, so official unique/rarity
   outcomes remain separate. See [the boundary](../docs/re/chance-coe.md).
   Annulment's removal rule has validated admission and CoE metamod/rarity checks; recheck it natively. See
@@ -82,8 +84,7 @@ features.
   See Status and 13-items.md, "Sacred Orb" for the native checks and local roll distribution policy.
   Fracturing and Mirror have validated class/rarity admission (Fracturing uses `ItemClasses.CanBeFractured`, Mirror
   the equipment flag, non-unique targets and no currency on mirrored items); the 2026-10-30 native run covered the
-  success and refusal paths. Veiled modifiers and Reflective Oil/Sanctified remain separate,
-  and Mirror from a stash tab is still unsupported. See
+  success and refusal paths. Veiled modifiers and Reflective Oil/Sanctified remain separate. See
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
   Hinekora's Lock's server rules are in (Mods flag bit 8 + seed, C→S 0x29d / S→C 0x2a0 preview with status 0,
   exact committed result, clear-on-modification); the client's preview branch is the item popup's foresight element.
@@ -133,4 +134,4 @@ features.
 ## 5. Project
 
 - Completed currency metacraft protection for supported explicit-affix currencies;
-  specialized unsupported currencies and official Chance/Vaal outcome distributions remain separate work.
+  specialized unsupported currencies and official Chance outcome distributions remain separate work.

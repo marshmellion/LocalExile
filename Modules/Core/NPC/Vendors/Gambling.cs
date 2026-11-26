@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
+using GameServer.Storage;
 using static Program;
 
 /// <summary>
@@ -58,21 +60,25 @@ static class Gambling
 
     /// <summary>NPCs whose shop set opens the black market (<c>NPCs</c> ShopSet → <c>NPCShopSets</c> Shop → <c>NPCShop</c>
     /// column 1, the window kind).</summary>
-    static readonly Lazy<HashSet<string>> Gamblers = new(() =>
+    static HashSet<string> Gamblers = new(StringComparer.Ordinal);
+
+    public static void LoadGameData()
     {
         var result = new HashSet<string>(StringComparer.Ordinal);
-        if (!ClientTables.Has("NPCs") || !ClientTables.Has("NPCShopSets") || !ClientTables.Has("NPCShop")) return result;
-        var sets = ClientTables.Table("NPCShopSets");
-        var shops = ClientTables.Table("NPCShop");
-        foreach (var npc in ClientTables.Table("NPCs"))
-            if (npc.IntOrNull("ShopSet") is int set && sets.Row(set) is { } shopSet && shopSet.IntOrNull("Shop") is int shop
-                && shops.Row(shop) is { } row && row.IntOrNull("__col1") == WindowKind && npc.Text("Id") is { } id)
-                result.Add(id);
-        return result;
-    });
+        if (ClientTables.Has("NPCs") && ClientTables.Has("NPCShopSets") && ClientTables.Has("NPCShop"))
+        {
+            var sets = ClientTables.Table("NPCShopSets");
+            var shops = ClientTables.Table("NPCShop");
+            foreach (var npc in ClientTables.Table("NPCs"))
+                if (npc.IntOrNull("ShopSet") is int set && sets.Row(set) is { } shopSet && shopSet.IntOrNull("Shop") is int shop
+                    && shops.Row(shop) is { } row && row.IntOrNull("__col1") == WindowKind && npc.Text("Id") is { } id)
+                    result.Add(id);
+        }
+        Gamblers = result;
+    }
 
     /// <summary>Whether this NPC's buy option is the gamble window.</summary>
-    public static bool Gambles(string npc) => Gamblers.Value.Contains(npc);
+    public static bool Gambles(string npc) => Gamblers.Contains(npc);
 
     /// <summary>
     /// poewiki's 3.29 price per gamble ("Analysis of gold gambling", price formula), by the character's level clamped to 4..83:
@@ -128,14 +134,43 @@ static class Gambling
         return Math.Min(excluded, tiers - 1);
     }
 
-    /// <summary>The core offers of a window at this level, in their tabs' order.</summary>
-    public static List<GambleOffer> CoreOffers(ClientState conn, int characterLevel)
+    /// <summary>
+    /// The effective pricing level for a character of <paramref name="characterLevel"/> in a league whose highest-level
+    /// character on the same account is <paramref name="highestLeagueLevel"/> (poewiki "Analysis of gold gambling", 3.29):
+    /// at least <c>min(highestLeagueLevel − 20, 68)</c>, taking effect once the highest character reaches level 25 (level 5
+    /// price) and stopping at the level 68 price at level 88.
+    /// </summary>
+    public static int PriceLevel(int characterLevel, int highestLeagueLevel) =>
+        Math.Max(characterLevel, Math.Min(highestLeagueLevel - 20, 68));
+
+    /// <summary>The highest level among this account's characters in the same league (at least this player's level).</summary>
+    public static int HighestLeagueLevel(Player player)
     {
-        var items = ItemsFor(conn);
+        int highest = player.Pools.Level;
+        if (player.Character.Account is not { } accountName || player.Character.League is not { } league) return highest;
+        var store = new SqliteAccountStore(Saves.Db);
+        if (store.FindAccount(accountName) is not { } account) return highest;
+        foreach (var character in store.CharactersOf(account.Id))
+        {
+            if (!string.Equals(character.League, league, StringComparison.OrdinalIgnoreCase)) continue;
+            int level = CharacterSaves.Experience(character.Name) is uint xp
+                ? Progression.LevelFor(xp, CharacterStats.LevelStarts)
+                : Math.Clamp(character.Level, 1, Progression.MaxLevel);
+            if (level > highest) highest = level;
+        }
+        return highest;
+    }
+
+    /// <summary>The core offers of a window at this character level, priced at <paramref name="priceLevel"/> (defaulting to
+    /// <paramref name="characterLevel"/>), in their tabs' order.</summary>
+    public static List<GambleOffer> CoreOffers(Player player, int characterLevel, int? priceLevel = null)
+    {
+        int pricing = Math.Max(characterLevel, priceLevel ?? characterLevel);
+        var items = ItemsFor(player);
         var offers = new List<GambleOffer>();
         foreach (var kind in Kinds)
             if (items.Find(kind.Shown) is { Supported: true } shown && shown.Id == kind.Shown)
-                offers.Add(new(shown, Price(kind.Group, characterLevel), random => Roll(conn, kind, characterLevel, random), kind.Tab));
+                offers.Add(new(shown, Price(kind.Group, pricing), random => Roll(player, kind, characterLevel, random), kind.Tab));
         return offers;
     }
 
@@ -155,26 +190,26 @@ static class Gambling
     }
 
     /// <summary>A gambled item of this kind: unique, rare or magic, identified, with the gamble's sockets and better affixes.</summary>
-    static Item? Roll(ClientState conn, Kind kind, int characterLevel, Random random)
+    static Item? Roll(Player player, Kind kind, int characterLevel, Random random)
     {
-        var items = ItemsFor(conn);
+        var items = ItemsFor(player);
         int itemLevel = ItemLevel(characterLevel, random);
         var bases = Bases(items, kind).Where(t => t.DropLevel <= itemLevel).ToList();
         if (bases.Count == 0) return null;
-        if (random.NextDouble() < UniqueChance(characterLevel) && Unique(conn, bases, itemLevel, random) is { } unique) return unique;
+        if (random.NextDouble() < UniqueChance(characterLevel) && Unique(player, bases, itemLevel, random) is { } unique) return unique;
         var type = PickWeighted(bases, BaseWeight, random)!;
         var rarity = random.NextDouble() < RareChance(itemLevel) ? ItemRarity.Rare : ItemRarity.Magic;
         var item = ItemCatalog.Create(type, random: random) with { ItemLevel = (byte)itemLevel };
         item = Sockets(items, type, item, itemLevel, random);
-        return Affixes(RollsFor(conn), type, item, rarity, random) with { Identified = true };
+        return Affixes(RollsFor(player), type, item, rarity, random) with { Identified = true };
     }
 
     /// <summary>A unique of these bases at this item level, each weighted by its rarity (<see cref="ItemDrops.UniqueWeight"/>).</summary>
-    static Item? Unique(ClientState conn, List<ItemCatalog.BaseType> bases, int itemLevel, Random random)
+    static Item? Unique(Player player, List<ItemCatalog.BaseType> bases, int itemLevel, Random random)
     {
         var ids = bases.Select(b => b.Id).ToHashSet(StringComparer.Ordinal);
-        var drops = DropsFor(conn);
-        var uniques = UniquesFor(conn);
+        var drops = DropsFor(player);
+        var uniques = UniquesFor(player);
         var eligible = uniques.All.Where(u => !u.EncounterOnly && ids.Contains(u.BaseTypeId)).ToList();
         if (PickWeighted(eligible, u => drops.UniqueWeight(u.Name), random) is not { } chosen) return null;
         return uniques.Create(chosen with { ItemLevel = (byte)itemLevel }, random) is { } item ? item with { Identified = true } : null;
@@ -238,13 +273,14 @@ static class Gambling
 
     /// <summary>The window of a gambler: the core offers, then the league's changes (<see cref="GameEvents.Gambles"/>), laid out in
     /// tabs, each offer priced in gold.</summary>
-    public static (VendorStock.Window Window, Dictionary<uint, GambleOffer> Offers) Window(ClientState conn, string npc, Func<uint> nextId,
+    public static (VendorStock.Window Window, Dictionary<uint, GambleOffer> Offers) Window(Player player, string npc, Func<uint> nextId,
         List<string> notes)
     {
-        var items = ItemsFor(conn);
-        int level = conn.Pools.Level;
-        var window = new GambleWindow(conn, npc, level);
-        window.Offers.AddRange(CoreOffers(conn, level));
+        var items = ItemsFor(player);
+        int level = player.Pools.Level;
+        int priceLevel = PriceLevel(level, HighestLeagueLevel(player));
+        var window = new GambleWindow(player, npc, level, priceLevel);
+        window.Offers.AddRange(CoreOffers(player, level, priceLevel));
         GameEvents.RunGambles(window);
         var gold = items.Find(ItemDrops.GoldId);
         var tabs = new List<NpcShops.ShopTab>();

@@ -28,6 +28,14 @@ public class GamblingTests
         Assert.Equal(5, Gambling.ExcludedTiers(12, 84, ItemRarity.Rare));
         Assert.Equal(6, Gambling.ExcludedTiers(12, 84, ItemRarity.Magic));
         Assert.Equal(0, Gambling.ExcludedTiers(1, 84, ItemRarity.Rare));
+        // poewiki 3.29 minimum price for alts: min(main_level - 20, 68), taking effect at main level 25 (body armour).
+        Assert.Equal(28u, Gambling.Price(Gambling.PriceGroup.Heavy, Gambling.PriceLevel(2, 24)));
+        Assert.Equal(32u, Gambling.Price(Gambling.PriceGroup.Heavy, Gambling.PriceLevel(2, 25)));
+        Assert.Equal(211u, Gambling.Price(Gambling.PriceGroup.Heavy, Gambling.PriceLevel(2, 50)));
+        Assert.Equal(1543u, Gambling.Price(Gambling.PriceGroup.Heavy, Gambling.PriceLevel(2, 88)));
+        Assert.Equal(1543u, Gambling.Price(Gambling.PriceGroup.Heavy, Gambling.PriceLevel(2, 100)));
+        Assert.Equal(75, Gambling.PriceLevel(75, 100));
+        Assert.Equal(40, Gambling.PriceLevel(40, 50));
     }
 
     [Fact]
@@ -38,11 +46,11 @@ public class GamblingTests
         Assert.True(Gambling.Gambles("Metadata/NPC/League/Kalguur/VillageFaustusHideout"));
         Assert.False(Gambling.Gambles("Metadata/NPC/Act6/Bestel"));
         Assert.False(Gambling.Gambles("Metadata/NPC/Act1/Nessa"));
-        var conn = new ClientState(new(1, "gamble", 100, 100, 100, 100, null, []), 1, 1);
-        var offers = Gambling.CoreOffers(conn, 70);
+        var player = new Player(new(1, "gamble", 100, 100, 100, 100, null, []), 1, 1);
+        var offers = Gambling.CoreOffers(player, 70);
         Assert.Equal(Gambling.Kinds.Length, offers.Count);
         Assert.All(offers, o => Assert.Equal("HiddenItem", o.Shown.Class));
-        var items = Game.ItemsFor(conn);
+        var items = Game.ItemsFor(player);
         var random = new Random(3);
         foreach (var (kind, offer) in Gambling.Kinds.Zip(offers))
             for (int i = 0; i < 5; i++)
@@ -56,5 +64,34 @@ public class GamblingTests
                 Assert.InRange(item.ItemLevel, 69, 72);
                 if (item.Rarity != ItemRarity.Unique) Assert.InRange(item.Sockets.Count, 0, 6);
             }
+        // Alt price floor through Gambling.Window: same-league higher-level character raises gold prices to its floor
+        // while keeping rolled item levels at the alt's level; another league's character has no effect.
+        TestEnvironment.OpenOwnSaves("gambling-alt-floor");
+        try
+        {
+            var store = new GameServer.Storage.SqliteAccountStore(Saves.Db);
+            var account = new GameServer.Core.Accounts.Account(Guid.NewGuid(), "gamble-alt-acct", "", "", DateTimeOffset.UtcNow);
+            store.AddAccount(account);
+            store.AddCharacter(new(Guid.NewGuid(), account.Id, "GambleMainStd", GameServer.Core.Accounts.CharacterClass.Witch, 100, "Standard", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+            store.AddCharacter(new(Guid.NewGuid(), account.Id, "GambleAltStd", GameServer.Core.Accounts.CharacterClass.Witch, 20, "Standard", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+            store.AddCharacter(new(Guid.NewGuid(), account.Id, "GambleAltHc", GameServer.Core.Accounts.CharacterClass.Witch, 20, "Hardcore", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+            uint nextId = 1;
+            var stdAlt = new Player(new(1, "gamble", 100, 100, 100, 100, null, []), 1, 1)
+                { Character = { Account = account.Name, Name = "GambleAltStd", League = "Standard" } };
+            stdAlt.Pools = stdAlt.Pools with { Level = 20 };
+            var (_, stdOffers) = Gambling.Window(stdAlt, "Metadata/NPC/Act1/Bestel", () => nextId++, []);
+            var stdRing = stdOffers.Values.Single(o => o.Shown.Id == "Metadata/Items/Rings/RingGamble");
+            Assert.Equal(Gambling.Price(Gambling.PriceGroup.Ring, 68), stdRing.Gold);
+            var rolledStd = stdRing.Roll(new Random(5));
+            Assert.NotNull(rolledStd);
+            Assert.InRange(rolledStd.ItemLevel, 20, 22);
+            var hcAlt = new Player(new(1, "gamble", 100, 100, 100, 100, null, []), 1, 1)
+                { Character = { Account = account.Name, Name = "GambleAltHc", League = "Hardcore" } };
+            hcAlt.Pools = hcAlt.Pools with { Level = 20 };
+            var (_, hcOffers) = Gambling.Window(hcAlt, "Metadata/NPC/Act1/Bestel", () => nextId++, []);
+            var hcRing = hcOffers.Values.Single(o => o.Shown.Id == "Metadata/Items/Rings/RingGamble");
+            Assert.Equal(Gambling.Price(Gambling.PriceGroup.Ring, 20), hcRing.Gold);
+        }
+        finally { TestEnvironment.ReleaseOwnSaves(); }
     }
 }

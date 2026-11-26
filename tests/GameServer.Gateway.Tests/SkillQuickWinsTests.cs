@@ -8,23 +8,23 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class SkillQuickWinsTests
 {
-    // A bow/wand attack gem with no projectile row of its own fires the held weapon's (its own art by weapon where the
-    // data has it); a Barrage volley still has no recipe and stays refused before its cost.
+    // Bow and wand attacks can use the held weapon's projectile, with skill-specific art where the data provides it.
     [Fact]
-    public void Weapon_projectile_gems_fire_the_held_weapons_projectile_and_barrage_stays_refused()
+    public void Weapon_projectile_gems_fire_the_held_weapons_projectile_and_barrage_is_available()
     {
         foreach (var (weapon, expected) in new[] { ("Crude Bow", "Metadata/Projectiles/FrenzyArrow"),
             ("Driftwood Wand", "Metadata/Projectiles/FrenzyWand") })
         {
             using var f = new Fixture(weapon, "SkillGemFrenzy", "SkillGemBarrage");
             var frenzy = f.Gem("Frenzy");
-            Assert.True(Game.ProjectilePathAvailable("weapon-test", f.Conn, frenzy.Id, frenzy.Effect));
+            Assert.True(Game.ProjectilePathAvailable(f.Conn, frenzy.Id, frenzy.Effect));
             var use = Game.CaptureGemProjectile(f.Conn, f.Session, frenzy.Id, frenzy, (150, 100), new SkillCriticalRoll(0));
             Assert.Equal(expected, use.Profile.Id);
             Assert.False(Assert.IsType<ProjectileOffense>(use.Payload).ClientPredicted);
             var barrage = f.Gem("Barrage");
-            Assert.Null(Game.ResolveProjectileDefinition(barrage.Effect));
-            Assert.False(Game.ProjectilePathAvailable("weapon-test", f.Conn, barrage.Id, barrage.Effect));
+            Assert.NotNull(Game.ResolveProjectileDefinition(barrage.Effect));
+            Assert.True(Game.ProjectilePathAvailable(f.Conn, barrage.Id, barrage.Effect));
+            Assert.True(Game.SupportedSkill(f.Conn, barrage.Id).RequirementsMet);
         }
     }
 
@@ -35,9 +35,9 @@ public sealed class SkillQuickWinsTests
     {
         using var f = new Fixture("Rusted Sword", "SkillGemSteelskin");
         var steelskin = f.Gem("QuickGuard");
-        double now = f.Conn.Clock.Elapsed.TotalSeconds;
+        double now = Game.AreaTime(f.Conn);
         Assert.Null(Game.SelfBuffRefused(f.Conn, steelskin.Effect));
-        Assert.True(await Game.CastSelfBuff("guard-test", f.Stream, f.Ciphers, f.Conn, steelskin.Id, steelskin.Effect));
+        Assert.True(await Game.CastSelfBuff(f.Conn, steelskin.Id, steelskin.Effect));
         Assert.NotNull(Game.SelfBuffRefused(f.Conn, steelskin.Effect));
         // The cast reads the game clock a little after now: the times below leave it half a second.
         Assert.Equal((6, 3, 3), Game.TriggeredGuardHit(f.Conn, 20, 10, 10, now + .1));
@@ -55,7 +55,8 @@ public sealed class SkillQuickWinsTests
         readonly ModuleLifetime lifetime = new("Game");
         readonly TcpClient writer = new(), reader;
         readonly SemaphoreSlim gate;
-        public readonly ClientState Conn;
+        readonly IDisposable requirements;
+        public readonly Player Conn;
         public readonly Game.ProjectileSession Session;
         public readonly ConnectionCiphers Ciphers = new(new byte[64], false);
         public NetworkStream Stream => writer.GetStream();
@@ -65,10 +66,13 @@ public sealed class SkillQuickWinsTests
             Saves.Open(path);
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+            var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+            writer.Connect((IPEndPoint)listener.LocalEndpoint); reader = listener.AcceptTcpClient(); listener.Stop();
             Conn = new(new(1, "weapon-test", 1000, 1000, 100, 100, null, []), 1, 1)
             {
-                Character = "Weapon" + Guid.NewGuid().ToString("N"), PlayerLife = 1000, PlayerMana = 1000,
-                Experience = CharacterStats.ExperienceFor(100), PlayerSent = true, Instance = new(),
+                Character = { Name = "Weapon" + Guid.NewGuid().ToString("N"), Experience = CharacterStats.ExperienceFor(100) },
+                Connection = { PlayerSent = true, Session = new("weapon-test", Stream, Ciphers) },
+                PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
                 Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
                 LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
             };
@@ -81,13 +85,10 @@ public sealed class SkillQuickWinsTests
                 Links = [1, 1],
             };
             Game.ItemsOf(Conn).Add(PlayerInventories.Weapon1, 0, 0, item);
-            foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
-                "virtual_intelligence_for_requirements" }) Conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
-            var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
-            writer.Connect((IPEndPoint)listener.LocalEndpoint); reader = listener.AcceptTcpClient(); listener.Stop();
+            requirements = TestRequirements.Waive(Conn);
             gate = Program.SendGates.GetValue(Ciphers, _ => new(1, 1));
             Assert.True(gate.Wait(0));
-            Session = new("weapon-test", Stream, Ciphers, Conn);
+            Session = new(Conn);
             Conn.ProjectileRuntime = Session;
         }
 
@@ -97,8 +98,9 @@ public sealed class SkillQuickWinsTests
         public void Dispose()
         {
             Conn.Closed = true; Session.Invalidate(); gate.Release();
+            requirements.Dispose();
             writer.Dispose(); reader.Dispose();
-            PlayerInventories.Forget(Conn.Character!); Program.SetGameLogic(previous!);
+            PlayerInventories.Forget(Conn.Character.Name!); Program.SetGameLogic(previous!);
             lifetime.Stop(_ => { }); Game.CombatLifetime = previousLifetime;
             TestEnvironment.ReleaseSaves(path);
         }

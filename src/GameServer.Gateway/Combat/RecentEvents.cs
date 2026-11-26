@@ -3,7 +3,7 @@
 /// "recently" is a fixed four-second window, the same one <see cref="RecentEnemyHits"/> already uses for the hits
 /// taken: a stat whose id says <c>if you have crit recently</c> holds while the last such event is inside it.
 /// <para>
-/// Owned by one area connection; use under its Monsters lock, like the rest of the per-area combat state. The keys are
+/// Owned by one area connection; use in the area's frame, like the rest of the per-area combat state. The keys are
 /// <see cref="StatConditions"/>'s (<c>hit_enemy</c>, <c>killed_enemy</c>, …), so the stat layer can ask for exactly the
 /// ones it names and answer <c>NotModelled</c> for anything it does not carry.
 /// </para>
@@ -17,6 +17,7 @@ public sealed class RecentEvents
     readonly Dictionary<string, double> last = new(StringComparer.Ordinal);
     readonly Dictionary<string, double> windows = new(StringComparer.Ordinal);
     readonly Dictionary<string, List<(double At, long Amount)>> amounts = new(StringComparer.Ordinal);
+    Queue<double>? attackCriticals;
 
     // Amounts are recorded only at one authoritative commit per counted operation. Boolean observations may be
     // repeated by existing consumers without accidentally counting the same kill or payment twice.
@@ -27,6 +28,26 @@ public sealed class RecentEvents
         if (!amounts.TryGetValue(key, out var entries)) amounts[key] = entries = [];
         entries.RemoveAll(e => !Recent(e.At, now, WindowSeconds));
         entries.Add((now, amount));
+        AmountChanged?.Invoke(key);
+    }
+
+    /// <summary>What happened changed: an event that had not happened recently did, or all were forgotten. (An event
+    /// repeated within its window changes nothing a boolean condition reads until it ages out, which
+    /// <see cref="NextExpiry"/> tells.)</summary>
+    public Action? Changed;
+
+    /// <summary>A counted recent amount increased for the given key; consumers only dirty cached stats that actually
+    /// read that key's count.</summary>
+    public Action<string>? AmountChanged;
+
+    public long Amount(string key, double now)
+    {
+        if (!amounts.TryGetValue(key, out var entries)) return 0;
+        long total = 0;
+        foreach (var (at, amount) in entries)
+            if (at <= now && Recent(at, now, WindowSeconds))
+                total = amount > long.MaxValue - total ? long.MaxValue : total + amount;
+        return total;
     }
 
     public Dictionary<string, long> Amounts(double now)
@@ -35,10 +56,7 @@ public sealed class RecentEvents
         foreach (var (key, entries) in amounts)
         {
             entries.RemoveAll(e => !Recent(e.At, now, WindowSeconds));
-            long total = 0;
-            foreach (var entry in entries)
-                if (entry.At <= now) total = entry.Amount > long.MaxValue - total ? long.MaxValue : total + entry.Amount;
-            totals[key] = total;
+            totals[key] = Amount(key, now);
         }
         return totals;
     }
@@ -64,24 +82,44 @@ public sealed class RecentEvents
     /// explicitly says eight seconds supplies that duration instead.</summary>
     public void Record(string key, double now, double? seconds = null)
     {
+        bool happened = Happened(key, now);
         last[key] = now;
         if (seconds is double duration && duration > 0) windows[key] = duration;
         else windows.Remove(key);
+        if (!happened) Changed?.Invoke();
     }
 
     /// <summary>A successful player hit commits its direction and critical outcome. The eight-second key is separate
     /// from ordinary four-second crit so an explicit eight-second modifier changes neither every recent stat nor the
     /// ordinary window.</summary>
-    public void RecordHit(double now, bool critical)
+    public void RecordHit(double now, bool critical) => RecordHit(now, critical, attack: false);
+
+    public void RecordHit(double now, bool critical, bool attack)
     {
         Record(StatConditions.HitEnemy, now);
-        RecordCriticalOutcome(now, critical);
+        RecordCriticalOutcome(now, critical, attack);
     }
 
-    public void RecordCriticalOutcome(double now, bool critical)
+    public void RecordCriticalOutcome(double now, bool critical) => RecordCriticalOutcome(now, critical, attack: false);
+
+    public void RecordCriticalOutcome(double now, bool critical, bool attack)
     {
         Record(critical ? StatConditions.Crit : StatConditions.NonCrit, now);
-        if (critical) Record(StatConditions.Crit8Seconds, now, EightSecondWindow);
+        if (!critical) return;
+        Record(StatConditions.Crit8Seconds, now, EightSecondWindow);
+        if (attack)
+        {
+            RecentAttackCriticals(now);
+            (attackCriticals ??= new()).Enqueue(now);
+        }
+    }
+
+    public int RecentAttackCriticals(double now)
+    {
+        if (attackCriticals is null) return 0;
+        while (attackCriticals.TryPeek(out double at) && !Recent(at, now, WindowSeconds))
+            attackCriticals.Dequeue();
+        return attackCriticals.Count;
     }
 
     // Elemental Overload's window is per skill (poewiki /wiki/Elemental_Overload): the skill that dealt the critical
@@ -120,6 +158,15 @@ public sealed class RecentEvents
         return set;
     }
 
+    /// <summary>Removes the pending event and its window data when an admitted skill consumes it.</summary>
+    public void Forget(string key)
+    {
+        bool removed = last.Remove(key);
+        windows.Remove(key);
+        amounts.Remove(key);
+        if (removed) Changed?.Invoke();
+    }
+
     /// <summary>Forgets every event (a new area, a death, a login).</summary>
-    public void Clear() { last.Clear(); windows.Clear(); amounts.Clear(); }
+    public void Clear() { last.Clear(); windows.Clear(); amounts.Clear(); attackCriticals?.Clear(); Changed?.Invoke(); }
 }

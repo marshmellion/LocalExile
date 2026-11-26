@@ -1,11 +1,13 @@
 using GameServer.Core.Protocol.Instance;
 
-/// <summary>Connection-owned, nonpersistent souls. Caller serializes all access, including consumption, under Monsters.</summary>
+/// <summary>Connection-owned, nonpersistent souls. Caller serializes all access, including consumption, in the area's frame.</summary>
 public sealed class VaalSoulState
 {
     readonly SortedDictionary<uint, VaalSoulBudget> budgets = [];
     uint? lastGranted;
     public VaalSoulBudget[] Read() => [.. budgets.Values];
+    public bool HasSources => budgets.Count > 0;
+    public bool CanGain => HasSources && budgets.Values.Any(budget => budget.Current < budget.Capacity);
 
     /// <summary>Bumped by every change a client can see (a gained or spent soul, a new capacity, a cleared balance), so
     /// a presentation can tell that there is nothing to send without walking the sources or the player's stats.</summary>
@@ -18,10 +20,18 @@ public sealed class VaalSoulState
     {
         // Distinct equipped instances share one row. Differing source capacities use the largest cap by policy.
         var wanted = sources.GroupBy(s => s.Row).ToDictionary(g => g.Key, g => g.Max(s => s.Capacity));
-        foreach (uint row in budgets.Keys.Except(wanted.Keys).ToArray()) budgets.Remove(row);
+        var removed = budgets.Keys.Except(wanted.Keys).ToArray();
+        foreach (uint row in removed) budgets.Remove(row);
+        bool changed = removed.Length > 0;
         foreach (var (row, capacity) in wanted)
-            budgets[row] = new(row, capacity, Math.Min(capacity, budgets.GetValueOrDefault(row).Current));
-        Revision++;
+        {
+            bool known = budgets.TryGetValue(row, out var old);
+            var budget = new VaalSoulBudget(row, capacity, Math.Min(capacity, old.Current));
+            if (known && old == budget) continue;
+            budgets[row] = budget;
+            changed = true;
+        }
+        if (changed) Revision++;
     }
 
     /// <summary>One soul per eligible kill, round-robin over sorted distinct nonfull rows, regardless of rarity.</summary>

@@ -4,7 +4,7 @@ public static partial class Game
 {
     // Parameter rules do not require native projectile metadata or an executable release path.
     public sealed record ProjectileSkillParameters(
-        Func<Func<string, int>, double, bool, ProjectileProfile> Resolve)
+        Func<Func<uint, int>, double, bool, ProjectileProfile> Resolve)
     {
         public Action<ProjectileProfile, Dictionary<uint, int>>? PanelStats { get; init; }
     }
@@ -14,14 +14,14 @@ public static partial class Game
     {
         public bool RequiresTerrain { get; init; }
         public bool CancelWindupOnNewAction { get; init; }
-        public Func<ClientState, string?>? Unavailable { get; init; }
+        public Func<Player, string?>? Unavailable { get; init; }
         public Func<ProjectileReleaseContext, ProjectileUse, ProjectileUse>? SpecializeRelease { get; init; }
         public Func<ProjectileEntity, ProjectilePresentation>? Presentation { get; init; }
     }
 
-    public sealed record ProjectileReleaseContext(ClientState Conn, ProjectileSession Session, ushort SkillId,
+    public sealed record ProjectileReleaseContext(Player Player, ProjectileSession Session, ushort SkillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem,
-        int Variation, Func<string, int> Get, Func<string, int> Player, Func<string, int> Own);
+        int Variation, Func<uint, int> Get, Func<uint, int> PlayerStat, Func<uint, int> Own);
 
     public sealed record ProjectilePresentation
     {
@@ -60,6 +60,7 @@ public static partial class Game
         /// <summary>Keep the stopped object for <see cref="ImpactLifetime"/> without a clip: an arrow left in its target
         /// or a wall (DefaultArrow has stuck/bounce art the client plays only for its own arrows).</summary>
         public bool StayOnImpact { get; init; }
+        public bool StayAtEndOfRange { get; init; }
         /// <summary>The release point's height above the ground in marker steps, from the releasing clip's contact
         /// keyframe (<see cref="ContactPoint.HeightSteps"/>: the Ranger's bow 16, the Sand Spitter's spit 9); null keeps
         /// <c>Game_PROJECTILE_HEIGHT</c> (<see cref="ProjectileHeight.DefaultSteps"/>).</summary>
@@ -109,9 +110,17 @@ public static partial class Game
     // Module reload replaces this dictionary together with the providers that define the recipes.
     static readonly System.Collections.Concurrent.ConcurrentDictionary<int, ProjectileSkillDefinition?> ProjectileRecipes = new();
     public static ProjectileSkillDefinition? ResolveProjectileDefinition(int effect) =>
-        ProjectileRecipes.GetOrAdd(effect, static row => ProjectileDefinition(Skills.EffectId(row) ?? "")
-            ?? (ProjectileDefinitions.RequireExplicitProfiles ? null
-                : CatalogProjectileDefinition(row) ?? WeaponProjectileDefinition(row)));
+        ProjectileRecipes.GetOrAdd(effect, static row =>
+        {
+            string id = Skills.EffectId(row) ?? "";
+            if (IsArtilleryBallista(id)) return GroundArrow;
+            if (IsKineticRain(id) || id == KineticAnomalyEffect) return GroundWandRain;
+            if (ScourgeProjectileDefinition(id) is { } scourge) return scourge;
+            if (id == SomaticShellEffect) return SomaticShellProjectile;
+            if (IsWildStrike(id)) return WildStrikeProjectile;
+            return ProjectileDefinition(id) ?? (ProjectileDefinitions.RequireExplicitProfiles ? null
+                : CatalogProjectileDefinition(row) ?? WeaponProjectileDefinition(row));
+        });
 
     static ProjectileSkillParameters CatalogProjectileParameters(int effect, string profileId)
     {

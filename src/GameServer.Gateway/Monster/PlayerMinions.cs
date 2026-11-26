@@ -9,7 +9,7 @@ using DamageType = GameServer.Core.World.DamageType;
 /// friendly monsters into the player's surround; one with a teleport jumps back to him from beyond its aggro range),
 /// may fight his enemies, cast an aura and explode when it ends. Timed relics and chieftains leave with the connection;
 /// golems keep their activation separately across areas and can take hostile damage. Never kept by the instance.
-/// Guarded by the connection's Monsters lock.
+/// Owned by the area's frame.
 /// </summary>
 public sealed class PlayerMinions
 {
@@ -36,7 +36,12 @@ public sealed class PlayerMinions
 
     /// <summary>An aura a minion casts on its owner: the skill, its BuffDefinitions row, its radius (cells) and its stats.
     /// The owner's aura effect does not scale it: it is the minion's skill, not his.</summary>
-    public sealed record Aura(string EffectId, ushort BuffRow, int Radius, IReadOnlyList<(uint Key, int Value)> Stats);
+    public sealed record Aura(string EffectId, ushort BuffRow, int Radius, IReadOnlyList<(uint Key, int Value)> Stats)
+    {
+        public bool SharesWithAllies { get; init; }
+        public IReadOnlyList<uint>? BuffValues { get; init; }
+        public bool AffectsSource { get; init; } = true;
+    }
 
     /// <summary>A death explosion: this percent of the minion's maximum life as this type of damage to the hostile monsters
     /// within the radius (cells).</summary>
@@ -48,16 +53,17 @@ public sealed class PlayerMinions
         SpawnedMonster Target, (int X, int Y) To, double ContactAt)
     {
         public bool Started;
+        public double? TemporaryAllyUntil { get; init; }
     }
     public readonly Dictionary<uint, Attack> Attacks = [];
-    // Accepted gameplay finishes under Monsters; only neutral output/projection data crosses Game replacement.
+    // Accepted gameplay finishes in the area's frame; only neutral output/projection data crosses Game replacement.
     public enum OutputKind { Packet, Life, EnergyShield, Experience, Flinch, Remove, Vaal, QuestFlags, QuestKill, QuestTransition, QuestRoomRemove, PlayerKill, Charges, Passives, GemInventory, MonsterType, GolemAction, GolemIncoming, RighteousFireRing, GroundItem }
     /// <summary>An exact retained RF owner and ring id for create/wake output; never the generic monster-target path.</summary>
     public sealed record RighteousFireRingReceipt(RighteousFireState State, uint Ring);
     public sealed record Output(byte[] Packet, string? Log, uint? TargetId = null, SpawnedMonster? Target = null,
         OutputKind Kind = OutputKind.Packet, double Until = 0, int Action = 0,
         AreaTransitionObject? Transition = null, MonsterInfo? Kill = null, IReadOnlyList<AcceptedCharges>? Charges = null, byte? InventoryRow = null, IReadOnlyList<uint>? ItemIds = null, (int X, int Y)? At = null, (ushort Row, byte Level)? MonsterType = null,
-        RighteousFireRingReceipt? RighteousFireRing = null, uint? WorldId = null, bool CreatesObject = false, bool RemovesObject = false);
+        RighteousFireRingReceipt? RighteousFireRing = null, uint? WorldId = null, bool CreatesObject = false, bool RemovesObject = false, byte DeathKind = 0);
     public sealed record AcceptedCharges(bool KillEvent, bool Critical, MonsterRarity Rarity, string? Effect,
         IReadOnlyDictionary<uint, int>? Skill, bool Primary, double At, bool Killed = false, bool Frozen = false);
     public sealed record FlaskReward(MonsterRarity Rarity, IReadOnlyDictionary<uint, double>? CritGains = null);
@@ -104,8 +110,8 @@ public sealed class PlayerMinions
     }
 }
 
-public sealed partial class ClientState
+public sealed partial class Player
 {
-    /// <summary>The player's minions (PlayerMinions), under the Monsters lock.</summary>
+    /// <summary>The player's minions (PlayerMinions), in the area's frame.</summary>
     public readonly PlayerMinions Minions = new();
 }

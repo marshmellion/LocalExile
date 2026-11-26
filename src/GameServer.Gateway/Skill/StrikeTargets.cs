@@ -16,8 +16,8 @@ public static class StrikeTargets
     /// <c>no_spirit_strikes</c>, for a non-melee attack, a non-Strike or a Vaal skill, else
     /// <c>melee_attack_number_of_spirit_strikes</c>. Shortcut: its unarmed term
     /// (<c>unarmed_attack_number_of_spirit_strikes</c>) is left out, no item the server rolls has it.</summary>
-    public static int SpiritStrikes(Func<string, int> stat, bool strike, bool vaal, bool melee) =>
-        stat("no_spirit_strikes") != 0 || !melee || !strike || vaal ? 0 : Math.Max(0, stat("melee_attack_number_of_spirit_strikes"));
+    public static int SpiritStrikes(Func<uint, int> stat, bool strike, bool vaal, bool melee) =>
+        stat(Stat.NoSpiritStrikes) != 0 || !melee || !strike || vaal ? 0 : Math.Max(0, stat(Stat.MeleeAttackNumberOfSpiritStrikes));
 
     /// <summary>The scan radius in cells: (100 + <c>extra_target_targeting_distance_+%</c>) / 100 × 30, truncated
     /// (<c>0x141c9d7c0</c>, f32 arithmetic): 30, or 45 with Ancestral Reach's 50%.</summary>
@@ -57,12 +57,12 @@ public static class StrikeTargets
 
     /// <summary>The client's <c>melee_strike_skill_number_of_previous_locations_to_strike</c> (<c>0x14289ced0</c>):
     /// a melee main hand (its <c>main_hand_weapon_type</c> table), a Strike and the stat.</summary>
-    public static bool StrikesPreviousLocation(Func<string, int> stat, bool strike, bool meleeWeapon) =>
-        meleeWeapon && strike && stat("melee_strike_skill_strike_previous_location") != 0;
+    public static bool StrikesPreviousLocation(Func<uint, int> stat, bool strike, bool meleeWeapon) =>
+        meleeWeapon && strike && stat(Stat.MeleeStrikeSkillStrikePreviousLocation) != 0;
 
     /// <summary>Each Strike skill's last use in this area and life: where the player stood and where its hit landed. The
     /// client keeps them in the <c>skill_location_memory</c> buff (BuffDefinitions 1451, CancelOnDeath), one per skill.
-    /// Guarded by the Monsters lock.</summary>
+    /// Owned by the area's frame.</summary>
     public sealed class Memory
     {
         readonly Dictionary<ushort, ((int X, int Y) Player, (int X, int Y) Centre)> last = [];
@@ -72,12 +72,17 @@ public static class StrikeTargets
         /// within 5 cells of where it stands now (the client skips a location whose squared distance is under 25,
         /// <c>0x141ca9940</c>).</summary>
         public (int X, int Y)? Use(ushort skill, (int X, int Y) player, (int X, int Y) centre)
+            => UseWithOrigin(skill, player, centre)?.Centre;
+
+        /// <summary>Records a use and retains the original facing of the previous strike.</summary>
+        public ((int X, int Y) Player, (int X, int Y) Centre)? UseWithOrigin(ushort skill,
+            (int X, int Y) player, (int X, int Y) centre)
         {
             bool had = last.TryGetValue(skill, out var previous);
             last[skill] = (player, centre);
             if (!had) return null;
             long dx = previous.Player.X - player.X, dy = previous.Player.Y - player.Y;
-            return dx * dx + dy * dy < 25 ? null : previous.Centre;
+            return dx * dx + dy * dy < 25 ? null : previous;
         }
 
         /// <summary>The skill's <c>skill_location_memory</c> buff instance, or a new one (true) to send.</summary>

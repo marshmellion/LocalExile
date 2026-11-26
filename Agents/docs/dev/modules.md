@@ -39,6 +39,7 @@ removed while it runs. A connection is in one league, and only that league's mod
 | `ended` | no new characters, and the migration list offers it |
 | `creatable: false` | not on the create screen (Void) |
 | `dataSet` | `HardMode`: the game files' HardMode tables |
+| `mods` | the [mods](modding.md) whose hooks run for its players: `"all"` (default), `"none"`, or a list of mod ids. For a league that changes the whole game |
 
 Beside `league.json`, `modules.json` lists the modules the league loads, Core ones too, as paths under `Modules/`. Nothing is implied: what is not listed does not run for its players.
 
@@ -72,11 +73,11 @@ line and changes nothing.
 ## What stays in the Gateway
 
 The framework, and what the game's rules read and write: connections and packets, framing and the message loop (`Connection/Program.Connection.cs`), the hosts (`Modding/`), game data and its catalogs, saves and inventories, and the
-connection's state (`ClientState`), with the types its fields have. State stays so that a reload of the rules leaves a player in game.
+connection's state (`Player`), with the types its fields have. State stays so that a reload of the rules leaves a player in game.
 Its files are in folders by subject: `Connection/`, `Modding/`, `Data/`, `Saves/`, `Combat/`, `Flask/`, `Item/`, `Monster/`, `NPC/`, `Passive/`, `Player/`, `Quest/`, `Skill/`, `World/`.
 
 The framework reaches the rules through `IGameLogic` (`Modding/GameLogic.cs`), which the `Game` module gives when it loads, and `GameEvents`, whose subscribers run per league. Without `Game`, connections are refused.
-A catalog type holding some rules stays when `ClientState` has a field of it (`ChargeEffects`, `AuraCatalog`, `UniqueItemSeed`): cutting that field is what lets it move.
+A catalog type holding some rules stays when `Player` has a field of it (`ChargeEffects`, `AuraCatalog`, `UniqueItemSeed`): cutting that field is what lets it move.
 
 ## Modules
 
@@ -94,11 +95,14 @@ Modules sit in three folders, and each module in exactly one.
 A module is not a development or testing tool: those are [mods](modding.md). The dev chat commands are the `gm-commands`
 mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
 
-- **Core** (`Modules/Core/`) is ordinary modules, in folders by subject: `Game`; `Ruthless`; `NPC/` `NpcDialogue`, `Vendors`; `World/` `Portals`, `QuestObjects` (the campaign's quests: the act tables of the quest engine, [campaign quests](../game/campaign-quests.md)), `HideoutEditing`, `Atlas`; `Content/` `Harvest`, `Heist`, `Delve`; `Item/` `Bench`, `Tattoos`, `UniqueBelts`, `Cosmetics`; `Player/` `Chat`, `Social`, `Commands`, `Pantheon` (the god choice and its powers, [pantheon](../game/campaign/pantheon.md)). A folder holding a `module.json` is a module, at any depth; its id is the folder's name, and ids are unique.
+- **Core** (`Modules/Core/`) is ordinary modules, in folders by subject: `Game`; `Ruthless`; `NPC/` `NpcDialogue`, `Vendors`; `World/` `Portals`, `QuestObjects` (the campaign's quests: the act tables of the quest engine, [campaign quests](../game/campaign-quests.md)), `HideoutEditing`, `Atlas`; `Content/` `Harvest`, `Heist`, `Delve`, `Deepwater`; `Item/` `Bench`, `Tattoos`, `UniqueBelts`, `Cosmetics`; `Player/` `Chat`, `Social`, `Commands`, `Pantheon` (the god choice and its powers, [pantheon](../game/campaign/pantheon.md)). A folder holding a `module.json` is a module, at any depth; its id is the folder's name, and ids are unique.
 - **`Game`** is the rules: casting, hits, monsters, items, passives, travel, in subfolders by subject (`Combat/`, `Monster/`, `Skill/`, `Item/`, `Passive/`, `Projectile/`, `Flask/`, `World/`, `NPC/`, `Player/`). Its parts call one another, so they are one assembly, and a league cannot turn one part off. Every other module depends on it; rebuilding it reloads them all, and its in-memory per-connection sessions (leech, charges, fortification, projectiles) start over.
 - **Hot reload:** a new build in `bin/`, an edited `module.json` or `settings.json`, a change to its user's settings, a saved loose `.cs` file, or `/module_reload [id]` reloads a module and those that depend on it; their state starts over.
 - **Settings:** what a module lets the user tune is declared in its `settings.json`, read with `Settings<T>()`, and the user's values are in `data/modules/<id>.json`, as for a mod ([modding](modding.md), "Settings"). A module's settings are the same in every league that lists it.
   Bad new files leave the running one as it is; a build that throws while loading goes back to the assemblies it had. Saving a project's source does nothing until it is built.
+- **Limits:** `module.json` may say which modules it cannot share a league with (`"conflicts": ["<id>"]`), and a mode,
+  which changes the whole game, which ones may join it (`"only": ["<id>"]`; the game itself always may). A league whose
+  list breaks one does not load, and a user's change that would is an error line. Everything else may be combined.
 - **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.
 - **To make one:** pick its folder (`Core/`, `Legacy/` or `Custom/`, above), copy `Modules/Core/Content/Heist/` there, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` if another module uses its internals, and list it in the `modules.json` of the leagues that want it.
 
@@ -117,7 +121,10 @@ The player and its world are the Gateway's: `PlayerOf(conn)` (an `IPlayer`) and 
 `IPlayerWorld` is objects, blockers, walking up, hideout stations, windows, stats, travel, NPC actions, crafting in a slot (with payment), item rules
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
 A module can alter the game fully: it compiles against the Gateway and the Game module, both public, with `using static Program`, `using static Game` (both global in a module) and `ConnOf(player)`. A mod reaches the same ([modding](modding.md)). Per-player state in a module's own
-`ConditionalWeakTable<IPlayer, …>` starts over with a hot reload, and objects it placed stop answering until the player's next area; state in `ClientState` survives.
+`ConditionalWeakTable<IPlayer, …>` starts over with a hot reload, and objects it placed stop answering until the player's next area; state in `Player` survives.
+In the area's frame, where messages, ticks and timers run, a world record sent through one player goes to every client in the area (`Program.SendRecords`, `AreaDelta`); outside the frame it reaches that player alone.
+So a loop over the area's players sends each client one copy per player there: send an area object's record once (Legion's `LegionOutput.ToArea`), and a record for one player alone under `Program.ViewOf`.
+A client that joins later is given each object's create and latest world records (`AreaObjectRecords.Join`), but not its AddBuff, RemoveBuff, Stats or Life records, and for a monster only the create from `MonsterOrigins`: a monster's raw buff and 0x1b2 records are not given again. Buffs set with `Area.Buffs.Set` are (`AreaBuffs.Join`).
 Another module's internal extension members (an `extension(...)` block, such as `ClientStateRules` in Game) are out of reach:
 the 10.0.1xx SDKs, the ones Linux distributions ship, reject them with CS0570, though newer SDKs build them. Read what
 they wrap instead, or call a static method.

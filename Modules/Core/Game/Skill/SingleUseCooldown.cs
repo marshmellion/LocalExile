@@ -7,39 +7,44 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
 {
     bool consumed;
     public IReadOnlyList<(SingleUseCooldownState State, int Version, ushort Skill)> SharedUses { get; init; } = [];
+    // True when an instant cooldown reset/prevention roll (0x50cd/0x52e2) kept the use unspent and needs a
+    // PlayerSingleUseCooldowns sync after action acknowledgement to clear client cooldown prediction.
+    public bool CooldownReset { get; init; }
+    public int ResetBaseMilliseconds { get; init; }
     // The cost paid when the use was accepted (mana, life), as the client pays it at the start of the use; null when the
     // admission paid nothing and the cast pays when its effect starts.
     public (uint Mana, uint Life)? Paid { get; init; }
+    internal int? TotemPlacements { get; init; }
     /// <summary>The attack window reserved with this use, before movement or the native action echo.</summary>
     public (ushort Skill, double At, double Seconds)? Attack { get; init; }
-    public bool Current(ClientState conn)
+    internal int? EnduranceChargesAfterCost { get; set; }
+    /// <param name="ignoreAction">A totem placement outlives the player's next action (the client's own Move taken
+    /// inside its hold): the use stays current without the action token, every other check still applies.</param>
+    public bool Current(Player player, bool ignoreAction = false)
     {
-        lock (conn.Monsters) return conn.ProjectileActive(ProjectileEpoch) && conn.PlayerLife > 0
-            && (Instant || conn.ActionCount == ActionToken && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds))
+        return player.ProjectileActive(ProjectileEpoch) && player.PlayerLife > 0
+            && (Instant || (ignoreAction || player.ActionCount == ActionToken) && player.ElementalAilments.ActionFactor(Game.AreaTime(player)) > 0 && !player.HitRecovery.Active(Game.AreaTime(player)))
             && (State is null || !Reserved || State.Uses > 1 || State.UseVersion == UseVersion)
-            && (Stance is null || Stance.CurrentLocked(conn));
+            && (Stance is null || Stance.CurrentLocked(player));
     }
-    public bool CommitNativeUse(ClientState conn, ushort skillId)
+    public bool CommitNativeUse(Player player, ushort skillId)
     {
-        lock (conn.Monsters)
+        if (!Current(player)) return false;
+        if (Reserved)
         {
-            if (!Current(conn)) return false;
-            if (Reserved)
-            {
-                State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant && !conn.LockstepClient);
-                foreach (var (state, version, skill) in SharedUses)
-                    state.ConfirmNativeUse(version, skill, synchronizeProgress: true);
-            }
-            return true;
+            if (CooldownReset)
+                State?.SynchronizeNativeReset(skillId, ResetBaseMilliseconds);
+            else
+                State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant && !player.Connection.LockstepClient);
+            foreach (var (state, version, skill) in SharedUses)
+                state.ConfirmNativeUse(version, skill, synchronizeProgress: true);
         }
+        return true;
     }
-    public bool TryExecute(ClientState conn, int effect)
+    public bool TryExecute(Player player, int effect)
     {
-        lock (conn.Monsters)
-        {
-            if (!Reserved || consumed || Effect != effect || !Current(conn)) return false;
-            consumed = true;
-            return true;
-        }
+        if (!Reserved || consumed || Effect != effect || !Current(player)) return false;
+        consumed = true;
+        return true;
     }
 }

@@ -64,7 +64,7 @@ A DoT adds the target's per-type damage taken to its general increase: Izaro's T
 and Maim Support's 10% while maimed. Pride stays a separate more multiplier; hits still multiply physical taken
 separately. A hit that applies Maim settles the target's bleed first, so damage already earned keeps the old value.
 
-Before the per-type roll, `GamblerModifiers.RollOutgoingHit` rolls one damage multiplier per hit: triple damage
+Before the per-type roll, `HitRollModifiers.RollOutgoingHit` rolls one damage multiplier per hit: triple damage
 (`base_chance_to_deal_triple_damage_%`), and only when that misses, double damage. PoB CalcOffence does the same
 ("Triple Damage overrides Double Damage"), so a hit with both chances is tripled at the triple chance and doubled at
 (1 - triple) × double.
@@ -699,11 +699,11 @@ target modifiers/Blind, source removal and noncritical impale storage.
 
 ## 2i. More maximum attack damage
 
-`maximum_attack_damage_+%_final_from_ascendancy` (Devout of Ryslatha's 30%) scales the maximum of the attack's base and
-added damage, which for a hit is the maximum of every final component after conversion; minima and spells are unchanged
-(`MaximumAttackDamage`).
+A module's more maximum attack damage (`GameEvents.AttackHit`; the Phrecia module's Devout of Ryslatha, 30%) scales the
+maximum of the attack's base and added damage, which for a hit is the maximum of every final component after conversion;
+minima and spells are unchanged.
 It also scales the damaging ailments an attack inflicts (the wiki; PoB builds an ailment's base through the same
-`calcDamage`), so an attack's flat ailment packet must go through `MaximumAttackDamage.Apply` too (§3).
+`calcDamage`), so an attack's flat ailment packet must go through `GameEvents.WithAttackHit` too (§3).
 PoB CalcOffence applies `MaxDamage` MORE to each type's own maximum and carries it through conversion, which is the same.
 It sits next to Rage's final multiplier at every attack site: the default attack and its panel rows, the native
 physical bounds, attack gems, `AttackSkillHit` and ordinary bow and wand shots (`OrdinaryRangedShot`).
@@ -752,7 +752,7 @@ Elementalist's Shaper of Flames: `always_ignite` adds 100% ignite chance; `all_d
 and puts every damage type into the ignite's base (fire scaling plus the types the portion visited, as poison's
 physical part), and the panel's ignite rows follow;
 `enemies_ignited_by_you_have_physical_damage_%_converted_to_fire` (40%) converts a burning monster's hits on the player
-through the Born under Fire hook (`EnemyAuraConversionLocked`), hits only. The golem and Abberath ignites still need
+through the passive enemy auras' conversion (`EnemyAuraConversionLocked`), hits only. The golem and Abberath ignites still need
 fire damage.
 
 **The player's ignites on monsters** (`MonsterIgnites.cs`, the wiki's Ignite): `IgniteFromHit` decides a landed hit's
@@ -771,7 +771,7 @@ The ignite goes onto the monster's one `MonsterIgnites` (`MonsterIgnites.Add`, t
 projectile hits add to (below), so every source shares one burn and one `ignited` buff.
 Only Abberath's Fury's footstep hits use `IgniteFromHit` ([Polytheist](../game/polytheist.md)); every other hit uses the
 panel rows (below).
-An attack's flat packet will go through `MaximumAttackDamage.Apply` (§2i) before it. The ignites burn on while the
+An attack's flat packet will go through `GameEvents.WithAttackHit` (§2i) before it. The ignites burn on while the
 player is dead (unverified), and a dead Hardcore character's kills make no progress. Shaper of Flames-style ignites from
 other damage types and ignite proliferation are not modelled.
 
@@ -845,6 +845,11 @@ in the non-critical or critical range) and duration are the hit's panel poison r
 captured at the same places as the ignite's: the landed hit already carries the hit's increases and the monster's
 resistance, so it cannot be the base.
 
+Viper Strike of the Mamba's `ViperStrikeAltX` stat set carries both `cannot_poison_poisoned_enemies`
+and `cannot_inflict_additional_poisons`. An active stack from any source blocks a new poison through its
+expiry, while the hit still deals damage. On an eligible hit, the second stat caps the application at one
+poison, even with global or weapon-local additional poisons.
+
 ## 3a. Impale contacts and reflected damage
 
 `ImpaleStats` resolves unconditional general + attack/spell chance, the attacking weapon's local chance, general
@@ -861,7 +866,12 @@ their stored values are summed into one reflected physical hit, remaining hit co
 new chance/target-avoidance roll may add an instance. Nonphysical and zero-damage hits can trigger existing
 instances but cannot create one. There is no independent five-stack cap; modifiers can extend the effective count.
 The state uses the paused connection clock and lazy expiry at the next hit/state observation. Corpses retain their
-instances until expiry/removal; native impale-count/visual publication and corpse consumers are not implemented.
+instances until expiry/removal. Native impale-count and visual publication are still open.
+
+Client stat sets `DoubleStrikeAltX` and `BearTrapAltX` grant the same 100% killing-blow reflection stat.
+The trap's chance and impale effect are general stats on a secondary hit. The model reflects the live stored
+amount once after the contact, including an impale created by that contact. Remaining instances stay on the
+corpse for Call of Steel. The approximate observed radius is 23 cells and skill area modifiers do not scale it.
 
 The reflected total receives the existing target physical reduction and generic damage-taken calculation once.
 It receives no new source modifiers, conversion, critical multiplier, spell-only damage taken or returning-projectile
@@ -997,8 +1007,8 @@ The client Life handler for S→C 0x1b1 stores the current whole pool value; mer
 regeneration stat does not make the visible life value advance between these updates. The former
 250 ms player tick therefore made /god recovery jump by roughly one quarter of maximum life.
 
-`RunResourceRecovery` now combines life/mana regeneration, flask recovery and the player's nonlethal
-Righteous Fire burn in one 16 ms loop. Each step integrates the actual elapsed `ClientState.Clock`
+`StartResourceRecovery` now combines life/mana regeneration, flask recovery and the player's nonlethal
+Righteous Fire burn in one 16 ms loop. Each step integrates the actual elapsed `Player.Clock`
 time, including scheduler delays; the clock stops during pause. `RecoveryPool` retains fractional
 points, discards overflow at a full pool and negative carry at RF's one-life floor, and never revives
 dead life. Only changed whole values generate 0x1b1. The unreserved mana cap is unchanged.
@@ -1455,7 +1465,7 @@ The fresh controls above verify corrected supplied-source totals, no-refill, cla
 prediction and full-ES-condition behaviour after the correction remain outside that batch.
 Live OfflineWitch had 185 ES: `/hit physical 100` left life at 3250 and ES at 85, then recovered to 185. Chaos reduced
 life while leaving ES intact. With the prediction bridge, client values advance between pool packets during recharge.
-Measurements used the local client Life component, not orb pixels or an official server trace. ES uses upstream RunResourceRecovery with its 16 ms target and elapsed time/fractional carries; foreground verification saw at most 2-point positive ES updates
+Measurements used the local client Life component, not orb pixels or an official server trace. ES uses upstream StartResourceRecovery with its 16 ms target and elapsed time/fractional carries; foreground verification saw at most 2-point positive ES updates
 instead of the previous 22-point steps. OfflineWitch's selected Energy Shield mastery grants 2% ES regeneration per
 second (3.7 at 185 ES); that regeneration correctly continues while recharge is interrupted. A temporary zero-regen
 control recovered nothing during the recharge delay. See [recovery timing](../re/recovery-timing.md) for evidence and

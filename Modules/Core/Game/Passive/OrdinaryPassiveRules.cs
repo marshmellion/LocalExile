@@ -7,22 +7,35 @@ using GameServer.Core;
 /// Callers validate the ascendancy allocation separately, then supply its candidate nodes so refunding an Ascendant
 /// Path of the class cannot leave an ordinary branch depending on the removed additional start.
 /// </summary>
-public sealed class OrdinaryPassiveRules(string folder = "data")
+public sealed class OrdinaryPassiveRules
 {
+    readonly string folder;
+
+    public OrdinaryPassiveRules(string folder = "data")
+    {
+        this.folder = folder;
+        _data = Load(folder);
+    }
+
     sealed record Node(bool IsAscendancy, bool IsMastery, bool RequiresExpansion,
         IReadOnlyList<byte> Starts, byte? GrantedStart);
     sealed record Data(IReadOnlyDictionary<ushort, Node> Nodes, IReadOnlyDictionary<byte, ushort> Starts,
-        IReadOnlyDictionary<AscendancyFamily, Dictionary<ushort, HashSet<ushort>>> Graphs);
+        Dictionary<ushort, HashSet<ushort>> Graph)
+    {
+        /// <summary>The family's passive graph: the ordinary one, or the one its loaded module supplies.</summary>
+        public bool TryGraph(AscendancyFamily family, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Dictionary<ushort, HashSet<ushort>>? graph) =>
+            (graph = family == AscendancyFamily.Normal ? Graph : AscendancyPolicies.Tree(family)?.Links) is not null;
+    }
 
-    readonly Lazy<Data?> _data = new(() => Load(folder));
+    readonly Data? _data;
 
-    public bool Loaded => _data.Value is not null;
+    public bool Loaded => _data is not null;
     public bool GraphLoaded => Loaded;
 
     /// <summary>The direct neighbours of an ordinary passive in the selected client graph, for tattoo adjacency
     /// requirements such as the Makanga tattoos' <c>RequiresAdjacent</c>/<c>MaxAdjacent</c>.</summary>
     public IReadOnlyCollection<ushort> Adjacent(ushort node, AscendancyFamily family) =>
-        _data.Value is { } data && data.Graphs.TryGetValue(family, out var graph) && graph.TryGetValue(node, out var set)
+        _data is { } data && data.TryGraph(family, out var graph) && graph.TryGetValue(node, out var set)
             ? set : [];
 
     /// <summary>The unallocated ordinary passives next to the class start or an allocated passive, ascending: what one more
@@ -30,7 +43,7 @@ public sealed class OrdinaryPassiveRules(string folder = "data")
     /// starts, ascendancy, mastery and expansion nodes are not offered.</summary>
     public IReadOnlyList<ushort> Frontier(byte baseClass, AscendancyFamily family, IReadOnlyCollection<ushort> allocated)
     {
-        if (_data.Value is not { } data || !data.Graphs.TryGetValue(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start)
+        if (_data is not { } data || !data.TryGraph(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start)
             || !graph.ContainsKey(start)) return [];
         var have = allocated.ToHashSet();
         var result = new SortedSet<ushort>();
@@ -58,18 +71,18 @@ public sealed class OrdinaryPassiveRules(string folder = "data")
         ushort[] requested = nodes.ToArray();
         // An empty/reset ordinary tree needs no graph and cannot contain an orphaned branch.
         if (requested.Length == 0) return;
-        var data = _data.Value ?? throw new AscendancyRuleException(
+        var data = _data ?? throw new AscendancyRuleException(
             "Passive graph data is missing; run scripts/dev/extract-data.ps1");
-        if (!data.Graphs.TryGetValue(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start) ||
+        if (!data.TryGraph(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start) ||
             !graph.ContainsKey(start))
-            throw new AscendancyRuleException($"No ordinary passive start for class {baseClass} in the {family} client graph");
+            throw new AscendancyRuleException($"No ordinary passive start for class {baseClass} in the {family.Name()} client graph");
 
         var allocated = new HashSet<ushort>();
         foreach (ushort id in requested)
         {
             if (!allocated.Add(id)) throw new AscendancyRuleException($"Duplicate ordinary passive {id}");
             if (!graph.ContainsKey(id) || !data.Nodes.TryGetValue(id, out var node))
-                throw new AscendancyRuleException($"Ordinary passive {id} is absent from the {family} client graph");
+                throw new AscendancyRuleException($"Ordinary passive {id} is absent from the {family.Name()} client graph");
             if (node.IsAscendancy) throw new AscendancyRuleException($"Ascendancy passive {id} is not an ordinary passive");
             if (node.Starts.Count != 0) throw new AscendancyRuleException($"Class start {id} is implicit and cannot be allocated");
             if (node.RequiresExpansion)
@@ -90,7 +103,7 @@ public sealed class OrdinaryPassiveRules(string folder = "data")
         foreach (ushort id in ascendancyNodes ?? [])
         {
             if (!graph.ContainsKey(id) || !data.Nodes.TryGetValue(id, out var node) || !node.IsAscendancy)
-                throw new AscendancyRuleException($"Ascendancy passive {id} is absent from the {family} client graph");
+                throw new AscendancyRuleException($"Ascendancy passive {id} is absent from the {family.Name()} client graph");
             if (node.GrantedStart is { } granted && data.Starts.TryGetValue(granted, out ushort additional) &&
                 graph.ContainsKey(additional))
                 roots.Add(additional);
@@ -131,7 +144,7 @@ public sealed class OrdinaryPassiveRules(string folder = "data")
         const string passivePath = "PassiveSkills";
         if (!PassiveGraphs.Available || !new[] { passivePath, "Characters", "Stats" }.All(ClientTables.Has)) return null;
         PassiveGraphs.RequireRevision(AscendancyCatalog.Revision, "passive");
-        var links = Enum.GetValues<AscendancyFamily>().ToDictionary(f => f, PassiveGraphs.Links);
+        var links = PassiveGraphs.Links(AscendancyCatalog.NormalGraph);
         byte[] classes = ClientTables.Table("Characters")
             .Select(r => checked((byte)r.Int("IntegerId"))).ToArray();
         int grantStat = Array.FindIndex(ClientTables.Table("Stats").ToArray(),

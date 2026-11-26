@@ -51,6 +51,52 @@ public sealed class TemporaryAuraTests
     }
 
     [Fact]
+    public async Task StaticStrike_grants_static_energy_only_after_a_melee_hit()
+    {
+        using var f = new Fixture();
+        var c = f.Conn;
+        var weapon = Game.ItemsOf(c).Add(PlayerInventories.Weapon1, 0, 0,
+            ItemCatalog.Create(Program.Items.Find("Driftwood Club")!) with
+            { Sockets = [new(SocketColour.White, Gem("Static Strike"))], Links = [1] });
+        var skill = Game.GemSkillEffects(c).Single();
+        Game.ReleaseStaticStrike(c, f.Session, skill.Id, skill,
+            (100, 100), (108, 100), 0, new SkillCriticalRoll(10000), 1);
+        Assert.False(c.Area.Buffs.HasRow(c.Id, 1172));
+
+        var target = new SpawnedMonster("target", new(108, 100, 0), 0, 1, 1000000);
+        c.Area.Monsters[41] = target;
+        Game.ReleaseStaticStrike(c, f.Session, skill.Id, skill,
+            (100, 100), (108, 100), 41, new SkillCriticalRoll(10000), 2);
+        Assert.True(target.Life < target.MaxLife);
+        Assert.True(c.Area.Buffs.Has(c.Id, 1172, c.Id, tag: 2));
+        c.Area.Buffs.Publish();
+        var buff = c.Area.Buffs.Find(c.Id, 1);
+        Assert.NotNull(buff);
+        Assert.Equal((ushort)1172, buff!.Row);
+        Assert.Equal((ushort)2, buff.SourceSkill);
+        Assert.Equal((skill.Id, (ushort)0x2254), buff.ActiveSkill);
+
+        var farPrimary = new SpawnedMonster("primary", new(78, 100, 0), 0, 1, 1000000);
+        var chained = new SpawnedMonster("chained", new(55, 100, 0), 0, 1, 1000000);
+        c.Area.Monsters[42] = farPrimary;
+        c.Area.Monsters[43] = chained;
+        uint lifeBeforePulse = target.Life;
+        c.TemporarySkillEffects.Clear();
+        await Game.PulseStaticStrike(c);
+        Assert.True(target.Life < lifeBeforePulse);
+        Assert.True(farPrimary.Life < farPrimary.MaxLife);
+        Assert.True(chained.Life < chained.MaxLife);
+        Assert.Empty(c.TemporarySkillEffects);
+
+        // Removing the Static Strike gem clears static_strike_buff and stops periodic beam hits immediately.
+        Game.ItemsOf(c).Remove(PlayerInventories.Weapon1, weapon.Id);
+        uint lifeAfterRemove = target.Life;
+        await Game.PulseStaticStrike(c);
+        Assert.Equal(lifeAfterRemove, target.Life);
+        Assert.False(c.Area.Buffs.HasRow(c.Id, 1172));
+    }
+
+    [Fact]
     public void Smite_hits_each_normal_target_once_and_grants_a_temporary_buff_only_on_a_hit()
     {
         using var f = new Fixture();
@@ -61,12 +107,12 @@ public sealed class TemporaryAuraTests
         f.Set("attack_minimum_added_physical_damage", 100);
         f.Set("attack_maximum_added_physical_damage", 100);
         var skill = Game.GemSkillEffects(c).Single();
-        void Release() => Game.ReleaseSmite("temporary-test", f.Stream, f.Ciphers, c, f.Session, skill.Id, skill,
+        void Release() => Game.ReleaseSmite(c, f.Session, skill.Id, skill,
             (100, 100), (108, 100), 41, new SkillCriticalRoll(10000), 1, 0, 1);
         Release(); Assert.Empty(c.Auras); // Empty ground draws lightning but grants no buff.
         var near = new SpawnedMonster("near", new(108, 100, 0), 0, 1, 1000000);
         var far = new SpawnedMonster("far", new(125, 100, 0), 0, 1, 1000000);
-        c.Monsters[41] = near; c.Monsters[42] = far;
+        c.Area.Monsters[41] = near; c.Area.Monsters[42] = far;
         var melee = Game.SupportedHitFor(c, skill.Id, false, area: false);
         var lightning = Game.SupportedHitInputsFor(c, skill.Id, area: true)!;
         Assert.True(Game.SupportedHitInputsFor(c, skill.Id, area: false)!.Melee);
@@ -76,7 +122,7 @@ public sealed class TemporaryAuraTests
         Assert.True(far.Life < far.MaxLife);
         var aura = Assert.Single(c.Auras).Value;
         Assert.Equal((ushort)1171, aura.BuffRow);
-        uint added = Program.Stats.Key("attack_minimum_added_lightning_damage")!.Value;
+        uint added = Stat.AttackMinimumAddedLightningDamage;
         Assert.True(Game.CharacterPlayerStats(c).GetValueOrDefault(added) > 0);
         var state = Game.TemporaryAuraStates.GetOrCreateValue(c);
         state.Active[skill.Id] = state.Active[skill.Id] with { Until = -1 };
@@ -102,7 +148,9 @@ public sealed class TemporaryAuraTests
         readonly ModuleLifetime lifetime = new("Game");
         readonly TcpClient writer = new(), reader;
         readonly SemaphoreSlim gate;
-        public readonly ClientState Conn;
+        readonly Dictionary<uint, int> extraStats = [];
+        readonly IDisposable requirements, statsHook;
+        public readonly Player Conn;
         public readonly Game.ProjectileSession Session;
         public readonly ConnectionCiphers Ciphers = new(new byte[64], false);
         public NetworkStream Stream => writer.GetStream();
@@ -110,27 +158,34 @@ public sealed class TemporaryAuraTests
         {
             Saves.Open(path); Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+            var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+            writer.Connect((IPEndPoint)listener.LocalEndpoint); reader = listener.AcceptTcpClient(); listener.Stop();
             Conn = new(new(1, "temporary-test", 1000, 1000, 100, 100, null, []), 1, 1)
             {
-                Character = "Temporary" + Guid.NewGuid().ToString("N"), PlayerLife = 2000, PlayerMana = 1000,
-                Experience = CharacterStats.ExperienceFor(100), PlayerSent = true, Instance = new(),
+                Character = { Name = "Temporary" + Guid.NewGuid().ToString("N"), Experience = CharacterStats.ExperienceFor(100) },
+                Connection = { PlayerSent = true, Session = new("temporary-test", Stream, Ciphers) },
+                PlayerLife = 2000, PlayerMana = 1000, Instance = new(),
                 Pools = new(100, 2000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
                 LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
                 CriticalRandom = new NoCritical(),   // the hits' damage ranges assume no critical strike
             };
             Conn.Walk.Teleport(100, 100, 0);
-            foreach (string attr in new[] { "strength", "dexterity", "intelligence" }) Set($"virtual_{attr}_for_requirements", 1000);
+            requirements = TestRequirements.Waive(Conn);
+            statsHook = GameEvents.Stats.Add("Game", sheet =>
+            {
+                if (ReferenceEquals(sheet.Player, Conn))
+                    foreach (var (k, v) in extraStats) sheet.Add(k, v);
+            });
             Set("global_always_hit", 1);
-            var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
-            writer.Connect((IPEndPoint)listener.LocalEndpoint); reader = listener.AcceptTcpClient(); listener.Stop();
             gate = Program.SendGates.GetValue(Ciphers, _ => new(1, 1)); Assert.True(gate.Wait(0));
-            Session = new("temporary-test", Stream, Ciphers, Conn); Conn.ProjectileRuntime = Session;
+            Session = new(Conn); Conn.ProjectileRuntime = Session;
         }
-        public void Set(string name, int value) => Conn.PlayerStats[Program.Stats.Key(name)!.Value] = value;
+        public void Set(string name, int value) => extraStats[Program.Stats.Key(name)!.Value] = value;
         public void Dispose()
         {
             Conn.Closed = true; Session.Invalidate(); gate.Release(); writer.Dispose(); reader.Dispose();
-            PlayerInventories.Forget(Conn.Character!); Program.SetGameLogic(previous!);
+            statsHook.Dispose(); requirements.Dispose();
+            PlayerInventories.Forget(Conn.Character.Name!); Program.SetGameLogic(previous!);
             lifetime.Stop(_ => { }); Game.CombatLifetime = previousLifetime; TestEnvironment.ReleaseSaves(path);
         }
     }

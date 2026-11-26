@@ -6,11 +6,11 @@ using GameServer.Core.World;
 
 /// <summary>
 /// The player's summoned totems (Agents/docs/protocol/11-skills.md section 10g): team-0 monster objects of the skill's
-/// SkillTotemVariations variety, kept here rather than in <see cref="ClientState.Monsters"/>, so area hits, monster AI,
+/// SkillTotemVariations variety, kept here rather than in <see cref="Player.Monsters"/>, so area hits, monster AI,
 /// loot, experience and the instance save never see them. A totem dies when its Life reaches 0, its duration ends, a new
 /// one replaces it past the limit, or the player dies (wiki Totem, Soul Mantle); it then plays its death (0x1b1 at 0) and
 /// is removed (0x2bd) <see cref="RemoveSeconds"/> later. An area change starts a new connection without them. Guarded by
-/// the Monsters lock; times are the connection's game seconds.
+/// the area's frame; times are the connection's game seconds.
 /// </summary>
 public sealed class TotemState
 {
@@ -19,7 +19,10 @@ public sealed class TotemState
 
     /// <summary>A totem's aura on the player within <paramref name="Radius"/> cells: a BuffDefinitions row and its stats from
     /// the totem's skill, before aura effect.</summary>
-    public sealed record Aura(ushort Row, int Radius, IReadOnlyList<(uint Stat, int Value)> Stats);
+    public sealed record Aura(ushort Row, int Radius, IReadOnlyList<(uint Stat, int Value)> Stats)
+    {
+        public int HitRedirectPercent { get; init; }
+    }
 
     /// <summary>What a nova totem (Shockwave Totem) does with its skill: the granted id its object carries for the
     /// action the client plays and the cells around the totem it hits; the hit itself is worked out at each contact.</summary>
@@ -56,7 +59,8 @@ public sealed class TotemState
         public int Row => row;
         public string VarietyId => varietyId;
         public int Level => level;
-        public (int X, int Y) At => at;
+        public (int X, int Y) At { get; private set; } = at;
+        public void Relocate((int X, int Y) destination) => At = destination;
         public uint MaxLife { get; } = maxLife;
         public double Until { get; set; } = until;
         public Aura? Aura => aura;
@@ -67,20 +71,28 @@ public sealed class TotemState
         public ushort GrantedId => grantedId;
         /// <summary>Its corpse meal; null unless it is a Devouring Totem.</summary>
         public Devour? Devour => devour;
+        public double DecoyRadius { get; init; }
+        public int BodySize { get; init; }
+        public double? TauntAt;
+        /// <summary>A Decoy Totem's chasers: the cell each was last sent to and where it stood then, and the cells an
+        /// order never moved a chaser toward (walled in by other bodies), which no chaser is given again.</summary>
+        public readonly Dictionary<uint, ((int X, int Y) Slot, (int X, int Y) From)> DecoyOrders = [];
+        public readonly HashSet<(int X, int Y)> DecoyUnreachable = [];
         public int Effect = -1;
         public uint SourceGem;
         public uint SourceHost;
         public Item? SourceItem;
         public bool Ballista;
         public int BonusSlots;
+        public int PlacementGroup { get; init; }
         public double NextCast;
         public SingleUseCooldownState? Cooldown;
         public ushort Sequence;
         public uint Life = maxLife;
         /// <summary>When it died; null while it lives.</summary>
         public double? DiedAt;
-        public uint SentLife = maxLife;
-        public bool SentDeath;
+        /// <summary>Whether its removal from the owner's minion roster was written.</summary>
+        public bool RosterRemovalSent;
         public bool Alive(double now) => DiedAt is null && Life > 0 && now < Until;
     }
 
@@ -89,29 +101,59 @@ public sealed class TotemState
     public uint SentAuraTotem;
     public ushort SentAuraInstance;
 
-    public IReadOnlyList<Totem> All => _totems;
-    public IEnumerable<Totem> Living(double now) => _totems.Where(t => t.Alive(now));
+    /// <summary>A totem was placed or died before its time (the stat steps that read it run again).</summary>
+    public Action? Changed;
 
-    /// <summary>Adds a totem; the oldest living ones die until at most <paramref name="limit"/> live. The ones it replaced.</summary>
+    public IReadOnlyList<Totem> All => _totems;
+    public HashSet<uint> PendingPlacements { get; } = [];
+    public IEnumerable<Totem> Living(double now) => _totems.Where(t => t.Alive(now));
+    public void Clear()
+    {
+        _totems.Clear();
+        PendingPlacements.Clear();
+    }
+
+    public static int SharedLimit(int limit, int? ordinaryLimit, int bonusSlots, IEnumerable<Totem> living)
+    {
+        if (ordinaryLimit is not int ordinary) return limit;
+        int bonus = Math.Max(bonusSlots, living.Select(t => t.BonusSlots).DefaultIfEmpty(0).Max());
+        return Math.Max(limit, (int)Math.Min(int.MaxValue, (long)ordinary + bonus));
+    }
+
+    /// <summary>The bodies a placement replaces, in order. Each group's bonus raises the shared cap while that
+    /// group is present and the largest live bonus applies. The incoming group still uses its own placement limit.</summary>
+    public List<Totem> Replacements(int limit, double now, int? ordinaryLimit, bool ballista, int group, int bonusSlots)
+    {
+        var living = Living(now).ToList();
+        var replaced = new List<Totem>();
+        if (ordinaryLimit is not null && !ballista)
+        {
+            bool SameGroup(Totem totem) => !totem.Ballista && totem.PlacementGroup == group;
+            int groupCount = living.Count(SameGroup);
+            for (int i = 0; i < living.Count && groupCount >= limit; i++)
+                if (SameGroup(living[i]))
+                {
+                    replaced.Add(living[i]);
+                    living.RemoveAt(i--);
+                    groupCount--;
+                }
+        }
+        int total = SharedLimit(limit, ordinaryLimit, bonusSlots, living);
+        while (living.Count >= total && living.Count > 0)
+        {
+            replaced.Add(living[0]);
+            living.RemoveAt(0);
+        }
+        return replaced;
+    }
+
+    /// <summary>Adds a totem and retires the bodies the placement replaces.</summary>
     public List<Totem> Place(Totem totem, int limit, double now, int? ordinaryLimit = null)
     {
-        var replaced = new List<Totem>();
-        void Retire(Totem old) { old.DiedAt = now; replaced.Add(old); }
-        if (ordinaryLimit is int ordinary)
-        {
-            // Ballista-only bonus slots do not let ordinary totems exceed their own cap. Placing one ordinary
-            // totem beside two ballistas must not remove both ballistas as the old all-totem limit of one did.
-            if (!totem.Ballista)
-                foreach (var old in Living(now).Where(t => !t.Ballista).ToArray())
-                    if (Living(now).Count(t => !t.Ballista) >= limit) Retire(old);
-            int bonus = Math.Max(totem.BonusSlots, Living(now).Where(t => t.Ballista).Select(t => t.BonusSlots).DefaultIfEmpty(0).Max());
-            int total = Math.Max(limit, (int)Math.Min(int.MaxValue, (long)ordinary + bonus));
-            while (Living(now).Count() >= total && Living(now).FirstOrDefault() is { } oldest) Retire(oldest);
-        }
-        else
-            foreach (var old in Living(now).ToArray())
-                if (Living(now).Count() >= limit) Retire(old);
+        var replaced = Replacements(limit, now, ordinaryLimit, totem.Ballista, totem.PlacementGroup, totem.BonusSlots);
+        foreach (var old in replaced) old.DiedAt = now;
         _totems.Add(totem);
+        Changed?.Invoke();
         return replaced;
     }
 
@@ -135,7 +177,9 @@ public sealed class TotemState
     /// <summary>Every living totem dies (the player died).</summary>
     public void KillAll(double now)
     {
-        foreach (var t in _totems.Where(t => t.DiedAt is null)) t.DiedAt = now;
+        bool any = false;
+        foreach (var t in _totems.Where(t => t.DiedAt is null)) { t.DiedAt = now; any = true; }
+        if (any) Changed?.Invoke();
     }
 
     /// <summary>The dead totems whose death animation is over leave.</summary>
