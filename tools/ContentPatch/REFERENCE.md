@@ -251,6 +251,8 @@ Values: string, integer, float, true/false, null (a null row), arrays of numbers
 whose `Id` already exists in this run updates that row. HASH16/HASH32: see 3.3. Order: edits, rows, serverRows, files.
 More entry kinds:
 - `files[]` with `"image": "x.png"` (path ending .dds): writes the texture pair (4.2b) from an 8-bit RGBA/RGB PNG.
+  `"imageBase64": "<the PNG in base64>"` does the same with the PNG inside the pack's text, for packs copied by tools that
+  only carry text.
 - `files[]` with `"appendLines": [ … ]`: lines added to a client text file in its own encoding (UTF-16LE with or
   without BOM, else UTF-8), e.g. a sprite line in `Art/UIImages1.txt`.
 - `"serverRows": [{ "table": "item_types", "copyOf": { "type": … }, "set": { … } }]`: rows only client.db has (arrays as

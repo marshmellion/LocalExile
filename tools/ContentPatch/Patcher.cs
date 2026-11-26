@@ -159,12 +159,15 @@ public sealed class Patcher : IDisposable
             var e = node!.AsObject();
             string path = Str(e["path"], "files[].path").Replace('\\', '/');
             string Kind(string p) => _files.ContainsKey(p) ? "changed again" : _original.TryGetFile(p, out _) ? "replaces the client's" : "new";
-            if (e["image"] is { } image)
+            if (e["image"] is { } || e["imageBase64"] is { })
             {
-                // A PNG becomes the client's texture pair: path (.dds) and path.header (Texture).
+                // A PNG becomes the client's texture pair: path (.dds) and path.header (Texture). imageBase64 carries the PNG in
+                // the pack's text itself, for packs copied where binary files do not travel well.
                 if (!path.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException($"{label}: files[].image needs a path ending in .dds ({path})");
-                var (dds, header) = Texture.FromPng(File.ReadAllBytes(Path.Combine(pack.Folder, image.GetValue<string>())));
+                byte[] png = e["imageBase64"] is { } inline ? Convert.FromBase64String(inline.GetValue<string>())
+                    : File.ReadAllBytes(Path.Combine(pack.Folder, e["image"]!.GetValue<string>()));
+                var (dds, header) = Texture.FromPng(png);
                 _log($"{label}: texture {path} + .header ({Kind(path)})");
                 _files[path] = dds;
                 _files[path + ".header"] = header;
