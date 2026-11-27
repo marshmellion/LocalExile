@@ -883,11 +883,47 @@ public static class InstanceProtocol
             // Custom mod envelope (non-retail): u16 BE 0xF7E0, u32 BE payloadLen (<= ModEnvelopeMaxPayload), payload bytes.
             case ModEnvelopeId:
                 return MeasureModEnvelope(data, out length);
+            // Trade Market requests (LE.trade, Ghidra): header u16 id + u8 + u32 BE request number (writer 0x14085f290), then
+            // 0x1e2 cint + bytes (0x14085f360); 0x1e4 cint + bytes + u16 BE + bytes (0x1408c0f40); 0x1e6 u16 BE + bytes
+            // (0x1408c1070); 0x1e8/0x1ea u16 BE + bytes + u8 (0x1408c1230).
+            case 0x01e2 or 0x01e4 or 0x01e6 or 0x01e8 or 0x01ea:
+                return MeasureTradeMarket(id, data, out length);
             default:
                 if (KnownClientLength(id) is int fixedLen) { length = fixedLen; return WireMeasure.Ok; }
                 length = 0;
                 return WireMeasure.Invalid;
         }
+    }
+
+    static WireMeasure MeasureTradeMarket(ushort id, ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        int pos = 7;
+        if (data.Length < pos) return WireMeasure.Incomplete;
+        if (id is 0x01e2 or 0x01e4)
+        {
+            if (data.Length < pos + 1) return WireMeasure.Incomplete;
+            byte b = data[pos];
+            int size = b < 0x80 ? 1 : b < 0xc0 ? 2 : b < 0xe0 ? 3 : b < 0xf0 ? 4 : 5;
+            if (data.Length < pos + size) return WireMeasure.Incomplete;
+            long n = size switch
+            {
+                1 => b,
+                2 => (b & 0x3f) << 8 | data[pos + 1],
+                3 => (b & 0x1f) << 16 | data[pos + 1] << 8 | data[pos + 2],
+                4 => (b & 0x0f) << 24 | data[pos + 1] << 16 | data[pos + 2] << 8 | data[pos + 3],
+                _ => (long)System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(data.Slice(pos + 1, 4)),
+            };
+            if (n > 0x200000) return WireMeasure.Invalid;
+            pos += size + (int)n;
+            if (id == 0x01e2) { if (data.Length < pos) return WireMeasure.Incomplete; length = pos; return WireMeasure.Ok; }
+        }
+        if (data.Length < pos + 2) return WireMeasure.Incomplete;
+        pos += 2 + (data[pos] << 8 | data[pos + 1]);
+        if (id is 0x01e8 or 0x01ea) pos += 1;
+        if (data.Length < pos) return WireMeasure.Incomplete;
+        length = pos;
+        return WireMeasure.Ok;
     }
 
     static WireMeasure FromNullableLength(int? len, out int length)
@@ -1103,6 +1139,12 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
     IReadOnlyDictionary<uint, int>? DisplayStats = null, IReadOnlyList<byte>? Rulesets = null,
     IReadOnlyList<byte>? PreloadGroups = null)
 {
+    /// <summary>B20 of a hideout that is not the player's own. The dispatcher (case 6, 0x1421510e4) copies B20 to session
+    /// +0xcf38; the HUD (0x140dba5d0) shows "Leave Hideout" (ClientStrings2 HUDLeaveUnownedHideoutButtonLabel,
+    /// return_from_unowned_hideout_button) when the area is a hideout (WorldAreas +0x14e) and that byte is 11. Its click
+    /// (0x140deb730) sends chat command 45, /hideout.</summary>
+    public const byte UnownedHideoutKind = 11;
+
     public byte[] Encode()
     {
         bool hasStats = LeagueStats is { Count: > 0 } || DisplayStats is { Count: > 0 };
