@@ -398,6 +398,16 @@ public static partial class Game
         return (uint)row < (uint)Monsters.All.Count ? Monsters.All[row] : corpse;
     }
 
+    /// <summary>You walk through your own minions (system setting player_walks_through_minions, default 1): a new
+    /// minion's body stops blocking paths, as a corpse's does (0x2b2), on the client and in the server's copy alike.
+    /// Called in its create's frame, after the create.</summary>
+    internal static void WalkThroughMinionLocked(Player player, uint id, SpawnedMonster monster)
+    {
+        if (SystemSettings.Default.GetIntOrDefault("player_walks_through_minions", 1) == 0) return;
+        monster.NonBlocking = true;
+        player.Minions.OutputQueue.Add(new(InstanceProtocol.StopBlocking(id), "minion does not block", WorldId: id));
+    }
+
     internal static int SummonCount(SummonCatalog.Definition definition, SupportedGem gem, Random random)
     {
         if (definition.Family == "Skeleton")
@@ -662,6 +672,7 @@ public static partial class Game
                         && GemSkillInstanceDisabled(player, gem.Effect, source, triggered: triggered || restoredVariety is not null) is null),
             owned: (id, monster) =>
             {
+                WalkThroughMinionLocked(player, id, monster);
                 if (consumed is not null)
                 {
                     ConsumeSummonCorpseLocked(player, consumed, playerConsumesCorpse);

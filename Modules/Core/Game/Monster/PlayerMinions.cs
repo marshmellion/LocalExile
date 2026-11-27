@@ -261,6 +261,7 @@ public static partial class Game
         await SpawnMonster(player, variety, level, MonsterRarity.Normal, at.X, at.Y, friendly: true,
             mods: mods, extraStats: MinionStats, owned: (id, m) =>
             {
+                WalkThroughMinionLocked(player, id, m);
                 player.Minions.PendingRelics--;
                 player.Minions.Add(new(id, m, skill, element.ToString())
                 {

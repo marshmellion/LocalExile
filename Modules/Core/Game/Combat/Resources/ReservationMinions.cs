@@ -99,6 +99,7 @@ public static partial class Game
                 && CanHaveOtherMinions(player) && DarkMonarchAllows(kind, StatSourceValues(player)),
             owned: (id, monster) =>
             {
+                WalkThroughMinionLocked(player, id, monster);
                 double committed = AreaTime(player);
                 fighter.Id = id; fighter.Monster = monster;
                 fighter.SummonedAt = fighter.LastStep = committed;

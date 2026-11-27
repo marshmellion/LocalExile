@@ -216,6 +216,7 @@ public static partial class Game
                     return;
                 }
                 player.Beasts.Pending = null;
+                WalkThroughMinionLocked(player, id, m);
                 m.Aggro = true;
                 player.Minions.Add(new(id, m, summon.Skill, summon.MinionKind)
                     { Until = double.PositiveInfinity, Fights = true });

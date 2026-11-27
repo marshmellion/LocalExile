@@ -476,6 +476,7 @@ public static partial class Game
                     : fresh is { } captured && FreshSummonCurrentLocked(player, captured, arrival: arrival)),
             owned: (id, m) =>
             {
+                WalkThroughMinionLocked(player, id, m);
                 double committed = AreaTime(player);
                 SummonReplacementResources? committedResources = replacement is null
                     ? null : CaptureReplacementResources(replacement.Old, committed);
