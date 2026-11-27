@@ -14,6 +14,12 @@ public static partial class Game
         if (life == 0) OwnedKills.AddOrUpdate(m, Owned);
     }
 
+    /// <summary>A kill by what the player owns counts as the player's own when a mod says so
+    /// (GameEvents.OwnedKillCountsAsYours): their on-kill effects, charges and kill events then run for it too.</summary>
+    static bool CountsAsPlayerKill(Player player, SpawnedMonster m, bool playerKill) =>
+        playerKill || GameEvents.OwnedKillCountsAsYours.Any && OwnedKills.TryGetValue(m, out _)
+            && GameEvents.RunOwnedKillCountsAsYours(player, m);
+
     /// <summary>The player's own kill, or their totem's, trap's, mine's or minion's.</summary>
     public static bool KilledByPlayerOrOwned(KillContext kill) =>
         kill.PlayerKill || OwnedKills.TryGetValue(kill.Monster, out _);

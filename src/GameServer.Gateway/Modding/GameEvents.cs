@@ -372,6 +372,18 @@ public static class GameEvents
         }
     }
 
+    /// <summary>Whether a kill by the player's minion, totem, trap or mine counts as the player's own as well: true runs
+    /// the player's on-kill effects, charges and kill events for it.</summary>
+    public static readonly GameEvent<Func<Player, SpawnedMonster, bool>> OwnedKillCountsAsYours = new();
+
+    public static bool RunOwnedKillCountsAsYours(Player player, SpawnedMonster monster)
+    {
+        bool yours = false;
+        foreach (var (owner, run) in OwnedKillCountsAsYours.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(OwnedKillCountsAsYours), () => { if (run(player, monster)) yours = true; });
+        return yours;
+    }
+
     /// <summary>Whether a corpse may be raised by a minion skill (the skill's SummonCatalog family: "Spectre", "Zombie",
     /// ...): true or false decides, null leaves it to the game (no unique monsters, the corpse's own rules).</summary>
     public static readonly GameEvent<Func<Player, SpawnedMonster, string, bool?>> CorpseRaisable = new();

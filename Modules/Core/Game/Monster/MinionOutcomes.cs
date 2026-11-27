@@ -85,6 +85,7 @@ public static partial class Game
 
     public static void CommitAcceptedKillLocked(Player player, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
+        playerKill = CountsAsPlayerKill(player, monster, playerKill);
         SpreadPestilentStrike(player, victimId, monster, now);
         RememberCursedCorpse(player, victimId, monster);
         QueueInfernalBlowDeath(monster, now);
