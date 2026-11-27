@@ -22,6 +22,8 @@ public static partial class Game
             {
                 if (IsMonsterRunner(player)) await CorrectMonsterCollisions(player);
                 if (!PlayerUpdatesCurrent(player, updates)) return;
+                await MinionBodyPass(player);
+                if (!PlayerUpdatesCurrent(player, updates)) return;
                 await PushOutOfCollision(player, living: true);
                 if (!PlayerUpdatesCurrent(player, updates)) return;
                 await ShowFreeze(player);

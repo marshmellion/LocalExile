@@ -50,7 +50,7 @@ public sealed partial class Player
                     var p = other.Walk.Position(now);
                     Fixed.Add(new(p.X, p.Y, LivingCollision.PlayerSize));
                 }
-            bool phasing = owner.IsPhasing;
+            bool phasing = owner.PassesBodies;
             if (owner.Connection.PlayerSent && owner.PlayerLife > 0 && !phasing) Player = owner.Walk.Position(now);
             // Runtime collision follows native bodies. Proposed spawning deliberately retains its existing
             // clearance policy; it is not evidence of GGG's authoritative spawn-placement algorithm.
