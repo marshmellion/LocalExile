@@ -1184,9 +1184,15 @@ public static partial class Game
         return AutoEquipRequirementsMetLocked(player, catalog, item, type) ? target : null;
     }
 
+    /// <summary>The level requirement the client was sent with the item: its recorded one, else Item.LevelRequirementOf
+    /// (which a mod may change to waive it). The character's checks use it (equipping, auto-equip, worn items counting,
+    /// abyss jewels), so the server refuses what the client shows and nothing more.</summary>
+    internal static int SentLevelRequirement(Item item, int dropLevel, ModCatalog mods) =>
+        item.RequiredLevel ?? (Item.LevelRequirementOf is { } sent ? sent(item) : ItemModStats.LevelRequirement(item, dropLevel, mods));
+
     static bool AutoEquipRequirementsMetLocked(Player player, ItemCatalog catalog, Item item, ItemCatalog.BaseType type)
     {
-        int reqLevel = ItemModStats.LevelRequirement(item, type.DropLevel, catalog.Mods);
+        int reqLevel = SentLevelRequirement(item, type.DropLevel, catalog.Mods);
         var (rawStr, rawDex, rawInt) = ItemModStats.AttributeRequirements(catalog, item, type);
         int reqPct = AttributeRequirementsPct(player);
         int reqStr = ScaledRequirement(rawStr, reqPct);
@@ -1197,7 +1203,7 @@ public static partial class Game
         foreach (var socket in item.Sockets)
         {
             if (socket is { Colour: SocketColour.Abyss, Gem: { } jewel } && catalog.ByHash(jewel.TypeHash) is { Class: "AbyssJewel" } eye)
-                reqLevel = Math.Max(reqLevel, ItemModStats.LevelRequirement(jewel, eye.DropLevel, catalog.Mods));
+                reqLevel = Math.Max(reqLevel, SentLevelRequirement(jewel, eye.DropLevel, catalog.Mods));
             else if (socket.Gem is { } gem)
             {
                 if (catalog.ByHash(gem.TypeHash) is { } gemBase && !LeagueFor(player).Rules.AllowsGemBase(gemBase.Id))
