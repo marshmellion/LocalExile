@@ -1,4 +1,6 @@
-CREATE TABLE fx_rules (
+-- effect-rules-tables: IF NOT EXISTS, because a world.db with the effect rules already has these five tables (sql/base/world/fx_rule*.sql,
+-- the same columns without the foreign keys and with more source kinds). This file differs from main's copy only here.
+CREATE TABLE IF NOT EXISTS fx_rules (
     id TEXT PRIMARY KEY,
     book TEXT NOT NULL,
     title TEXT NOT NULL,
@@ -10,7 +12,7 @@ CREATE TABLE fx_rules (
     note TEXT
 ) STRICT;
 
-CREATE TABLE fx_rule_sources (
+CREATE TABLE IF NOT EXISTS fx_rule_sources (
     rule TEXT NOT NULL REFERENCES fx_rules(id) ON DELETE CASCADE,
     ord INTEGER NOT NULL DEFAULT 0,
     kind TEXT NOT NULL CHECK (kind IN ('stat', 'skill')),
@@ -18,7 +20,7 @@ CREATE TABLE fx_rule_sources (
     PRIMARY KEY (rule, ord)
 ) STRICT;
 
-CREATE TABLE fx_rule_when (
+CREATE TABLE IF NOT EXISTS fx_rule_when (
     rule TEXT NOT NULL REFERENCES fx_rules(id) ON DELETE CASCADE,
     ord INTEGER NOT NULL DEFAULT 0,
     trigger TEXT NOT NULL,
@@ -26,7 +28,7 @@ CREATE TABLE fx_rule_when (
     PRIMARY KEY (rule, ord)
 ) STRICT;
 
-CREATE TABLE fx_rule_if (
+CREATE TABLE IF NOT EXISTS fx_rule_if (
     rule TEXT NOT NULL REFERENCES fx_rules(id) ON DELETE CASCADE,
     grp INTEGER NOT NULL DEFAULT 0,
     ord INTEGER NOT NULL DEFAULT 0,
@@ -36,7 +38,7 @@ CREATE TABLE fx_rule_if (
     PRIMARY KEY (rule, grp, ord)
 ) STRICT;
 
-CREATE TABLE fx_rule_do (
+CREATE TABLE IF NOT EXISTS fx_rule_do (
     rule TEXT NOT NULL REFERENCES fx_rules(id) ON DELETE CASCADE,
     ord INTEGER NOT NULL DEFAULT 0,
     action TEXT NOT NULL,
