@@ -133,6 +133,7 @@ public static partial class Game
         double walkSpeed = GolemWalkSpeed(m, now, actionRate);
         m.Walk.SetSpeed(walkSpeed, now);
         var here = m.Walk.Position(now); var owner = player.Walk.Position(now);
+        if (MakeWayLocked(player, g, here, owner, now)) return;
         var (aggressive, defensive) = MinionStance(g.Own, g.Player, g.Definition.IsGolem, now - g.BlockedAt is >= 0 and <= 4);
         bool follows = !player.Summons.Definitions.TryGetValue(g.Id, out var summon) || summon.Follows;
         follows |= defensive && summon?.Family != "Clone";
@@ -529,6 +530,37 @@ public static partial class Game
                 wander.Next = now + 1;
             }
         }
+    }
+
+    /// <summary>Your minions step out of your way, as on the official servers: an idle minion standing on your way to
+    /// where you are walking (within a few cells of the line, and near you) moves to the side it is on, so you do not get
+    /// stuck behind it. System setting minions_make_way (default 1; 0 = they stay put).</summary>
+    static bool MakeWayLocked(Player player, GolemState.Golem g, (int X, int Y) here, (int X, int Y) owner, double now)
+    {
+        if (player.Walk.ReachedGoal || SystemSettings.Default.GetIntOrDefault("minions_make_way", 1) == 0) return false;
+        var goal = player.Walk.SearchedFor;
+        double dx = goal.X - owner.X, dy = goal.Y - owner.Y, length = Math.Sqrt(dx * dx + dy * dy);
+        if (length < 1) return false;
+        (dx, dy) = (dx / length, dy / length);
+        double along = (here.X - owner.X) * dx + (here.Y - owner.Y) * dy;
+        double across = (here.X - owner.X) * -dy + (here.Y - owner.Y) * dx;
+        int size = Math.Max(0, LivingCollision.Size(g.Monster));
+        double clear = size + LivingCollision.PlayerSize + 2;
+        if (along < -1 || along > Math.Min(length, 16) + size || Math.Abs(across) > clear) return false;
+        // To the side it is on (or the left), clear of the line by its body and yours.
+        double side = across >= 0 ? 1 : -1, shift = clear + 1 - Math.Abs(across);
+        foreach (double s in new[] { side, -side })
+        {
+            (int X, int Y) aside = ((int)Math.Round(here.X + -dy * s * (s == side ? shift : clear + 1 + Math.Abs(across))),
+                (int)Math.Round(here.Y + dx * s * (s == side ? shift : clear + 1 + Math.Abs(across))));
+            if (!player.Barrier.Contains(aside) && player.Layout.WalkableFor(aside.X, aside.Y, size))
+            {
+                g.NextMove = 0;
+                GolemMoveLocked(player, g, aside, now);
+                return true;
+            }
+        }
+        return false;
     }
 
     static void GolemMoveLocked(Player player, GolemState.Golem g, (int X, int Y) to, double now, (int X, int Y)? fallbackToOwner = null)
