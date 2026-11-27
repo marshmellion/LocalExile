@@ -305,12 +305,14 @@ public static partial class Game
         cache.Last = input;
         bool changed = false;
         bool stanceTouched = false;
+        bool blessingsDisabled = input.Raw.GetValueOrDefault(Stat.DisableBlessingSkillsAndDisplaySocketedAuraGemsReserveNoMana) != 0;
         var changedAuras = new List<AuraCatalog.Aura>();
         foreach (var aura in player.Auras.Values.ToArray())
         {
             if (IsTemporaryAura(player, aura)) continue;
             var gem = SupportedSkill(player, aura.SkillId);
-            if (IsBlessing(gem) || IsBlessingSkill(gem) != IsBlessingAura(aura)
+            bool wasBlessing = IsBlessingAura(aura);
+            if (IsBlessing(gem) || IsBlessingSkill(gem) != wasBlessing || wasBlessing && blessingsDisabled
                 || AuraHasStat(aura, Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills)
                     != (gem.Stats.GetValueOrDefault(Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills) != 0))
             {
@@ -329,7 +331,7 @@ public static partial class Game
                 continue;
             }
             var support = AuraSupport(player, aura.SkillId);
-            var context = ReservationContext(player, aura.SkillId);
+            var context = ReservationContext(player, aura.SkillId, input.Raw);
             string? stance = StanceCatalog.IsStance(aura.EffectId)
                 ? StanceCatalog.SelectionOf(aura, player.Stance) : null;
             var repriced = aura with
@@ -342,6 +344,7 @@ public static partial class Game
                     : StanceCatalog.RuntimeEffectId(aura.EffectId, stance), stance),
                 SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf, Stance = stance,
                 ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
+                FixedManaReservation = reservation.Value.FixedMana,
             };
             repriced = WithCasterAuraStamps(player, repriced, input.Raw);
             if (repriced == aura) continue;
@@ -494,7 +497,7 @@ public static partial class Game
         {
             player.AuraStatsDirty = false;
             packets.Add(PlayerStatsOffFrames(player));
-            packets.AddRange(PlayerSkillsBatchesIfChanged(player, PlayerSkills(player)));
+            packets.AddRange(PlayerSkillsBatchesIfChanged(player, PlayerSkills(player), forceRestore: true));
             player.Frames.Area?.Life.Changed(player);
         }
         var petrified = player.PetrifiedBlood;

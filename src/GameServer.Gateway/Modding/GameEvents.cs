@@ -6,15 +6,16 @@ using GameServer.Core.World;
 
 /// <summary>A point where the framework hands over to the league's code, the modules and the mods, in the Gateway's own types: the one
 /// hook system. The owner is the subscriber's id. A league's code runs for its own league's connections, a module's for the connections
-/// whose league lists it, a mod's in every league that takes it (all, unless its league.json says) while it is loaded. They run in
-/// that order: the league's code, then the modules', then the mods'. When an owner unloads, its host removes every subscription it made (<see cref="GameEventOwners.Release"/>), so nobody has to keep
+/// whose league lists it, a mod's in every league, or only in the leagues that list it when its mod.json says so. They run in
+/// that order: the league's code, the modules', the listed mods', then the other mods'. When an owner unloads, its host removes every subscription it made (<see cref="GameEventOwners.Release"/>), so nobody has to keep
 /// the handles.</summary>
 public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
 {
     internal readonly record struct Subscriber(string Owner, int Rank, T Run, long Id)
     {
-        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.ModRank ? league.Takes(Owner) : league.Modules.Contains(Owner)
-            || (Rank == GameEventOwners.LeagueRank && league.Id.Equals(Owner, StringComparison.OrdinalIgnoreCase));
+        // A league's code by the league alone: its list may hold a mod of its name in another case (the mod that brings it).
+        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.LeagueRank ? league.Id.Equals(Owner, StringComparison.OrdinalIgnoreCase)
+            : Rank == GameEventOwners.ModRank || league.Modules.Contains(Owner);
     }
 
     ImmutableArray<Subscriber> _subscribers = [];
@@ -63,7 +64,8 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
         foreach (var (_, run) in Subscribers(league)) yield return run;
     }
 
-    IEnumerable<(string Owner, T Run)> Subscribers(LeagueRuntime league)
+    /// <summary>The subscribers for a league, with their owners, before a connection exists.</summary>
+    public IEnumerable<(string Owner, T Run)> Subscribers(LeagueRuntime league)
     {
         var subscribers = _subscribers;
         if (subscribers.IsEmpty) yield break;
@@ -98,9 +100,9 @@ public static class GameEventOwners
     static ImmutableArray<IOwned> _events = [];
     static ImmutableDictionary<(int Rank, string Owner), ImmutableList<IDisposable>> _held = ImmutableDictionary<(int, string), ImmutableList<IDisposable>>.Empty;
 
-    /// <summary>The ranks: a league's code, a module, a mod. A host releases only its own rank, so a league and a module of the same
-    /// name (Ruthless) do not release each other's.</summary>
-    public const int LeagueRank = 0, ModuleRank = 1, ModRank = 2;
+    /// <summary>The ranks: a league's code, a module, a mod of the leagues that list it, a mod of every league. A host releases
+    /// only its own rank, so a league and a module of the same name (Ruthless) do not release each other's.</summary>
+    public const int LeagueRank = 0, ModuleRank = 1, LeagueModRank = 2, ModRank = 3;
 
     public static void Register(IOwned gameEvent) => ImmutableInterlocked.Update(ref _events, e => e.Add(gameEvent));
 
@@ -124,7 +126,7 @@ public static class GameEventOwners
     /// <summary>How many subscriptions the owner has (its "hooks" in /mod and /module).</summary>
     public static int Count(string owner) => _events.Sum(e => e.Count(owner));
 
-    // A league's code first, then the modules, then the mods, by the kind of host that runs the owner. An owner no host runs (a test, a
+    // A league's code first, then the modules, then the mods (the listed ones first), by what runs the owner. An owner no host runs (a test, a
     // helper) counts as a module, and so does a name that is both a module's and a league's.
     internal static int RankOf(string owner) => ModHost.RankOf(owner) ?? ModuleRank;
 
@@ -215,6 +217,39 @@ public static class GameEvents
     /// <summary>A player entered the area (its client sent "area generated"), after the area was generated: the player's own
     /// things and their quest view (the NPCs and quest blockers their quest state shows them).</summary>
     public static readonly GameEvent<Func<Player, Task>> PlayerEntered = new();
+
+    /// <summary>The player's client finished entering an area (after initial area population, <see cref="PlayerEntered"/>,
+    /// and arrival grace setup). Fires once per area connection.</summary>
+    public static readonly GameEvent<Func<Player, Task>> ClientReady = new();
+
+    /// <summary>A chat line or slash command sent by the client (<c>C->S 0x0015</c>), before chat routing or command dispatch.
+    /// True: this subscriber consumed the message and no further chat or command handling runs.</summary>
+    public static readonly GameEvent<Func<ClientMessage, Task<bool>>> ClientMessage = new();
+
+    /// <summary>The player gained one or more character levels: (player, previousLevel, newLevel).</summary>
+    public static readonly GameEvent<Func<Player, int, int, Task>> LevelUp = new();
+
+    /// <summary>The player changed a cosmetic slot or skill-gem cosmetic.</summary>
+    public static readonly GameEvent<Func<CosmeticChange, Task>> CosmeticChanged = new();
+
+    /// <summary>A new character was created on Auth, before S→C 0x15 / 0x13 and first area assignment.
+    /// Subscribers may override <see cref="CharacterCreatedContext.StartingAreaId"/>, <see cref="CharacterCreatedContext.StartingLevel"/>,
+    /// or <see cref="CharacterCreatedContext.SuppressStartKit"/>.</summary>
+    public static readonly GameEvent<Func<CharacterCreatedContext, Task>> CharacterCreated = new();
+
+    /// <summary>Evaluates a vendor sale quote for a list of offered items (implemented by the Vendors module).</summary>
+    public static readonly GameEvent<Func<Player, IReadOnlyList<InventoryItem>, VendorQuoteResult?>> VendorQuote = new();
+
+    /// <summary>Evaluates custom vendor recipes on items offered in an NPC sell window before built-in recipes and
+    /// basic sale pricing run.</summary>
+    public static readonly GameEvent<Action<VendorRecipeContext>> VendorRecipe = new();
+
+    /// <summary>The player died in an area, carrying rich context (death kind, count, hardcore flag, XP lost), after death state, XP penalty, and death screen presentation.</summary>
+    public static readonly GameEvent<Func<PlayerDiedContext, Task>> PlayerDeath = new();
+
+    /// <summary>Whether an item (<paramref name="player"/> when known, <c>BaseItemTypes</c> hash, item class) may be
+    /// placed into and activated in the map device beyond the stock accepted classes and recipes.</summary>
+    public static readonly GameEvent<Func<Player?, uint, string, bool>> MapDeviceAcceptsItem = new();
 
     /// <summary>Quest flags the client holds in the player's current area besides the character's own (their ids): a grant
     /// that belongs to the area, so it is neither saved nor cleared by another module's clean-up of the character's flags. The
@@ -340,6 +375,15 @@ public static class GameEvents
 
     /// <summary>A killed monster's drops, before they are rolled: scale them, add items, or cancel them.</summary>
     public static readonly GameEvent<Action<DropRoll>> Drops = new();
+    /// <summary>A newly generated ground item's final contents, before publication, for kills and containers alike.</summary>
+    public static readonly GameEvent<Func<Player, Item, Item>> GroundItemPreparing = new();
+
+    public static Item PrepareGroundItem(Player player, Item item)
+    {
+        foreach (var (owner, run) in GroundItemPreparing.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(GroundItemPreparing), () => item = run(player, item));
+        return item;
+    }
 
     /// <summary>A gamble window as it opens (an NPC whose shop is the black market, window kind 10): add, remove or reprice
     /// its offers.</summary>
@@ -654,6 +698,12 @@ public static class GameEvents
     public static readonly GameEvent<Func<DamagePacket, Func<uint, int>, DamagePacket>> AttackHit = new();
     /// <summary>More cast speed for this cast in percent, from the stats the cast reads; 0 for none. Each answer multiplies.</summary>
     public static readonly GameEvent<Func<Player, Func<uint, int>, int>> CastSpeedMore = new();
+    /// <summary>A module's own final percent on the radius within which Beyond portals merge, from the stats the area
+    /// reads; the answers add to the Endless Tide keystone's.</summary>
+    public static readonly GameEvent<Func<Player, Func<uint, int>, int>> BeyondMergeRadiusFinal = new();
+    /// <summary>A module's own additional Rogue Exiles for the area, from the stats the area reads and with the
+    /// encounter's own draws (the same instance gets the same exiles); the answers add.</summary>
+    public static readonly GameEvent<Func<Player, Func<uint, int>, Random, int>> AdditionalRogueExiles = new();
     public static readonly GameEvent<Func<Player, IReadOnlyDictionary<uint, int>, SpawnedMonster, DamagePacket, DamagePacket>> OutgoingDamage = new();
     /// <summary>A click on an object; true when it was this module's.</summary>
     public static readonly GameEvent<Func<Player, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> ObjectUse = new();
@@ -715,6 +765,17 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, ChatAvailability?>> ChatAvailabilityQuery = new();
     /// <summary>The player performed chat activity (such as sending a chat line); subscribers may clear away state.</summary>
     public static readonly GameEvent<Func<Player, Task>> ChatActivity = new();
+    /// <summary>A currency orb is about to craft a target item: return a replacement crafted item to override the default roll,
+    /// or null to leave the default crafting roll unchanged.</summary>
+    public static readonly GameEvent<Func<Player, Item, uint, Random, Task<Item?>>> CurrencyCrafting = new();
+    /// <summary>Adjust the death experience penalty percentage (0..100) before XP is deducted.</summary>
+    public static readonly GameEvent<Func<Player, decimal, Task<decimal>>> DeathPenaltyPct = new();
+    /// <summary>Fired after player death presentation has been sent.</summary>
+    public static readonly GameEvent<Func<Player, uint, Task>> PlayerDied = new();
+    /// <summary>Fired after a character level-up has been published.</summary>
+    public static readonly GameEvent<Func<Player, int, Task>> PlayerLevelUp = new();
+    /// <summary>Request opening a town portal at (x, y) on behalf of a player (e.g., on-death or item effects); true when handled.</summary>
+    public static readonly GameEvent<Func<Player, int, int, string, Task<bool>>> PortalRequested = new();
 
     public static async Task<bool> AnyNpcTalk(Player player, uint id, SpawnedNpc npc)
     {
@@ -866,6 +927,56 @@ public static class GameEvents
         return false;
     }
 
+    public static async Task<Item?> ResolveCurrencyCrafting(Player player, Item target, uint currencyTypeHash, Random random)
+    {
+        if (!CurrencyCrafting.Any) return null;
+        foreach (var (owner, run) in CurrencyCrafting.Subscribers(player))
+        {
+            Item? answer = null;
+            if (await GameEventOwners.Guard(owner, nameof(CurrencyCrafting), async () => answer = await run(player, target, currencyTypeHash, random)) && answer is not null)
+                return answer;
+        }
+        return null;
+    }
+
+    public static async Task<decimal> ResolveDeathPenaltyPct(Player player, decimal percent)
+    {
+        if (!DeathPenaltyPct.Any) return percent;
+        foreach (var (owner, run) in DeathPenaltyPct.Subscribers(player))
+        {
+            decimal next = percent;
+            if (await GameEventOwners.Guard(owner, nameof(DeathPenaltyPct), async () => next = await run(player, percent)))
+                percent = Math.Clamp(next, 0, 100);
+        }
+        return percent;
+    }
+
+    public static async Task RunPlayerDied(Player player, uint experienceLost)
+    {
+        if (!PlayerDied.Any) return;
+        foreach (var (owner, run) in PlayerDied.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(PlayerDied), () => run(player, experienceLost));
+    }
+
+    public static async Task RunPlayerLevelUp(Player player, int level)
+    {
+        if (!PlayerLevelUp.Any) return;
+        foreach (var (owner, run) in PlayerLevelUp.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(PlayerLevelUp), () => run(player, level));
+    }
+
+    public static async Task<bool> RequestPortal(Player player, int x, int y, string reason)
+    {
+        if (!PortalRequested.Any) return false;
+        foreach (var (owner, run) in PortalRequested.Subscribers(player))
+        {
+            bool opened = false;
+            if (await GameEventOwners.Guard(owner, nameof(PortalRequested), async () => opened = await run(player, x, y, reason)) && opened)
+                return true;
+        }
+        return false;
+    }
+
     public static async Task<bool> RunPartyChat(Player player, string text, IReadOnlyList<ChatLineItem>? items)
     {
         foreach (var run in PartyChat.For(player)) if (await run(player, text, items)) return true;
@@ -999,5 +1110,97 @@ public static class GameEvents
     {
         foreach (var (owner, run) in ChatActivity.Subscribers(player))
             await GameEventOwners.Guard(owner, nameof(ChatActivity), () => run(player));
+    }
+
+    public static async Task RunClientReady(Player player)
+    {
+        if (!ClientReady.Any) return;
+        foreach (var (owner, run) in ClientReady.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(ClientReady), () => run(player));
+    }
+
+    /// <summary>True when a subscriber consumed the client message.</summary>
+    public static async Task<bool> AnyClientMessage(Player player, InstanceChat.ChatInput input)
+    {
+        if (!ClientMessage.Any) return false;
+        var message = new ClientMessage(player, input.Text, input.Links);
+        foreach (var (owner, run) in ClientMessage.Subscribers(player))
+        {
+            bool taken = false;
+            if (await GameEventOwners.Guard(owner, nameof(ClientMessage), async () => taken = await run(message)) && taken)
+                return true;
+        }
+        return false;
+    }
+
+    public static async Task RunLevelUp(Player player, int previousLevel, int newLevel)
+    {
+        if (newLevel <= previousLevel || !LevelUp.Any) return;
+        foreach (var (owner, run) in LevelUp.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(LevelUp), () => run(player, previousLevel, newLevel));
+    }
+
+    public static async Task RunCosmeticChanged(CosmeticChange change)
+    {
+        if (!CosmeticChanged.Any) return;
+        foreach (var (owner, run) in CosmeticChanged.Subscribers(change.Player))
+            await GameEventOwners.Guard(owner, nameof(CosmeticChanged), () => run(change));
+    }
+
+    public static async Task RunCharacterCreated(CharacterCreatedContext context, LeagueRuntime? league = null)
+    {
+        if (!CharacterCreated.Any) return;
+        league ??= ServerLeagues.Resolve(context.LeagueForm, context.League, GameServer.Core.Accounts.LeagueCatalog.Startup);
+        foreach (var (owner, run) in CharacterCreated.Subscribers(league))
+            await GameEventOwners.Guard(owner, nameof(CharacterCreated), () => run(context));
+    }
+
+    public static VendorQuoteResult? QuoteVendor(Player player, IReadOnlyList<InventoryItem> offered)
+    {
+        if (!VendorQuote.Any) return null;
+        foreach (var (owner, run) in VendorQuote.Subscribers(player))
+        {
+            VendorQuoteResult? result = null;
+            if (GameEventOwners.Guard(owner, nameof(VendorQuote), () => result = run(player, offered)) && result is not null)
+                return result;
+        }
+        return null;
+    }
+
+    public static void RunVendorRecipes(VendorRecipeContext context)
+    {
+        if (!VendorRecipe.Any) return;
+        foreach (var (owner, run) in VendorRecipe.Subscribers(context.Player))
+            GameEventOwners.Guard(owner, nameof(VendorRecipe), () => run(context));
+    }
+
+    public static async Task RunPlayerDeath(PlayerDiedContext context)
+    {
+        if (!PlayerDeath.Any) return;
+        foreach (var (owner, run) in PlayerDeath.Subscribers(context.Player))
+            await GameEventOwners.Guard(owner, nameof(PlayerDeath), () => run(context));
+    }
+
+    public static bool AllowsMapDeviceItem(Player? player, uint typeHash, string itemClass)
+    {
+        if (!MapDeviceAcceptsItem.Any) return false;
+        if (player is not null)
+        {
+            foreach (var (owner, run) in MapDeviceAcceptsItem.Subscribers(player))
+            {
+                bool allowed = false;
+                if (GameEventOwners.Guard(owner, nameof(MapDeviceAcceptsItem), () => allowed = run(player, typeHash, itemClass)) && allowed)
+                    return true;
+            }
+            return false;
+        }
+        foreach (var subscriber in MapDeviceAcceptsItem.Snapshot)
+        {
+            if (subscriber.Rank != GameEventOwners.ModRank) continue;
+            bool allowed = false;
+            if (GameEventOwners.Guard(subscriber.Owner, nameof(MapDeviceAcceptsItem), () => allowed = subscriber.Run(null, typeHash, itemClass)) && allowed)
+                return true;
+        }
+        return false;
     }
 }

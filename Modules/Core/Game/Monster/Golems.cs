@@ -261,9 +261,15 @@ public static partial class Game
             stats[mines] = player.Placed.All.Values.Count(p => p.Mine);
         if (Stat.NumberOfActiveTraps is var traps)
             stats[traps] = player.Placed.All.Values.Count(p => !p.Mine);
-        if (player.PlayerLife > 0)
-            foreach (var (key, value) in player.Golems.OwnerStats)
-                stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+        if (player.PlayerLife == 0) return;
+        foreach (var (key, value) in player.Golems.OwnerStats)
+            stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+        if (stats.GetValueOrDefault(Stat.DamagePlusPctPerActiveGolem) is int damagePerGolem and not 0)
+        {
+            int living = player.Golems.All.Values.Count(g => !g.Monster.Dead && g.Monster.Life > 0);
+            stats[Stat.DamagePlusPct] = ActorScale.Saturate(
+                (long)stats.GetValueOrDefault(Stat.DamagePlusPct) + (long)damagePerGolem * living);
+        }
     }
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, object> MinionSaveLocks = new();
@@ -363,7 +369,8 @@ public static partial class Game
         return RepeatSummonCast(player, source, recovery, current, triggered, async () =>
         {
             uint id = await SummonGolem(player, source, definition, aim, current: current, atProxy: atProxy);
-            if (id != 0 && onslaughtMs > 0)
+            if (id == 0) return false;
+            if (onslaughtMs > 0)
             {
                 bool present;
                 using (ProjectileMutation(player, advance: false))
@@ -522,8 +529,14 @@ public static partial class Game
         return id;
     }
 
-    static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing = true)
+    // dies: the body of a summon that ended in play stays for SummonBodySeconds with its life at 0 (RemoveMinionBodiesLocked
+    // takes it away); otherwise it is removed at once.
+    static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing = true) =>
+        RemoveGolemBodyLocked(player, golem, now, reconcileBlessing, dies: false);
+
+    static void RemoveGolemBodyLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing, bool dies)
     {
+        bool shown = golem.Monster.Dead || golem.Monster.Life == 0;
         ClearSharedMinionAuras(player, golem.Id);
         ClearMinionFlasksLocked(player, golem, now);
         ReconcileLinkedMinionModifiersLocked(player, golem, now, dead: true);
@@ -540,9 +553,13 @@ public static partial class Game
         golem.Monster.ActionGeneration++; golem.Monster.Dead = true; golem.Monster.Life = 0;
         if (player.Area.Monsters.TryGetValue(golem.Id, out var held) && ReferenceEquals(held, golem.Monster))
         {
-            player.Area.Monsters.Remove(golem.Id); player.MinionOrigins.TryRemove(golem.Id, out _);
-            player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(golem.Id), "golem removed", golem.Id,
-                Kind: PlayerMinions.OutputKind.Remove, WorldId: golem.Id, RemovesObject: true));
+            if (dies) SummonBodyDiesLocked(player, golem, shown, now);
+            else
+            {
+                player.Area.Monsters.Remove(golem.Id); player.MinionOrigins.TryRemove(golem.Id, out _);
+                player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(golem.Id), "golem removed", golem.Id,
+                    Kind: PlayerMinions.OutputKind.Remove, WorldId: golem.Id, RemovesObject: true));
+            }
         }
         player.Golems.RefreshAt = 0;
         if (reconcileBlessing) ReconcileGuardianBlessingLocked(player);

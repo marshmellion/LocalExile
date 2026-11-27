@@ -125,6 +125,11 @@ public sealed partial class PlayerInventories
         lock (_lock) return _items.TryGetValue(row, out var l) ? [.. l] : [];
     }
 
+    public bool AnyOwnedItem(Func<Item, bool> match)
+    {
+        lock (_lock) return _items.Values.Any(row => row.Any(item => match(item.Item)));
+    }
+
     public InventoryItem Add(byte row, byte x, byte y, Item item)
     {
         InventoryItem placed;
@@ -193,9 +198,9 @@ public sealed partial class PlayerInventories
     /// <remarks>With <paramref name="one"/> (Shift + click, 0x2a's first flag) only one of a held stack goes: into an
     /// empty cell as a new item, or onto a stack of its type with room; the rest stays held.</remarks>
     public Placement? Place(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false,
-        bool expandedAllowed = false)
+        bool expandedAllowed = false, Player? player = null)
     {
-        var result = PlaceCore(row, x, y, shapeOf, out why, one, expandedAllowed);
+        var result = PlaceCore(row, x, y, shapeOf, out why, one, expandedAllowed, player: player);
         if (result is not null) Persist();
         return result;
     }
@@ -241,7 +246,7 @@ public sealed partial class PlayerInventories
     }
 
     Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false, bool expandedAllowed = false,
-        InventoryItem? incoming = null, bool preview = false, bool allowDisplace = true)
+        InventoryItem? incoming = null, bool preview = false, bool allowDisplace = true, Player? player = null)
     {
         lock (_lock)
         {
@@ -271,7 +276,7 @@ public sealed partial class PlayerInventories
             {
                 if (x < 0 || y < 0 || x + shape.Width > slot.Width || y + shape.Height > slot.Height) { why = "outside the grid"; return null; }
                 if (row == Flask && !Accepts(row, shape.Class)) { why = $"{shape.Class} does not go in the flask slots"; return null; }
-                if (row == MapDevice && !global::MapDevice.AcceptsItem(held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the map device"; return null; }
+                if (row == MapDevice && !global::MapDevice.AcceptsItem(held.Item.TypeHash, shape.Class, player)) { why = $"{shape.Class} does not go in the map device"; return null; }
                 if (row == MavenInvitations && !AcceptsItem(row, held.Item.TypeHash, shape.Class)) { why = "only Maven invitations go in the Maven invitation slots"; return null; }
                 if (row == MemoryLineMaps && !AcceptsItem(row, held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the memory line map device"; return null; }
                 inTheWay = [.. ItemsIn(row).Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
@@ -334,7 +339,7 @@ public sealed partial class PlayerInventories
     /// rest stays held; anything else is swapped (refused with <paramref name="one"/>). Null with the reason; nothing changes.
     /// </summary>
     public Placement? MergeOnto(byte row, uint itemId, Func<Item, Shape?> shapeOf, out string why, bool one = false,
-        bool expandedAllowed = false)
+        bool expandedAllowed = false, Player? player = null)
     {
         Placement? result;
         lock (_lock)
@@ -343,7 +348,7 @@ public sealed partial class PlayerInventories
             if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
             var held = cursor[0];
             if (ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is not { } target) { why = "no such item"; return null; }
-            result = PlaceCore(row, target.X, target.Y, shapeOf, out why, one && held.Item.StackSize > 1, expandedAllowed);
+            result = PlaceCore(row, target.X, target.Y, shapeOf, out why, one && held.Item.StackSize > 1, expandedAllowed, player: player);
         }
         if (result is not null) Persist();
         return result;
@@ -539,6 +544,31 @@ public sealed partial class PlayerInventories
         }
     }
 
+    /// <summary>Persists an id for the same physical gem selected by the bind request.</summary>
+    public Guid? EnsureSkillBarGemId(uint hostId, int socket, Item selected)
+    {
+        Guid id;
+        lock (_lock)
+        {
+            var hostRow = ItemModStats.EquipmentRows.FirstOrDefault(row =>
+                _items.TryGetValue(row, out var list) && list.Any(item => item.Id == hostId));
+            if (hostRow == MainInventory) return null;
+            var items = _items[hostRow];
+            int index = items.FindIndex(item => item.Id == hostId);
+            var host = items[index];
+            if (socket < 0 || socket >= host.Item.Sockets.Count || host.Item.Sockets[socket].Gem is not { } gem
+                || !ReferenceEquals(GemIdentity(selected), GemIdentity(gem))) return null;
+            if (gem.SkillBarGemId is Guid saved) return saved;
+            id = Guid.NewGuid();
+            var sockets = host.Item.Sockets.ToArray();
+            sockets[socket] = sockets[socket] with { Gem = PreserveGemIdentity(gem, gem with { SkillBarGemId = id }) };
+            items[index] = host with { Item = host.Item with { Sockets = sockets } };
+            Interlocked.Increment(ref _mutations);
+        }
+        Persist();
+        return id;
+    }
+
     public Item? SocketHost(uint id)
     {
         lock (_lock) return _items.Values.SelectMany(v => v).FirstOrDefault(i => i.Id == id)?.Item;
@@ -554,7 +584,14 @@ public sealed partial class PlayerInventories
     }
 
     /// <summary>Whether any gem socketed in <see cref="GemExperienceRows"/> matches <paramref name="predicate"/>, without allocating.</summary>
-    public bool AnySocketedGem(Func<uint, Item, bool> predicate)
+    public bool AnySocketedGem(Func<uint, Item, bool> predicate) =>
+        AnySocketedGem(predicate, static (match, id, _, socket) => match(id, socket.Gem!));
+
+    /// <summary>Checks each socket with the owning item during the same inventory read.</summary>
+    public bool AnySocketedGem(Func<uint, Item, ItemSocket, bool> predicate) =>
+        AnySocketedGem(predicate, static (match, id, item, socket) => match(id, item, socket));
+
+    bool AnySocketedGem<T>(T predicate, Func<T, uint, Item, ItemSocket, bool> matches)
     {
         lock (_lock)
             foreach (var row in GemExperienceRows)
@@ -564,7 +601,8 @@ public sealed partial class PlayerInventories
                 {
                     if (items[at].Item.Sockets is not { Count: > 0 } held) continue;
                     for (int socket = 0; socket < held.Count; socket++)
-                        if (held[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && predicate(items[at].Id, gem))
+                        if (held[socket] is { Colour: not SocketColour.Abyss, Gem: not null } entry
+                            && matches(predicate, items[at].Id, items[at].Item, entry))
                             return true;
                 }
             }
@@ -579,7 +617,12 @@ public sealed partial class PlayerInventories
     /// experience.
     /// </summary>
     public IReadOnlyList<(byte Row, InventoryItem Item, IReadOnlyList<(Item Before, Item After)> Gems)> ChangeSocketedGems(
-        Func<uint, Item, Item?> change)
+        Func<uint, Item, Item?> change) =>
+        ChangeSocketedGems((id, _, socket) => change(id, socket.Gem!));
+
+    /// <summary>Updates socketed gems using the owning item and original socket under the inventory lock.</summary>
+    public IReadOnlyList<(byte Row, InventoryItem Item, IReadOnlyList<(Item Before, Item After)> Gems)> ChangeSocketedGems(
+        Func<uint, Item, ItemSocket, Item?> change)
     {
         var changed = new List<(byte, InventoryItem, IReadOnlyList<(Item, Item)>)>();
         lock (_lock)
@@ -592,7 +635,8 @@ public sealed partial class PlayerInventories
                     var sockets = held.ToArray();
                     var gems = new List<(Item, Item)>();
                     for (int socket = 0; socket < sockets.Length; socket++)
-                        if (sockets[socket] is { Colour: not (SocketColour.Abyss or SocketColour.Delve), Gem: { } gem } && change(items[at].Id, gem) is { } after)
+                        if (sockets[socket] is { Colour: not (SocketColour.Abyss or SocketColour.Delve), Gem: { } gem } entry
+                            && change(items[at].Id, items[at].Item, entry) is { } after)
                         {
                             after = PreserveGemIdentity(gem, after);
                             gems.Add((gem, after));
@@ -633,9 +677,9 @@ public sealed partial class PlayerInventories
     };
 
     /// <summary>Item-specific placement check for grid receptacles that restrict beyond ItemClass (Map1, MavenInvitations, MemoryLineMaps).</summary>
-    public static bool AcceptsItem(byte row, uint typeHash, string itemClass) => row switch
+    public static bool AcceptsItem(byte row, uint typeHash, string itemClass, Player? player = null) => row switch
     {
-        MapDevice => global::MapDevice.AcceptsItem(typeHash, itemClass),
+        MapDevice => global::MapDevice.AcceptsItem(typeHash, itemClass, player),
         MavenInvitations => global::MapDevice.IsMavenInvitation(typeHash),
         MemoryLineMaps => global::MapDevice.AcceptsMemoryLineClass(itemClass),
         _ => Accepts(row, itemClass),

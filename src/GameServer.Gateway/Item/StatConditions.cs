@@ -82,6 +82,7 @@ public static class StatConditions
         "critical_strike_chance_while_wielding_shield_+%",
         "critical_strike_multiplier_while_dual_wielding_+",
         "spell_block_while_dual_wielding_%",
+        FullShieldSuppression,
         // The "_while_holding_shield" spelling (the shield/jewel mods) has its own consumers too: the two block stats in
         // Progression's shield block, the shield attack speed in its attack-speed block, and the endurance charge on
         // kill in ChargeGains. Left on their own id so those readers still find them and do not double count.
@@ -109,6 +110,7 @@ public static class StatConditions
         "gain_phasing_while_at_maximum_frenzy_charges", "gain_phasing_while_affected_by_haste",
     };
 
+    const string FullShieldSuppression = "spell_damage_%_suppressed_while_on_full_energy_shield";
     public const string DuringAnyFlaskEffect = "_during_any_flask_effect";
 
     static readonly string[] StateSuffixes =
@@ -320,6 +322,8 @@ public static class StatConditions
         if (DedicatedConsumers.Contains(statId) || Program.Stats.Key(statId) is uint id
             && (ChargeEffects.Expands(id) || IncomingAilmentEffects.Expands(id))) return null;
         if (candidate is not { } plain) return null;
+        if (statId == "additional_physical_damage_reduction_%_while_affected_by_determination")
+            plain = "base_additional_physical_damage_reduction_%";
         // Table spellings shared by several conditional rolls, mapped to the existing unconditional consumer.
         plain = plain switch
         {
@@ -354,6 +358,13 @@ public static class StatConditions
             "life_gain_per_target" => "base_life_gain_per_target",
             "maximum_life_+" => "base_maximum_life",
             "damage_taken_+%" => "base_damage_taken_+%",
+            "damage_taken_goes_to_mana_over_4_seconds_%" => "damage_taken_goes_to_mana_%",
+            "your_ailments_deal_damage_faster_%" => "damaging_ailments_deal_damage_+%_faster",
+            "maximum_mana_%_to_add_to_energy_shield" => "mana_%_to_add_as_energy_shield",
+            "flask_life_recovery_+%" => "flask_life_to_recover_+%",
+            "always_scorch" => "virtual_always_inflict_scorch",
+            "always_frostburn" => "virtual_always_inflict_frostburn",
+            "always_sap" => "virtual_always_inflict_sapped",
             "deal_no_damage" => "base_deal_no_damage",
             "critical_strike_multiplier_+" or "global_critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
             "critical_strike_multiplier_+%" => "base_critical_strike_multiplier_+",
@@ -606,12 +617,17 @@ public static class StatConditions
     static Func<Subject, State> ParseKnownCondition(string statId)
     {
         // Placed mines choose this modifier when they release their area damage. Keep the source available at placement.
-        if (statId == "mine_area_damage_+%_if_detonated_mine_recently") return static _ => State.None;
+        if (statId is "mine_area_damage_+%_if_detonated_mine_recently"
+            or "local_display_trigger_level_x_smoke_cloud_on_trap_triggered"
+            or "local_display_nearby_enemies_are_chilled"
+            or "local_display_nearby_enemies_have_fire_exposure") return static _ => State.None;
         if (PrideStat(statId) is not null)
             return static subject => subject.Flags is { } flags && flags.TryGetValue(UsingPride, out bool active)
                 ? active ? State.Holds : State.Fails : State.NotModelled;
         // Evil Eye tests the recipient of the curse; the caster need not be cursed.
         if (statId == "enemies_damage_taken_+%_while_cursed") return static _ => State.None;
+        // Suppression reads this coefficient at hit time because an earlier hit can empty the shield in the same frame.
+        if (statId == FullShieldSuppression) return static _ => State.None;
         var property = EquipmentPropertyThresholdId.Match(statId);
         if (property.Success)
         {
@@ -842,7 +858,11 @@ public static class StatConditions
         new(@"_if_(?:other_ring_is_(?:shaper|elder)_item|(?:left|right)_ring_is_magic_item)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     // These table-local values describe a relationship to the source, then project onto the recipient's stats.
-    public static bool SourceLocalCondition(string id) => id == "spell_chance_to_shock_frozen_enemies_%"
+    public static bool SourceLocalCondition(string id) => id is "spell_chance_to_shock_frozen_enemies_%"
+        or "local_display_gain_power_charge_on_spending_mana"
+        or "local_display_trigger_level_x_smoke_cloud_on_trap_triggered"
+        or "local_display_nearby_enemies_are_chilled"
+        or "local_display_nearby_enemies_have_fire_exposure"
         || RingConditionId.IsMatch(id)
         && id.Contains("_if_other_ring_", StringComparison.Ordinal);
 

@@ -83,6 +83,16 @@ public static partial class Game
             target.HitFireExplosionPercent = percent;
     }
 
+    sealed record AttackKillExplosion(int Chance);
+    static readonly RuleTable<SpawnedMonster, AttackKillExplosion> AttackKillExplosions = new();
+
+    static void CaptureAttackKillExplosionLocked(SpawnedMonster victim, IReadOnlyDictionary<uint, int> stats)
+    {
+        if (victim.Life == 0 && victim.Hostile
+            && stats.GetValueOrDefault(Stat.EnemiesExplodeOnDeathByAttackFor10PctLifeAsPhysicalDamage) is > 0 and var chance)
+            AttackKillExplosions.AddOrUpdate(victim, new(chance));
+    }
+
     // Oriath's End is secondary damage: global/elemental/area modifiers and conversion apply, but attack/spell
     // modifiers and their added damage do not. Keep the older physical/chaos explosion policy separate.
     internal static DamagePacket OriathExplosionPacket(uint maximumLife, DamageType element,
@@ -95,6 +105,36 @@ public static partial class Game
         double raw = (double)maximumLife * percent / 100;
         return PlayerHitDamage.Resolve(DamagePacket.Of(element, raw, raw), Get,
             DamageStats.Conversion(player, Stats, attack: null), spell: false, area: true, secondary: true);
+    }
+
+    static void ReleaseSkillCorpseExplosion(ProjectileSession session, uint corpseId, SpawnedMonster corpse,
+        (int X, int Y) at, double now, int radius, DamagePacket packet, Penetration.PerType penetration, int cannotPenetrate,
+        string skill)
+    {
+        var player = session.Player;
+        if (!corpse.CorpseConsumed)
+        {
+            corpse.CorpseConsumed = true;
+            player.Area.Monsters.Remove(corpseId);
+            session.WorldRecords(corpseId, () => [InstanceProtocol.RemoveObject(corpseId)],
+                $"{skill} consumes corpse", remove: true);
+        }
+        foreach (var (id, enemy) in player.Area.MonstersNear(at, radius))
+        {
+            if (!enemy.Hostile || enemy.Dead || enemy.Life == 0 || Dist(at, enemy.Walk.Position(now)) > radius)
+                continue;
+            var resisted = MitigateMonsterHit(enemy, packet, now, penetration, cannotPenetrate);
+            int damage = MonsterTakesMitigated(enemy, resisted, false, now);
+            if (ApplyTypedMonsterHitLocked(player, enemy, damage,
+                MonsterHitChaosDamage(enemy, resisted, spell: false, now, damage), allyAt: at) is not { } hit)
+                continue;
+            if (hit.StageStarts) CommitBossStage(player, id, enemy, now);
+            if (hit.Life == 0) SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
+            session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life),
+                $"{skill} corpse explosion target=0x{id:x} damage={damage} life={hit.Life}/{enemy.MaxLife}");
+            if (hit.Life == 0) CommitProjectileKill(session, id, enemy, session.Runtime.Now, AreaRng(player));
+            if (enemy.ThresholdReached) session.Enqueue(() => QuestThreshold(player, id, enemy));
+        }
     }
 
     /// <summary>An on-kill explosion's fixed radius in cells, from the official 3.29.3b client (2026-11-05: a kill
@@ -135,7 +175,8 @@ public static partial class Game
     internal static bool MayExplodeOnKill(Player player, SpawnedMonster? corpse = null,
         KillEquipmentSnapshot? equipment = null, IReadOnlyDictionary<uint, int>? stats = null)
     {
-        if (corpse is { HitFireExplosionPercent: > 0 } || equipment is { Any: true }) return true;
+        if (corpse is { HitFireExplosionPercent: > 0 } || equipment is { Any: true }
+            || corpse is not null && AttackKillExplosions.TryGetValue(corpse, out _)) return true;
         stats ??= PlayerStatValues(player);
         if (stats.GetValueOrDefault(Stat.EnemiesExplodeForPctLifeAsPhysicalDamage) > 0
             || stats.GetValueOrDefault(Stat.BleedingEnemiesExplodeForPctLifeAsPhysicalDamage) > 0
@@ -165,6 +206,11 @@ public static partial class Game
         var captured = equipment ?? CaptureKillEquipment(player, corpse, at, AreaTime(player), playerStats);
         long percent = (long)generic + (bleeding ? bleedingPercent : 0) + captured.CursedCorpsePhysicalPct;
         long physicalChance = (long)Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct) + captured.PrideChance;
+        if (AttackKillExplosions.TryGetValue(corpse, out var attack))
+        {
+            physicalChance += attack.Chance;
+            AttackKillExplosions.Remove(corpse);
+        }
         if (physicalChance > 0 && AreaRng(player).Next(100) < physicalChance) percent += 10;
         // The same quarter-life chaos explosion can come from a general or a cursed-enemy source.
         long chaosChance = (long)Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct) + captured.CursedVictimChaosChance;
@@ -212,8 +258,11 @@ public static partial class Game
             if (!elementalPacket.IsZero)
             {
                 var mitigated = MitigateMonsterHit(m, elementalPacket, now, elementalPenetration,
-                    playerStats.GetValueOrDefault(Stat.CannotPenetrateOrIgnoreElementalResistances));
-                damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now));
+                    playerStats.GetValueOrDefault(Stat.CannotPenetrateOrIgnoreElementalResistances),
+                    playerStats.GetValueOrDefault(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
+                int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, playerStats);
+                damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now,
+                    additionalElementalTakenPct: witheredElemental));
             }
             if (ApplyTypedMonsterHitLocked(player, m, damage, bypass, allyAt: at) is not { } hit) continue;
             hits.Add((id, m, hit));

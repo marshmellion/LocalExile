@@ -132,6 +132,8 @@ public sealed class BetrayalEncounter
     /// <summary>Whether the instance has a mission still to advance.</summary>
     public bool Has(Player player) => LiveOf(player) is { } live && live.Run.Current != BetrayalRun.Stage.Done;
 
+    public bool IsActivePause(Player player) => LiveOf(player)?.Run.Current == BetrayalRun.Stage.Fight;
+
     /// <summary>One tick of the mission, by the connection that steps the area's monsters: what is due, the start when a
     /// character comes close, and the kneel when the member is brought down.</summary>
     public async Task Advance(Player player, double seconds)
@@ -247,7 +249,7 @@ public sealed class BetrayalEncounter
                     player.Instance.World.MonsterOrigins[run.Member] = origin with { Object = origin.Object with { HasDialogue = true } };
             }
             body.Aggro = false;
-            body.BusyUntil = double.PositiveInfinity;
+            (body.BusyUntil, body.ScriptHeld) = (double.PositiveInfinity, true);
             // Stop it where it kneels: an in-flight swing would otherwise still complete and hit while it kneels
             // (MonsterActionCurrent checks the generation), and a walk left running would drift the MakeChoice cell.
             body.Walk.StopAt(AreaTime(player));

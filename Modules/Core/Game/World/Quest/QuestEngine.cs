@@ -984,14 +984,44 @@ public static partial class Game
         if (rule is null) return;
         Console.WriteLine($"[gateway] {player.Connection.Remote} {m.Label} 0x{id:x} reached {rule.LifePct}% life: {string.Join(", ", rule.Flags)}; it leaves the fight");
         var at = m.Walk.Position(ProjectileWorldTime(player));
-        // No retreat portal object: Metadata/QuestObjects/Piety/PietySinsPortal is placed only in a Ruined Temple boss room
-        // (RuinedTempleForest/Rooms/Unique/boss_1a.arm), so the client has not registered the type in the Crematorium and
-        // closes on its 0x2bb ("Unknown object type serialized by server").
+        if (m.Variety?.Id == "Metadata/Monsters/Axis/PietyEscape")
+            await SpawnPietyRetreatPortal(player, at);
         await Game.SendWorldRemoval(player, id, $"0x02bd monster 0x{id:x} {m.Label} leaves (quest threshold)");
         var own = rule.Flags.Where(f => !Quests.IsInstanceFlag(f)).ToArray();
         if (own.Length > 0) await SetQuestFlags(player, own);
         if (m.Variety is { } variety)
             await FormQuestBosses(player, m, variety.Id, at);
+    }
+
+    // Crematorium's piety_fight.arm does not load PietySinsPortal (that QuestObject is only in Act 2's Chamber of Sins
+    // boss_1a.arm), so sending its 0x02bb hash in 1_3_3_1 triggers "Unknown object type serialized by server". Play
+    // MiscAnimated row 124 (PietyPortal) on the globally registered PermanentServerEffect (MiscObjects row 666) with
+    // rig.amd clip 2 (Piety_portalescape, 5833 ms).
+    internal static byte[] PietyRetreatPortalCreate(uint portalId, (int X, int Y) at)
+    {
+        const string portalArt = "Metadata/Effects/Environment/piety_portal/close.ao";
+        const uint portalEscapeClip = 2;
+        var portal = new EffectObject(at.X, at.Y, portalArt) { AnimatedFlags = 9, AnimationId = portalEscapeClip };
+        return InstanceEntities.CreateObject(portalId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), portal.Blob());
+    }
+
+    static async Task SpawnPietyRetreatPortal(Player player, (int X, int Y) at)
+    {
+        uint portalId = player.TakeObjectId();
+        var instance = player.Instance;
+        if (!await SendWorldCreate(player, portalId, () => PietyRetreatPortalCreate(portalId, at),
+            $"0x02bb Piety retreat portal 0x{portalId:x} at ({at.X}, {at.Y})", wake: true, awaitBirth: false))
+            return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await AreaDelay(player, 5.8);
+                if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Instance, instance)) return;
+                await SendWorldRemoval(player, portalId, $"0x02bd Piety retreat portal 0x{portalId:x} closed");
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+        });
     }
 
     // A FormsRule can follow either a death or a quest threshold, using the point fitted for the new variety.

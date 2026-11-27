@@ -8,9 +8,12 @@ public static partial class Game
 {
     const double MovingChannelAimInterval = .05;
 
-    static bool HeldLockstepMovingChannel(Player player) =>
-        player.Connection.LockstepClient && player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill
-        && player.LockstepSkill.Held && player.LockstepSkill.Channel == player.ChannelSkillSequence;
+    static bool HeldLockstepAimedChannel(Player player) =>
+        player.Connection.LockstepClient && player.LockstepSkill.Held
+            && player.LockstepSkill.Channel == player.ChannelSkillSequence
+            && (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill
+                || CurrentChargedDash(player) is not null
+                || IsBladeFlurryChannelling(player, player.ChannelSkill, player.ChannelGeneration, player.ActionCount));
 
     // C→S 0x18e, 0x18f, 0x192, 0x195 and 0x196, which a client sends only in lockstep. They only change what the player asks
     // for: everything starts in the frame pass, as on GGG's server, which answers a click at the next frame start and the
@@ -39,7 +42,7 @@ public static partial class Game
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x018e skill 0x{click.SkillId:x4} at ({aim.X}, {aim.Y}), flags 0x{click.Flags:x4}, u8 {click.Extra}");
                 player.LockstepHold.Clear();
-                if (player.ChannelSkill == click.SkillId && HeldLockstepMovingChannel(player))
+                if (player.ChannelSkill == click.SkillId && HeldLockstepAimedChannel(player))
                 {
                     player.LockstepSkill.Retarget(null, aim);
                     player.LockstepChannelAimPending = true;
@@ -52,7 +55,7 @@ public static partial class Game
             var (dx, dy) = InstanceProtocol.ReadLockstepMoveUpdate(bytes);
             player.LockstepHold.Update((here.X + dx, here.Y + dy), (dx, dy));
             player.LockstepSkill.Update((here.X + dx, here.Y + dy));
-            if (HeldLockstepMovingChannel(player)) player.LockstepChannelAimPending = true;
+            if (HeldLockstepAimedChannel(player)) player.LockstepChannelAimPending = true;
             else if (player.ChannelSkill != 0 && player.LockstepSkill.Channel == player.ChannelSkillSequence)
             {
                 player.LastChannelUpdateAt = AreaTime(player);
@@ -87,7 +90,8 @@ public static partial class Game
                     return;
                 }
                 var aim = m?.Walk.Position(AreaTime(player)) ?? here;
-                player.LockstepSkill.Press(aim, target, skill, flags, target != player.Id && LockstepRepeats(player, skill));
+                player.LockstepSkill.Press(aim, target, skill, flags,
+                    (target != player.Id || SelfCastRepeats(player, skill)) && LockstepRepeats(player, skill));
             }
             else
             {
@@ -105,6 +109,12 @@ public static partial class Game
 
     // A channelled skill starts once and runs until the release; anything else repeats while the button stays down.
     // A native channelled totem skill (Holy Flame Totem) is placed with a single cast by its owner, not channelled.
+    // A skill cast on the player itself does not repeat while held (a buff or an aura would toggle again), except
+    // Blade Vortex: a held key keeps adding blades at the cast rate, as in the original.
+    static bool SelfCastRepeats(Player player, ushort skill) =>
+        GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
+        && IsBladeVortex(SkillsFor(player).EffectId(gem.Effect));
+
     static bool LockstepRepeats(Player player, ushort skill) =>
         !(GemSkillEffects(player).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem
             && SkillsFor(player).IsChannelled(gem.Effect) && !IsTotemSkill(player, skill));
@@ -156,6 +166,7 @@ public static partial class Game
         int action = 0;
         ushort sequence = 0, ended = 0;
         (ushort Sequence, (int X, int Y) Aim)? channelAim = null;
+        (int X, int Y)? channelLanding = null;
         bool skill = false, moveFromClient = false;
         int skillActionBefore = 0;
         double skillBusyBefore = 0, skillBusySet = 0, skillStartedBefore = 0, skillScheduledBefore = 0, skillTotemBefore = 0;
@@ -194,13 +205,19 @@ public static partial class Game
             StepWalkers(player, frameStart);
             player.Connection.LockstepTrail.Enqueue((frameStart, player.Walk.Position(frameStart)));
             if (player.Connection.LockstepTrail.Count > 150) player.Connection.LockstepTrail.Dequeue();
+            var channelAimAtRelease = player.LockstepSkill.Aim;
             if (player.LockstepSkill.ChannelReleased() is { } channel)
             {
+                if (player.LockstepChannelAimPending)
+                {
+                    AimChargedDash(player, channelAimAtRelease, at);
+                    AimBladeFlurry(player, channelAimAtRelease);
+                }
                 ended = channel;
                 player.LockstepChannelAimPending = false;
-                ChannelReleased(player, at);
+                channelLanding = EndChannel(player, at);
             }
-            else if (player.LockstepChannelAimPending && HeldLockstepMovingChannel(player)
+            else if (player.LockstepChannelAimPending && HeldLockstepAimedChannel(player)
                 && !PlayerActionBlocked(player, at, at))
             {
                 var aim = player.LockstepSkill.Aim;
@@ -307,8 +324,8 @@ public static partial class Game
             return;
         }
         // GGG ends a channel with 0x1ae on the release (35 ms later).
-        if (ended != 0) await SendWorldRecord(player, player.Id, InstanceProtocol.ChannelFinished(player.Id, ended), $"0x01ae channel 0x{ended:x4} ended");
-        if (channelAim is { } aimed) await SendLockstepChannelAim(player, aimed.Sequence, aimed.Aim);
+        if (ended != 0) await SendWorldRecord(player, player.Id, ChannelFinishedRecord(player, ended, channelLanding), $"0x01ae channel 0x{ended:x4} ended");
+        if (channelAim is { } aimed) await SendChannelAim(player, aimed.Sequence, aimed.Aim);
         if (staleUse is not null) _ = OnUseObject(player, staleUse, at);
         if (sequence == 0) return;
         if (skill) StartLockstepSkill(player, sequence, at, skillActionBefore, skillBusyBefore, skillBusySet, skillStartedBefore, skillScheduledBefore, skillTotemBefore);
@@ -534,7 +551,7 @@ public static partial class Game
         if (skill == SkillCatalog.FirstSkillId) return true;
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skill);
         return gem.Name is not null && !IsTotemSkill(player, skill) && !SkillsFor(player).IsChannelled(gem.Effect)
-            && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsMovement(gem.Effect)
+            && SkillsFor(player).IsAttack(gem.Effect) && AttackUsesWalkUp(player, gem.Effect)
             && PlacedKind(SupportedSkill(player, skill)) is { Trap: false, Mine: false }
             && (!SkillsFor(player).IsProjectile(gem.Effect)
                 || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)));
@@ -660,7 +677,7 @@ public static partial class Game
         bool defersHold = monster
             ? requested == SkillCatalog.FirstSkillId
                 || gem.Name is not null && !thrown && !IsTotemSkill(player, requested)
-                    && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsMovement(gem.Effect)
+                    && SkillsFor(player).IsAttack(gem.Effect) && AttackUsesWalkUp(player, gem.Effect)
                     && (player.LockstepSkill.Flags & 0x1) == 0
             : LockstepGroundMelee(player, requested, player.LockstepSkill.Flags);
         if (defersHold)
@@ -799,7 +816,9 @@ public static partial class Game
             return Animations.DefaultAttackCutInSeconds(ao, weapon, sequence, seconds);
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skill);
         string? clip = gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) is { } effectId
-            ? SkillClipName(TransfiguredBase(effectId) ?? effectId) : null;
+            ? SkillsFor(player).ActionHash(gem.Effect) == HolyHammersAction ? HolyHammersSourceClip(weapon)
+                : SkillClipName(TransfiguredBase(effectId) ?? effectId)
+            : null;
         return seconds * Animations.AttackCutIn(ao, weapon, clip);
     }
 
@@ -845,11 +864,11 @@ public static partial class Game
         channel = player.LockstepSkill.Channel is { } sequence ? (sequence, player.LockstepSkill.Aim) : null;
         if (channel is { } current) AimChannelTriggers(player, current.Aim);
         return channel is { } c
-            ? SendLockstepChannelAim(player, c.Sequence, c.Aim)
+            ? SendChannelAim(player, c.Sequence, c.Aim)
             : Task.CompletedTask;
     }
 
-    static Task SendLockstepChannelAim(Player player, ushort sequence, (int X, int Y) aim) =>
+    static Task SendChannelAim(Player player, ushort sequence, (int X, int Y) aim) =>
         SendWorldRecord(player, player.Id, InstanceProtocol.ActionTarget(player.Id, sequence, aim.X, aim.Y),
             $"0x01ad channel aims at ({aim.X}, {aim.Y})");
 }
