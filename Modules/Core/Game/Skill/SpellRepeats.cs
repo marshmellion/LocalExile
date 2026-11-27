@@ -20,7 +20,9 @@ public static partial class Game
     public static int SpellRepeats(Player player, ushort skillId, int effect)
     {
         Dictionary<uint, int>? stats = null; // Only a repeatable spell reads them.
-        return SpellRepeats(player, effect, name => name is var k
+        int repeats = SpellRepeats(player, effect, name => name is var k
             ? (stats ??= MergeSkillStats(CharacterPlayerStats(player), SupportedSkill(player, skillId).Stats)).GetValueOrDefault(k) : 0);
+        return GameEvents.SpellRepeatCount.Any && SkillsFor(player).EffectId(effect) is { } effectId
+            ? Math.Max(0, GameEvents.RunSpellRepeatCount(player, skillId, effectId, repeats)) : repeats;
     }
 }

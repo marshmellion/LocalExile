@@ -372,6 +372,18 @@ public static class GameEvents
         }
     }
 
+    /// <summary>How many times a player's spell cast repeats (Spell Echo and the like) for the gem skill on that slot id
+    /// (GrantedEffects Id, the game's count): return another count, or null to leave it.</summary>
+    public static readonly GameEvent<Func<Player, ushort, string, int, int?>> SpellRepeatCount = new();
+
+    public static int RunSpellRepeatCount(Player player, ushort skill, string effect, int repeats)
+    {
+        int count = repeats;
+        foreach (var (owner, run) in SpellRepeatCount.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(SpellRepeatCount), () => { if (run(player, skill, effect, count) is int n) count = n; });
+        return count;
+    }
+
     /// <summary>Whether a kill by the player's minion, totem, trap or mine counts as the player's own as well: true runs
     /// the player's on-kill effects, charges and kill events for it.</summary>
     public static readonly GameEvent<Func<Player, SpawnedMonster, bool>> OwnedKillCountsAsYours = new();
