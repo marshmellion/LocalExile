@@ -50,10 +50,19 @@ had read some tables (mixed tables close the game) and its hooks cost frame rate
 - Ask the person before deleting anything in `Client/` or `data/`, and before running anything that writes their
   client's own install folder (setup only reads it).
 
+## Testing first, then release (maintainer)
+
+- `exciting-testing` gets every change first: merge `exciting-kit` (and new engine branches or a new pinned main) into
+  it, push it, and play it. `exciting` (the release) only ever moves to a commit `exciting-testing` already had:
+  `git push origin origin/exciting-testing:exciting` (fast-forward; check `git merge-base --is-ancestor origin/exciting
+  origin/exciting-testing` first). Never commit on `exciting` directly, so a release is always a fast-forward.
+- Players choose with `Exciting/use-testing.cmd` / `use-release.cmd` (`setup.ps1 -Branch ...`); `update.cmd` follows
+  the branch they are on.
+
 ## Publishing a new build (maintainer)
 
 1. Fetch `main` and the branches in `BUILD.md`; check that each merges cleanly onto the pinned main, in that order,
    and that the result builds (`dotnet build GameServer.slnx`) and the mods in `Exciting/mods/` compile with it.
-2. On `exciting`: merge the new pinned main, then each branch, then `exciting-kit`; update `Exciting/BUILD.md` (the main
-   commit and each branch's head); commit; push `exciting` (fast-forward only).
+2. On `exciting-testing` (see above; `exciting` follows once it is tested): merge the new pinned main, then each branch, then `exciting-kit`; update `Exciting/BUILD.md` (the main
+   commit and each branch's head); commit; push `exciting-testing` (fast-forward only).
 3. If a branch no longer merges, fix the branch (merge main into it), not `exciting`.
