@@ -196,6 +196,9 @@ public static partial class Game
     internal static bool CanGainFlaskCharges(Player player, InventoryItem flask,
         IReadOnlyDictionary<uint, int>? local, IReadOnlyDictionary<uint, int>? playerStats)
     {
+        // "Players cannot gain Flask Charges" (map_players_cannot_gain_flask_charges): a hard block, whatever increases
+        // the character's flask charge gain.
+        if (MapModsOf(player)?.Get(Stat.MapPlayersCannotGainFlaskCharges) > 0) return false;
         var activeEffect = player.UtilityFlaskEffects.Of(flask.Id);
         local ??= FlaskLocalStats(player, flask.Item);
         double now = AreaTime(player);

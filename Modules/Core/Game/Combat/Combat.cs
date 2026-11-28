@@ -2190,10 +2190,11 @@ public static partial class Game
             return name => name is var k ? own.TryGetValue(k, out int value) ? value : playerStats.GetValueOrDefault(k) : 0;
         }
         epoch = player.ProjectileEpoch;
+        bool monsterTarget = false;
         if (targetObjectId is uint target)
         {
             if (!InstantLocationSkill.TryResolveObject(player, epoch, target, InTown(player), CurrentStats(),
-                out from, out to, out _)) return;
+                out from, out to, out _, out monsterTarget)) return;
         }
         else if (!InstantLocationSkill.TryResolve(player, epoch, aim, InTown(player), CurrentStats(), out from, out to)) return;
         if (!TryBeginSkillCooldownUse(player, skillId, gem.Effect,
@@ -2217,7 +2218,7 @@ public static partial class Game
                     if (targetObjectId is uint target)
                     {
                         if (!InstantLocationSkill.TryCommitObject(player, epoch, target, InTown(player), CurrentStats(),
-                            out rawAim, out to)) return null;
+                            out rawAim, out to, out monsterTarget)) return null;
                     }
                     else
                     {
@@ -2248,7 +2249,7 @@ public static partial class Game
                     PhaseRunOnSkillUse(player, skillId);
                     accepted = true;
                     RecordAcceptedGemUseAt(player, gem.Effect, to, acceptedAt);
-                    return PlayerInstantAction(player, skillId, rawAim, targetObjectId);
+                    return PlayerInstantAction(player, skillId, rawAim, monsterTarget ? targetObjectId : null);
                 }
             });
         if (accepted)
@@ -3947,7 +3948,7 @@ public static partial class Game
             {
                 if (IsColdSnap(effectId))
                     ProjectilesFor(player).PlaceColdSnapGround(gem, centre, admittedGem, damageMore);
-                else if (IsVortexGround(effectId))
+                else if (!immediate && IsVortexGround(effectId))
                     ProjectilesFor(player).PlaceVortexGround(centre, gem.Effect, admittedGem.Stats, damageMore * GhorrDotMore(player, skillId));
             }
             // Queued mana output may outlast movement: resolve a channel at its current position.

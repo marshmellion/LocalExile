@@ -156,6 +156,9 @@ public sealed class ItemRolls
     /// <summary>Whether the item accepts affix changes (<see cref="TryModifiable"/>).</summary>
     public bool Modifiable(Item item) => TryModifiable(item, out _);
 
+    /// <summary>A base the client marks Unmodifiable (BaseItemTypes.Unmodifiable: Valdo Maps, …): no currency changes it.</summary>
+    bool Unmodifiable(Item item) => catalog.ByHash(item.TypeHash) is { Unmodifiable: true };
+
     /// <summary>The item and its base accept affix changes: the item is not corrupted or mirrored, has Mods, and its
     /// base is known, serializable, has Mods and is not unmodifiable.</summary>
     bool TryModifiable(Item item, out ItemCatalog.BaseType type)
@@ -614,7 +617,7 @@ public sealed class ItemRolls
     /// change the mod, and the client reorders the tooltip by mod). Null when the item has no explicit mods.</summary>
     public Item? Reforge(Item item, Random rng, UniqueCatalog.StatRoll? own = null)
     {
-        if (item.Vestigial) return null;
+        if (item.Vestigial || Unmodifiable(item)) return null;
         var rules = new MetacraftRules(item, catalog.Mods);
         bool Mutable(int i) => item.Mods[i].Section == ModSection.Explicit && !rules.Protected(i) && catalog.Mods.ByHash(item.Mods[i].Hash) is not null;
         if (!Enumerable.Range(0, item.Mods.Count).Any(Mutable)) return null;
@@ -629,7 +632,7 @@ public sealed class ItemRolls
 
     public Item? Scour(Item item)
     {
-        if (item.Rarity is not (ItemRarity.Magic or ItemRarity.Rare)) return null;
+        if (item.Rarity is not (ItemRarity.Magic or ItemRarity.Rare) || Unmodifiable(item)) return null;
         var rules = new MetacraftRules(item, catalog.Mods);
         var kept = item.Mods.Where((m, i) => m.Section != ModSection.Explicit || rules.Protected(i)).ToArray();
         int count = kept.Count(m => m.Section == ModSection.Explicit);

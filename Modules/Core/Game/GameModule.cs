@@ -125,6 +125,7 @@ public sealed class GameModule : IModule, IDisposable
         global::MapScarabContent.LoadGameData();
         global::MapScarabPacks.LoadGameData();
         global::MapAllflame.LoadGameData();
+        global::MapStatMonsters.LoadGameData();
         global::MapInfluence.LoadGameData();
         global::StrongboxCatalog.LoadGameData();
         global::StrongboxMods.LoadGameData();
@@ -182,6 +183,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => Rules.ClearPlayerMonsterAurasAsync(player));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => global::Sirus.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Game.MapPlayerStatSources);
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
         InstanceEvents.AreaDisplayStats.Add(module.Manifest.Id, Rules.MapAreaDisplayStats);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);
@@ -268,6 +270,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearInstantBuffSkills(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaTotems(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaPlacedSkills(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaSporeguard(player); Rules.EndAreaVoltaxicBurst(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearOwnerAttacks(player); return Task.CompletedTask; });
@@ -511,6 +514,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IW
         Rules.ReleaseCharacter(player);
         Rules.ForgetVitalsAdmission(player);
         Rules.ClearEnemyMineAuras(player);
+        Rules.EndAreaPlacedSkills(player);
         Rules.ForgetSourceValues(player);
         Rules.EndAreaSporeguard(player);
         Rules.EndAreaVoltaxicBurst(player);

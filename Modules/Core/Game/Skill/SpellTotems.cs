@@ -32,6 +32,8 @@ public static partial class Game
                 || IsBladeVortex(SkillsFor(player).EffectId(effect)) || SkillsFor(player).EffectId(effect) == VaalBladeVortexEffect
                 || IsCracklingLance(SkillsFor(player).EffectId(effect)) || IsHexblastEffect(SkillsFor(player).EffectId(effect))
                 || SkillsFor(player).EffectId(effect) == ManabondEffect
+                || IsVortex(SkillsFor(player).EffectId(effect))
+                || SkillsFor(player).EffectId(effect) is "ColdSnap" or "ColdSnapAltX" or "ColdSnapAltY" or "ColdSnapRoyale"
                 || IsVoltaxicBurst(SkillsFor(player).EffectId(effect))
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
@@ -107,7 +109,8 @@ public static partial class Game
         // A totem never walks. Without this the client sends a server-driven action through its own walk-into-range
         // step, which drops it (11 Â§"skill_is_non_pathing"): the totem stood still and its spell drew nothing.
         payload[Stat.SkillIsNonPathing] = 1;
-        if (SpellTotemNova(player, gem.Effect) || IsGroundBladeBlast(SkillsFor(player).EffectId(gem.Effect))
+        if (SpellTotemNova(player, gem.Effect) || IsVortex(SkillsFor(player).EffectId(gem.Effect))
+            || IsGroundBladeBlast(SkillsFor(player).EffectId(gem.Effect))
             || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(gem.Effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(gem.Effect))
             || IsVoltaxicBurst(SkillsFor(player).EffectId(gem.Effect)))
             payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, gem.Stats, spell: true, gem.Effect);
@@ -552,6 +555,7 @@ public static partial class Game
             if (BladefallEffect(effect) || FrostBombEffect(effect) || OrbOfStormsEffect(effect) || VoidSphereEffect(effect) || HydrosphereEffect(effect) || TornadoEffect(effect)
                 || IsPurifyingFlame(effect) || IsWaveOfConviction(effect)
                 || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect)
+                || IsVortex(effect) || effect is "ColdSnap" or "ColdSnapAltX" or "ColdSnapAltY" or "ColdSnapRoyale"
                 || IsVoltaxicBurst(effect))
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
@@ -560,6 +564,19 @@ public static partial class Game
                     if (!Current()) return;
                     var at = ReleaseAim();
                     if (BladefallEffect(effect)) session.ReleaseTotemBladefall(totem, at, sequence, Current);
+                    else if (IsVortex(effect) || effect is "ColdSnap" or "ColdSnapAltX" or "ColdSnapAltY" or "ColdSnapRoyale")
+                    {
+                        var spell = SupportedSkill(player, totem.SkillId);
+                        var caster = TotemCasterStats(CharacterPlayerStats(player));
+                        double more = Math.Max(0, 1 + spell.Stats.GetValueOrDefault(Stat.SupportTotemDamagePlusPctFinal) / 100d);
+                        var centre = IsVortex(effect) ? SpellCentre(player, gem.Effect, totem.At, at) : at;
+                        int radius = SkillRadius(player, spell.Stats, spell: true, gem.Effect);
+                        TotemNovaLocked(player, session, totem, centre, radius, sequence, damageMore: more);
+                        if (IsVortex(effect))
+                            session.PlaceVortexTotemGround(gem.Effect, spell.Stats, caster, centre, more);
+                        else
+                            session.PlaceColdSnapTotemGround(gem, centre, spell, caster, more);
+                    }
                     else if (IsVoltaxicBurst(effect))
                         session.ReleaseTotemVoltaxicBurst(totem, gem, at, sequence, Current);
                     else if (FrostBombEffect(effect))

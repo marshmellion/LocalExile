@@ -1132,8 +1132,12 @@ public static partial class Game
             });
             if (!pyroclast) return;
         }
-        if (IsVortexGround(effect))
-            ProjectilesFor(player).PlaceVortexGround(placed.At, placed.Effect, placed.Own, releaseMore, placed);
+        if (IsVortex(effect))
+            ProjectilesFor(player).PlaceVortexGround(placed.At, placed.Effect, placed.Own, releaseMore, placed,
+                placed.Offense?.Caster ?? TotemCasterStats(CharacterPlayerStats(player)));
+        else if (IsColdSnap(effect))
+            ProjectilesFor(player).PlaceColdSnapPlacedGround(placed, payload.Gem,
+                placed.Offense?.Caster ?? TotemCasterStats(CharacterPlayerStats(player)), releaseMore);
         PlacedAreaDamageLocked(player, placed, placed.At, radius, now, releaseMore, currentSkill, spellDamage,
             bear ? target.Key : null);
     }
@@ -1537,5 +1541,59 @@ public static partial class Game
                 return bytes.Count > 0 ? bytes.Build() : null;
             }
         });
+    }
+
+    internal static void EndAreaPlacedSkills(Player player)
+    {
+        GameArea area;
+        HashSet<uint> retired;
+        using (LevelUpdatesFor(player).Gate.EnterScope())
+        {
+            var state = player.Placed;
+            if (state.All.Count == 0 && state.Leaving.Count == 0 && state.Grounds.Count == 0) return;
+            area = player.Area;
+            retired = new HashSet<uint>();
+            foreach (var placed in state.All.Values)
+            {
+                RemoveEnemyMineAura(area, placed.Id);
+                area.Buffs.Clear(placed.Id, TrarthanRuin, placed.Id);
+                BladeTrapSpins.Remove(placed);
+                SpectralTrapHands.Remove(placed);
+                retired.Add(placed.Id);
+            }
+            foreach (var leaving in state.Leaving) retired.Add(leaving.Object);
+            foreach (var ground in state.Grounds) retired.Add(ground.Object);
+            state.All.Clear();
+            state.Leaving.Clear();
+            state.Grounds.Clear();
+            state.Dirty = true;
+            state.DetonationPublished = false;
+            player.Minions.StatRevision++;
+        }
+
+        static byte[] RemoveBytes(uint id)
+        {
+            var remove = InstanceProtocol.RemoveObject(id);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
+            return remove;
+        }
+
+        if (area.Owned)
+        {
+            foreach (uint id in retired)
+                area.Delta.RemoveSharedObject(id, RemoveBytes(id), $"0x02bd area exit removes placed skill object 0x{id:x}");
+            return;
+        }
+
+        // Purge AreaObjectRecords immediately (thread-safe) so returning/joining players never receive orphan traps or
+        // mines whose Parent points at a left player instance.
+        foreach (uint id in retired)
+            area.Objects.RecordDirect(id, RemoveBytes(id), AreaDelta.Kind.Remove, player);
+        if (area.Driven)
+            area.Defer(a =>
+            {
+                foreach (uint id in retired)
+                    a.Delta.RemoveSharedObject(id, RemoveBytes(id), $"0x02bd area exit removes placed skill object 0x{id:x}");
+            });
     }
 }

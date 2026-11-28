@@ -1456,7 +1456,7 @@ public static partial class Game
         if (GolemStat(gem.Stats, Stat.CannotCastCurses) != 0) return "this curse is triggered by Hextouch";
         if (!triggered && CurseCatalog.Hex(SkillsFor(player).EffectId(effect)) && IsBaneLinkedHex(player, gem))
             return "this curse is triggered by Bane";
-        if (TravelSkillsExceptDashDisabled(player, effect, skillId) is { } travel) return travel;
+        if ((TravelSkillsExceptDashDisabled(player, effect, skillId) ?? TravelSkillsDisabledByMap(player, effect)) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
             && !TriggeredSpellExecutable(player, skillId, gem)
             && !CooldownTriggerExecutable(player, gem)
@@ -1978,6 +1978,10 @@ public static partial class Game
         foreach (var placed in player.Placed.All.Values.Where(p => gone.Contains(p.Skill)).ToArray())
         {
             player.Placed.All.Remove(placed.Id);
+            RemoveEnemyMineAura(player.Area, placed.Id);
+            player.Area.Buffs.Clear(placed.Id, TrarthanRuin, placed.Id);
+            BladeTrapSpins.Remove(placed);
+            SpectralTrapHands.Remove(placed);
             if (!player.Placed.Grounds.Any(g => g.Object == placed.Id))
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(placed.Id), "placed skill source removed", WorldId: placed.Id, RemovesObject: true));
             player.Placed.Dirty = true;
