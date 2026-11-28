@@ -1952,7 +1952,7 @@ public static partial class Game
         var messages = new List<(string Name, byte[] Bytes)>
         {
             ("0x01f6 campaign hideout unlocks", InstanceMicrotransactions.HideoutUnlocks(
-                HideoutCatalog.OwnedRows.Where(row => row < 128).Select(row => (int)row))),
+                GameEvents.HideoutsOwnedBy(player, HideoutCatalog.OwnedRows).Where(row => row < 128).Select(row => (int)row))),
             ("0x0022 local player 0x1000", InstanceEntities.SetLocalPlayer(player.Id)),
             (creationLabel, []),
         };

@@ -649,8 +649,16 @@ public static partial class Game
         return (AreaLayouts.LioneyesWatch, 0);
     }
 
-    public static HideoutCatalog.Hideout? HomeHideout(Player player) =>
-        HideoutCatalog.Selected(SharedHideout(player)?.Area ?? CharacterSaves.Load(CharacterName(player))?.SelectedHideout);
+    public static HideoutCatalog.Hideout? HomeHideout(Player player)
+    {
+        var hideout = HideoutCatalog.Selected(SharedHideout(player)?.Area ?? CharacterSaves.Load(CharacterName(player))?.SelectedHideout);
+        // A hideout the player no longer owns (GameEvents.OwnedHideouts) gives way to the default, else the first owned one.
+        if (hideout is null || !GameEvents.OwnedHideouts.Any) return hideout;
+        var owned = GameEvents.HideoutsOwnedBy(player, HideoutCatalog.OwnedRows);
+        if (owned.Contains((byte)hideout.Row)) return hideout;
+        return HideoutCatalog.Default is { } d && owned.Contains((byte)d.Row) ? d
+            : HideoutCatalog.Hideouts.FirstOrDefault(h => owned.Contains((byte)h.Row)) ?? HideoutCatalog.Default;
+    }
 
     public static HideoutScene? HideoutFurniture(Player player) => player.Furniture ??=
         HideoutCatalog.ByArea(player.Layout.Hash) is { } hideout && HideoutCatalog.Default is { } fallback
@@ -677,6 +685,11 @@ public static partial class Game
         }
         var hideout = HideoutCatalog.Hideouts.FirstOrDefault(h => h.Row == selected.Row);
         if (hideout is null) return;
+        if (GameEvents.OwnedHideouts.Any && !GameEvents.HideoutsOwnedBy(player, HideoutCatalog.OwnedRows).Contains((byte)hideout.Row))
+        {
+            Console.WriteLine($"[gateway] {CharacterName(player)} picked hideout row {hideout.Row} ({hideout.AreaId}), not owned: refused");
+            return;
+        }
         SelectAccountHideout(player, hideout.AreaId);
         player.TalkingTo = 0;
         player.InNpcTalk = false;

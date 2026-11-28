@@ -1224,7 +1224,7 @@ public static partial class Game
     {
         if (held is null || !(ItemModStats.EquipmentRows.Contains(row) || row is 14 or 15)) return null;
         if (ItemsFor(player).ByHash(held.TypeHash) is not { } t) return null;
-        int needs = ItemModStats.LevelRequirement(held, t.DropLevel, ItemsFor(player).Mods);
+        int needs = SentLevelRequirement(held, t.DropLevel, ItemsFor(player).Mods);
         return player.Pools.Level < needs ? $"{t.Name} requires level {needs} (character is {player.Pools.Level})" : null;
     }
 
