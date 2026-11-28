@@ -373,7 +373,8 @@ public static partial class Game
         var effects = ItemsFor(player).GemEffects(gem).Select(e => SkillsFor(player).EffectId(e)).OfType<string>().ToArray();
         foreach (string effect in effects)
         {
-            CharacterSaves.SetAuraActive(CharacterName(player), effect, false);
+            if (!player.Auras.Values.Any(a => a.EffectId == effect))
+                CharacterSaves.SetAuraActive(CharacterName(player), effect, false);
             if (effect == PetrifiedBlood.EffectId)
                 CharacterSaves.SetPetrifiedBlood(CharacterName(player), false);
         }

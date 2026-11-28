@@ -1945,8 +1945,10 @@ public static partial class Game
         {
             player.Auras.Remove(aura.SkillId);
             EndReservationRuntimeLocked(player, aura);
-            CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
         }
+        foreach (var aura in ended.DistinctBy(a => a.EffectId))
+            if (!player.Auras.Values.Any(a => a.EffectId == aura.EffectId))
+                CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
         if (ended.Any(a => StanceCatalog.IsStance(a.EffectId)))
             ReconcileStanceSelectionLocked(player, persist: true);
         bool petrifiedEnded = player.PetrifiedBlood.Active && gone.Contains(player.PetrifiedBlood.SkillId);

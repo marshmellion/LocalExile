@@ -2362,7 +2362,9 @@ public static partial class Game
         }
         else if (player.Auras.Remove(skillId, out var old))
         { ended = old; EndReservationRuntimeLocked(player, old); }
-        else if (player.Auras.Values.FirstOrDefault(a => AuraCatalog.Family(a.EffectId) == family) is { } same
+        // Several Spellslingers run side by side (each reserves for its own linked spells), as live.
+        else if (effectId != SpellslingerEffect
+            && player.Auras.Values.FirstOrDefault(a => AuraCatalog.Family(a.EffectId) == family) is { } same
             && !(IsBlessingSkill(supported) && IsBlessingAura(same))
             && !(supported.Stats.GetValueOrDefault(Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills) != 0
                 && AuraSupport(player, skillId).AffectsSelf && OrdinaryManaAura(same)))
@@ -2422,7 +2424,8 @@ public static partial class Game
         player.EnergyShield.SetMaximum(player.Pools.EnergyShield);
         player.ApplyMovementSpeed();
         player.AuraStatsDirty = true;
-        CharacterSaves.SetAuraActive(CharacterName(player), effectId, started is not null);
+        CharacterSaves.SetAuraActive(CharacterName(player), effectId, started is not null
+            || effectId == SpellslingerEffect && player.Auras.Values.Any(a => a.EffectId == SpellslingerEffect));
 
         await SendOwnAuraChanges(player);
         await SendCharacterStats(player, PlayerStatChange.Auras);
@@ -2436,7 +2439,9 @@ public static partial class Game
         return true;
     }
 
+    // Each Spellslinger keeps its own buff instance (same row, same source): tagged with its skill id.
     static ushort OwnAuraBuffTag(AuraCatalog.Aura aura) =>
+        aura.EffectId == SpellslingerEffect ? aura.SkillId :
         aura.EffectId == "VaalDiscipline" ? (ushort)BuffTag.VaalAura :
         StanceCatalog.SourceFamily(aura.EffectId) == StanceCatalog.BloodAndSand
             ? (ushort)BuffTag.BloodAndSand : (ushort)0;

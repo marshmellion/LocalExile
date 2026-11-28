@@ -460,7 +460,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Auras, reservation, Pride, heralds (Herald of Thunder's bolts drawn in the worn skin; walls block them) and
   permanent spell buffs, including Mana-Infused Staff's fixed reservation and block wave and Spellslinger's linked
-  reservations and wand triggers.
+  reservations and wand triggers (several Spellslingers at once, each with its own buff).
   Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Animated Guardian keeps its equipment on death and is unavailable in that non-hideout instance.

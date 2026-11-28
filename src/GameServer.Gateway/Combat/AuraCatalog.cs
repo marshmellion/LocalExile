@@ -226,10 +226,13 @@ public static class AuraCatalog
         foreach (string effect in saved.DistinctBy(RestoreFamily))
         {
             if (!gems.TryGetValue(RestoreFamily(effect), out var candidates)) continue;
-            var aura = candidates.FirstOrDefault(a => a.EffectId == effect) ?? candidates[0];
-            if ((!IsAspect(aura.EffectId) || !restored.Any(a => IsAspect(a.EffectId)))
-                && RequiredMana(pools, restored.Append(aura)) <= pools.Mana
-                && RequiredLife(pools, restored.Append(aura)) < pools.Life) restored.Add(aura);
+            // Several Spellslingers run side by side: each one that fits comes back.
+            Aura[] picks = effect == "Spellslinger" ? candidates
+                : [candidates.FirstOrDefault(a => a.EffectId == effect) ?? candidates[0]];
+            foreach (var aura in picks)
+                if ((!IsAspect(aura.EffectId) || !restored.Any(a => IsAspect(a.EffectId)))
+                    && RequiredMana(pools, restored.Append(aura)) <= pools.Mana
+                    && RequiredLife(pools, restored.Append(aura)) < pools.Life) restored.Add(aura);
         }
         return restored;
     }

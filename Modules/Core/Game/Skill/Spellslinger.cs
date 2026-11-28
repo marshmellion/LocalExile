@@ -67,8 +67,14 @@ public static partial class Game
     static void SpellslingerOnWandRelease(Player player, ProjectileSession session, (int X, int Y) aim, double now)
     {
         if (player.Auras.Count == 0 || !CurrentGameWork || player.Paused || player.PendingTransfer is not null
-            || player.PlayerLife == 0 || player.Closed || player.LeavingArea
-            || player.Auras.Values.FirstOrDefault(static aura => aura.EffectId == SpellslingerEffect) is not { } controller) return;
+            || player.PlayerLife == 0 || player.Closed || player.LeavingArea) return;
+        // Every active Spellslinger triggers its own linked spells; a spell links to one Spellslinger only.
+        foreach (var controller in player.Auras.Values.Where(static aura => aura.EffectId == SpellslingerEffect).ToArray())
+            SpellslingerRelease(player, session, aim, now, controller);
+    }
+
+    static void SpellslingerRelease(Player player, ProjectileSession session, (int X, int Y) aim, double now, AuraCatalog.Aura controller)
+    {
         foreach (var (skillId, gem, support) in SpellslingerLinks(player, controller.SkillId))
         {
             if (!TriggeredSpellExecutable(player, skillId, gem)
@@ -92,6 +98,8 @@ public static partial class Game
                     reserveAttack: false, triggered: true, advanceProjectiles: false)
                 || ticket?.TryExecute(player, gem.Effect) != true) continue;
             ticket.CommitNativeUse(player, skillId);
+            if (GameServer.Core.Diagnostics.ServerTrace.Skills)
+                Console.WriteLine($"[gateway] spellslinger 0x{controller.SkillId:x4} triggers skill 0x{skillId:x4} {SkillsFor(player).EffectId(gem.Effect)}");
             release();
             if (ticket.Paid is { } paid && (paid.Mana > 0 || paid.Life > 0))
                 session.Enqueue(() => SendSkillCost(player, paid.Life, "Spellslinger cost"));
