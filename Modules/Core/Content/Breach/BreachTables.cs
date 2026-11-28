@@ -126,9 +126,6 @@ public static class BreachTables
     /// <summary>Creates a Wombgift item with BrequelFruit component for the given BaseItemType Id and area level.</summary>
     public static Func<Player, string, int, Random, Item?>? CreateWombgift { get; set; }
 
-    /// <summary>Optional quest body-part roller (BodyPart1..10) for ChayulaFindingBodyParts progression.</summary>
-    public static Func<Player, int, Random, Item?>? TryRollBodyPart { get; set; }
-
     /// <summary>Awards Hiveblood to <paramref name="player"/> when wired (safe no-op fallback if unset).</summary>
     public static async Task GiveHiveblood(Player player, int amount)
     {

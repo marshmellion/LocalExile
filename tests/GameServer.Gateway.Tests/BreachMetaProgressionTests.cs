@@ -174,6 +174,12 @@ public sealed class BreachMetaProgressionTests
             await using var area = await BreachArea.Open();
             var player = area.A;
 
+            var rng = new Random(23);
+            Assert.Equal(InstanceEntities.ObjectTypeHash(BreachHub.BodyPartItemIds[7]),
+                BreachHub.TryRollBodyPart(player, 83, rng, BreachHub.BodyPartSource.Vruun)?.TypeHash);
+            Assert.Equal(InstanceEntities.ObjectTypeHash(BreachHub.BodyPartItemIds[8]),
+                BreachHub.TryRollBodyPart(player, 83, rng, BreachHub.BodyPartSource.Breachlords)?.TypeHash);
+
             // Vruun's BossKits excludes MPWWildBreachBossFingerProjectile (missing SpellProjectile pool +
             // distribute_projectiles_over_contact_points -> +0x1BA5E6A crash in Lockstep) while keeping his valid skills.
             var vruun = Game.Monsters.Find("Metadata/Monsters/Breach/WildBreachBoss");

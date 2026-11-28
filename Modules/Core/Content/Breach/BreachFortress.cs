@@ -651,7 +651,7 @@ public sealed class BreachFortress
             }
             if (MakeHivebrainGland(m, level) is { } gland)
                 await DropGroundItem(m, (state.CoreX, state.CoreY), gland, "Hive Fortress Hivebrain Gland");
-            if (TryRollBodyPart?.Invoke(m, level, rng) is { } bodyPart)
+            if (BreachHub.TryRollBodyPart(m, level, rng) is { } bodyPart)
                 await DropGroundItem(m, (state.CoreX, state.CoreY), bodyPart, "Hive Fortress quest body part");
             await PlayerOf(m).Tell($"The Hive Fortress is destabilising! Loot the core and escape within {EscapeSeconds} seconds!");
         }

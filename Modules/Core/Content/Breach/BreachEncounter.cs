@@ -777,7 +777,7 @@ public sealed class BreachEncounter
                     if (MakeWombgift(member, giftId, level, rng) is { } gift)
                         await DropGroundItem(member, (breach.X, breach.Y), gift, "Stabilised Breach Wombgift");
                 }
-                if (TryRollBodyPart?.Invoke(member, level, rng) is { } bodyPart)
+                if (BreachHub.TryRollBodyPart(member, level, rng) is { } bodyPart)
                     await DropGroundItem(member, (breach.X, breach.Y), bodyPart, "Breach quest body part");
             }
         }

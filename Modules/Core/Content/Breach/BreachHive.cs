@@ -817,7 +817,7 @@ public sealed class BreachHive
             double glandChance = level >= 81 ? 0.50 : 0.30;
             if (rng.NextDouble() < glandChance && MakeHivebrainGland(m, level) is { } gland)
                 await DropGroundItem(m, (hive.CentreX, hive.CentreY), gland, "Breach Hive Hivebrain Gland");
-            if (TryRollBodyPart?.Invoke(m, level, rng) is { } bodyPart)
+            if (BreachHub.TryRollBodyPart(m, level, rng) is { } bodyPart)
                 await DropGroundItem(m, (hive.CentreX, hive.CentreY), bodyPart, "Breach Hive quest body part");
             await PlayerOf(m).Tell("Breach Hive Successfully Destroyed!");
         }

@@ -38,7 +38,6 @@ public sealed class BreachModule : IModule
         BreachGenesisTree.MarkFoulbornItem = static item => item with { Foulborn = true };
         BreachTables.AwardHiveblood = static (player, amount) => BreachHiveblood.AwardAsync(player, amount);
         BreachTables.CreateWombgift = BreachGenesisTree.CreateWombgift;
-        BreachTables.TryRollBodyPart = BreachHub.TryRollBodyPart;
 
         module.Lifetime.Own(new Cleanup(() =>
         {
@@ -48,7 +47,6 @@ public sealed class BreachModule : IModule
             BreachGenesisTree.MarkFoulbornItem = null;
             BreachTables.AwardHiveblood = null;
             BreachTables.CreateWombgift = null;
-            BreachTables.TryRollBodyPart = null;
         }));
 
         // Map Unstable Breaches, Established Hives, Hive Fortresses, Wild/Pinnacle Bosses, Atlas & Scarabs.

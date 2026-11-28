@@ -165,7 +165,7 @@ public sealed class BreachBosses
                     await DropGroundItem(member, (rec.SpawnX, rec.SpawnY), gift, "Vruun Wombgift");
             }
             // Hivebrain Gland & Breach ring / gems drop via world.db drop_boss_items on Vruun's kill (OnDrops upgrades RingB1..5 to Rare).
-            if (TryRollBodyPart?.Invoke(member, rec.Level, rng) is { } bodyPart)
+            if (BreachHub.TryRollBodyPart(member, rec.Level, rng, BreachHub.BodyPartSource.Vruun) is { } bodyPart)
                 await DropGroundItem(member, (rec.SpawnX, rec.SpawnY), bodyPart, "Vruun quest body part");
         }
     }
@@ -484,7 +484,7 @@ public sealed class BreachBosses
                 if (MakeWombgift(member, giftId, state.Level, rng) is { } gift)
                     await DropGroundItem(member, (state.ArenaX + (i == 0 ? 6 : -6), state.ArenaY), gift, "Hive Colony Wombgift");
             }
-            if (TryRollBodyPart?.Invoke(member, state.Level, rng) is { } bodyPart)
+            if (BreachHub.TryRollBodyPart(member, state.Level, rng, BreachHub.BodyPartSource.Breachlords) is { } bodyPart)
                 await DropGroundItem(member, (state.ArenaX, state.ArenaY + 6), bodyPart, "Hive Colony quest body part");
             await PlayerOf(member).Tell("It That Was Tul and It That Was Esh have been defeated! The Breachlord Altar and Exit Portal have appeared.");
         }

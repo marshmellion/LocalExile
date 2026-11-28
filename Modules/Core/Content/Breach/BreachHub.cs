@@ -544,10 +544,12 @@ public static class BreachHub
         if (toClear is { Count: > 0 }) await SetQuestFlags(player, toClear, on: false);
     }
 
+    public enum BodyPartSource { Encounter, Vruun, Breachlords }
+
     /// <summary>Drop helper called by <c>@breach-world</c> encounters/bosses: if the player still needs any of
     /// <c>BodyPart1..10</c> (neither turned in nor already carried), creates the next eligible quest item; otherwise
     /// returns <see langword="null"/>.</summary>
-    public static Item? TryRollBodyPart(Player player, int areaLevel, Random rng)
+    public static Item? TryRollBodyPart(Player player, int areaLevel, Random rng, BodyPartSource source = BodyPartSource.Encounter)
     {
         var catalog = ItemsFor(player);
         var items = ItemsOf(player);
@@ -558,6 +560,8 @@ public static class BreachHub
 
         for (int i = 0; i < BodyPartItemIds.Length; i++)
         {
+            var requiredSource = i switch { 7 => BodyPartSource.Vruun, 8 => BodyPartSource.Breachlords, _ => BodyPartSource.Encounter };
+            if (requiredSource != source) continue;
             if (player.Character.LeagueQuestFlags.Contains(LqfTurnInBodyPartFirst + i)) continue;
             if (carried.Contains(BodyPartHashes[i])) continue;
 
