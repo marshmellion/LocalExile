@@ -396,12 +396,12 @@ public static partial class Game
             releaseDelay, totem, cryExerted, repeat, sacrifice, reoccurrenceMore, from, capturedSkill, otherWarcryExertions: otherWarcryExertions,
             rallyingDamage: rallyingDamage, fromMirage: fromMirage);
 
-    static ProjectileUse CaptureGemProjectile(Player player, ProjectileSession session, ushort skillId,
+    internal static ProjectileUse CaptureGemProjectile(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, AttackHand? weaponHand, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
         (int X, int Y)? from = null, SupportedGem? capturedSkill = null, double hitAndAilmentMore = 1, int otherWarcryExertions = 0,
-        int? rallyingDamage = null, bool fromMirage = false)
+        int? rallyingDamage = null, bool fromMirage = false, bool seismicExerted = false, bool ancestralExerted = false)
     {
         // from: where a placed trap or mine stands, when it and not the player releases the skill.
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
@@ -429,8 +429,14 @@ public static partial class Game
             }
         }
         int extraBeidatProjectiles = CastingBeidatSpell(player, skillId)?.Projectiles ?? 0;
-        int Get(uint k) => k == Stat.NumberOfAdditionalProjectiles
-            ? merged.GetValueOrDefault(k) + extraBeidatProjectiles : merged.GetValueOrDefault(k);
+        var placed = from is not null ? PlacedKind(admittedGem) : default;
+        int extraPlacedChains = placed.Trap || placed.Mine ? merged.GetValueOrDefault(Stat.TrapMineSkillNumOfAdditionalChains) : 0;
+        int Get(uint k) => k switch
+        {
+            Stat.NumberOfAdditionalProjectiles => merged.GetValueOrDefault(k) + extraBeidatProjectiles,
+            Stat.NumberOfAdditionalChainsForProjectiles => ActorScale.Add(k, merged.GetValueOrDefault(k), extraPlacedChains),
+            _ => merged.GetValueOrDefault(k),
+        };
         int Player(uint k) => playerStats.GetValueOrDefault(k);
         int Own(uint k) => own.GetValueOrDefault(k);
         var definition = ResolveProjectileDefinition(gem.Effect) ?? (ArrowRain(SkillsFor(player).EffectId(gem.Effect)) ? GroundArrow : null)
@@ -513,27 +519,38 @@ public static partial class Game
             projectile: true, addedChaos: addedChaos, totem: totem is not null, projectileTotemLife: totem?.MaxLife);
         var areaHitInputs = SupportedHitInputsFor(player, skillId, area: true, weapon: handWeapon, capturedGem: admittedGem,
             projectile: true, addedChaos: addedChaos, totem: totem is not null, projectileTotemLife: totem?.MaxLife);
-        var ailmentRows = hitInputs is null ? [] : SupportedAilmentRowsFrom(hitInputs, hand);
+        if (!spell) otherWarcryExertions += MeleeWarcryTriggersFor(criticalRoll)?.Count ?? 0;
+        int totalExertWarcries = spell ? 0 : (cryExerted ? 1 : 0) + otherWarcryExertions + (rallyingDamage.HasValue ? 1 : 0);
+        long exertedIncreased = spell ? 0 : ExertedAttackIncreasedDamage(playerStats, own, totalExertWarcries, seismicExerted, ancestralExerted);
+        int exertedBaseCrit = spell ? 0 : ActorScale.Saturate((long)ExertedAttackBonusCritPermyriad(totalExertWarcries, playerStats, own)
+            + criticalRoll.AmbushBaseCrit);
+        long exertedAccuracyIncrease = spell ? 0 : ExertedAttackAccuracyIncrease(totalExertWarcries, playerStats, own);
+        var ailmentRows = hitInputs is null ? [] : SupportedAilmentRowsFrom(hitInputs, hand, exertedIncreased);
         long additionalBlindedIncreased = (long)Player(PlayerHitDamage.VsBlindedDamageStat)
             + Own(PlayerHitDamage.VsBlindedDamageStat);
         var blindedRows = hitInputs is null || additionalBlindedIncreased == 0 ? null
-            : SupportedAilmentRowsFrom(hitInputs, hand, additionalBlindedIncreased);
+            : SupportedAilmentRowsFrom(hitInputs, hand, exertedIncreased + additionalBlindedIncreased);
         var ignite = hitInputs is null ? IgniteSettingsFrom(ailmentRows, hand, Get)
-            : IgniteWithTargetCondition(ailmentRows, hitInputs, hand, Get);
+            : IgniteWithTargetCondition(ailmentRows, hitInputs, hand, Get, exertedIncreased);
         bool weaponAttack = !spell && local is not null && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).RequiresShield(gem.Effect);
-        AttackAccuracyProfile? accuracy = spell ? null : SupportedAccuracy(player, skillId, swingHand);
+        AttackAccuracyProfile? accuracy = spell ? null : SupportedAccuracy(player, skillId, swingHand, exertedAccuracyIncrease);
         int rating = shield is not null && accuracy is { } shieldAccuracy ? shieldAccuracy.Rating
-            : handWeapon is null ? PlayerAccuracy(player, playerStats) : HandAccuracy(player, swingHand, playerStats);
+            : handWeapon is null
+                ? (exertedAccuracyIncrease == 0 ? PlayerAccuracy(player, playerStats)
+                    : WeaponAccuracyFor(player, null, playerStats, own, gem.Effect, exertedAccuracyIncrease))
+                : HandAccuracy(player, swingHand, playerStats, exertedAccuracyIncrease);
         int damagePerChain = Get(Stat.ProjectileDamagePlusPctPerChain);
         int damagePerPierce = Get(Stat.ProjectileDamagePlusPctPerPiercedEnemy);
         bool trackTrajectoryDamage = damagePerChain != 0 || damagePerPierce != 0;
         int criticalMultiplier = SupportedCriticalMultiplier(player, skillId, handWeapon);
+        if (!spell && criticalRoll.AmbushExerted)
+            criticalMultiplier = ActorScale.Add(Stat.BaseCriticalStrikeMultiplier, criticalMultiplier, criticalRoll.AmbushCritMultiplier);
         if (concoction.CriticalMultiplier != 0)
             criticalMultiplier = ActorScale.Add(Stat.BaseCriticalStrikeMultiplier, criticalMultiplier, concoction.CriticalMultiplier);
         var shot = new ProjectileOffense(
-            hitInputs is null ? DamagePacket.Empty : SupportedHitFrom(hitInputs, suppress: false),
+            hitInputs is null ? DamagePacket.Empty : SupportedHitFrom(hitInputs, suppress: false, additionalIncreased: exertedIncreased),
             spell, rating,
-            SupportedCriticalChanceFor(player, skillId, release: true, weaponCritical: handCritical),
+            SupportedCriticalChanceFor(player, skillId, release: true, extraIncrease: 0, weaponCritical: handCritical, extraBaseCrit: exertedBaseCrit),
             criticalMultiplier, gem.Name)
         {
             WeaponAttack = weaponAttack,
@@ -546,12 +563,14 @@ public static partial class Game
             TinctureKill = weaponAttack && totem is null ? TinctureKillBonusFor(player, playerStats, swingHand) : null,
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(playerStats, own),
             // Child stages and release specialization can introduce areas after this root is resolved.
-            AreaHit = areaHitInputs is null ? DamagePacket.Empty : SupportedHitFrom(areaHitInputs, suppress: false),
-            VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(player, skillId, release: true, handCritical),
-            VsGroundCriticalChance = SupportedCriticalChanceVsGround(player, skillId, release: true, handCritical),
+            AreaHit = areaHitInputs is null ? DamagePacket.Empty : SupportedHitFrom(areaHitInputs, suppress: false, additionalIncreased: exertedIncreased),
+            VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(player, skillId, release: true, handCritical, extraIncrease: 0, extraBaseCrit: exertedBaseCrit),
+            VsGroundCriticalChance = SupportedCriticalChanceVsGround(player, skillId, release: true, handCritical, extraIncrease: 0, extraBaseCrit: exertedBaseCrit),
             ActualCaster = totem is null ? null : TotemCasterStats(playerStats), FromTotem = totem is not null,
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId, Gem = gem.Gem,
             HitPacket = true, ActionSequence = sequence,
+            VoidstormDriver = Own(VoidstormTrigger) > 0 && !spell && totem is null && from is null && !fromMirage
+                && sacrifice?.Triggered != true && !SkillsFor(player).HasType(gem.Effect, "InbuiltTrigger") ? admittedGem : null,
             SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
             FreezingPulseFalloff = SkillsFor(player).EffectId(gem.Effect) is
                 "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale",
@@ -565,13 +584,16 @@ public static partial class Game
             Spider = hitInputs is null ? null : CaptureSpiderDamage(player, hitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
                 bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off,
-                required: trackTrajectoryDamage),
+                required: trackTrajectoryDamage, extraIncreased: exertedIncreased, forMarkedTarget: true),
             SpiderArea = areaHitInputs is null ? null : CaptureSpiderDamage(player, areaHitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
                 bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off,
-                required: trackTrajectoryDamage),
+                required: trackTrajectoryDamage, extraIncreased: exertedIncreased, forMarkedTarget: true),
             MirageSource = totem is null && Own(Stat.SupportMirageArcherBaseDuration) > 0 ? SupportedSkill(player, skillId) : null,
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(player, skillId),
+            KineticFluxDriver = !spell && totem is null && from is null && sacrifice?.Triggered != true
+                && (Own(Stat.SupportKineticInstabilityChanceToCreateInstabilityOnCriticalStrikePct) > 0
+                    || Own(Stat.SupportKineticInstabilityChanceToCreateInstabilityOnKillPct) > 0) ? admittedGem : null,
             Penetration = Penetration.Of(playerStats, Stats, !spell, own, local), ResistanceMods = HitResistMods(playerStats, own),
             ImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource),
             CriticalImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource, critical: true),
@@ -583,17 +605,18 @@ public static partial class Game
                 WithIgniteSpread(ignite, playerStats, own, spell, hand))),
             Poison = WithOverheat(player, skillId, PoisonSettingsFrom(ailmentRows, hand, Get, local,
                 projectileAttack: projectileDamage && !spell)),
+            PoisonSkill = hitInputs is null ? default : SkillPoisonStats.Of(hitInputs.ActiveSkill, Get),
             EssenceDrain = EssenceDrainCast(player, skillId, gem.Effect),
             GhorrDotMore = GhorrDotMore(player, skillId),
             Bleed = spell ? MonsterIgnites.Settings.None : WithOverheat(player, skillId, BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,
                 bow: WeaponProfileFor(player, activeSet: true).Bow, projectileAttack: projectileDamage)),
             VsBlinded = blindedRows is null || hitInputs is null ? null : new(
-                SupportedHitFrom(hitInputs, suppress: false, additionalIncreased: additionalBlindedIncreased),
+                SupportedHitFrom(hitInputs, suppress: false, additionalIncreased: exertedIncreased + additionalBlindedIncreased),
                 areaHitInputs is null ? DamagePacket.Empty
                     : SupportedHitFrom(areaHitInputs, suppress: false,
-                        additionalIncreased: additionalBlindedIncreased),
+                        additionalIncreased: exertedIncreased + additionalBlindedIncreased),
                 WithOverheat(player, skillId, NotedIgnite(player, skillId, WithIgniteSpread(
-                    IgniteWithTargetCondition(blindedRows, hitInputs, hand, Get, additionalBlindedIncreased),
+                    IgniteWithTargetCondition(blindedRows, hitInputs, hand, Get, exertedIncreased + additionalBlindedIncreased),
                     playerStats, own, spell, hand))),
                 spell ? MonsterIgnites.Settings.None
                     : WithOverheat(player, skillId, BleedSettings(blindedRows, "main_hand", Get, local, melee: false,
@@ -649,7 +672,6 @@ public static partial class Game
                 }
                 : release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };
-        if (!spell) otherWarcryExertions += MeleeWarcryTriggersFor(criticalRoll)?.Count ?? 0;
         shot = shot with { IntimidatingCryExerted = cryExerted, OtherWarcryExertions = otherWarcryExertions, RallyingDamage = rallyingDamage };
         if (SkillsFor(player).EffectId(gem.Effect) == "LightningArrowAltX")
             shot = shot with { Electrocution = CaptureElectrocution(Get) };
@@ -715,6 +737,10 @@ public static partial class Game
         if (IsExplosiveArrow(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is not null)
             use = use with { Payload = shot with { ExplosiveFuse = CaptureExplosiveFuse(context, areaHitInputs, playerStats, own, hand, local) } };
         use = definition.SpecializeRelease?.Invoke(context, use) ?? use;
+        if (ownerAttack && !rain && sacrifice?.Triggered != true && attackSource?.WieldingWand == true
+            && Get(Stat.SkillCanFireWandProjectiles) != 0 && Get(Stat.ProjectilesAreNotFired) == 0
+            && use.Payload is ProjectileOffense wandShot)
+            use = use with { Payload = wandShot with { FiresWandProjectiles = true } };
         if (use.Profile.SequentialDelay > 0 && use.CanEmit is null)
             use = use with
             {

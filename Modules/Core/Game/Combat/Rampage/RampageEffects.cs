@@ -17,13 +17,9 @@ public static partial class Game
         && ReferenceEquals(world.SourceOwner, AscendancyPolicies.SourceOwner(player))
         && !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0 && RampageSource(player);
 
-    static DamagePacket RampageSpellPacket(Player player, int effect, int level)
-    {
-        var owner = StatSourceValues(player);
-        int increased = Stat.MinionDamagePlusPct is var key ? owner.GetValueOrDefault(key) : 0;
-        // The daemon is a separate caster. Rampager's spell-skills-deal-no-damage and owner Rage do not apply.
-        return SkillsFor(player).HitDamage(effect, level).Scale(Math.Max(0, 100L + increased) / 100.0);
-    }
+    // The daemon is a separate caster. Rampager's spell-skills-deal-no-damage and owner Rage do not apply.
+    static double RampageMinionDamageFactor(IReadOnlyDictionary<uint, int> stats) =>
+        Math.Max(0, 100L + stats.GetValueOrDefault(Stat.MinionDamagePlusPct)) / 100d;
 
     static async Task<uint?> CreateRampageActor(Player player, RampageCatalog.VarietyPlan plan, int level, double lifetime,
         RampageCatalog.WeaponKind? weapon, (int X, int Y) at, long epoch)
@@ -38,14 +34,14 @@ public static partial class Game
         var skill = SkillsFor(player).FindByRow(SkillCatalog.FirstSkillId, effect, level, own.Select(s => (s.Key, s.Value)).ToArray());
         if (skill is null) return null;
         var blob = new MonsterObject(at.X, at.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
-            Team: 0, Skills: [skill], Stats: [(Stat.MaximumLife, (int)life)]) { LifeData = variety.LifeData, Chain = variety.Chain };
+            Team: 0, Skills: [skill], Stats: [(Stat.MaximumLife, (int)life)]) { LifeData = variety.LifeData, Chain = variety.Chain, IsMinion = true };
         await SendWorldBatch(player, [], admission =>
         {
             if (!RampageEffectCurrent(player, epoch)) return null;
             double now = ProjectileWorldTime(player);
             player.Area.Monsters[id] = new(variety.Name, player.NewMonsterWalk(id, at.X, at.Y, variety.MovementSpeed,
                 Math.Clamp(variety.ObjectSize - 1, -1, 127), false), variety.AggroRange, variety.AttackRange, life)
-            { OwnerId = player.Id, Hostile = false, Variety = variety, Level = actorLevel,
+            { OwnerId = player.Id, Hostile = false, AlliedMinion = true, Variety = variety, Level = actorLevel,
                 HitAnimations = Monsters.TakeHit(variety.Id) };
             player.RampageWorld.Actors[id] = new(id, epoch, weapon, actorLevel, now + lifetime, now, effect);
             var bytes = new WorldRecordBuilder(player, admission);
@@ -129,6 +125,7 @@ public static partial class Game
         var origins = new List<((int X, int Y) Position, DamagePacket Damage)>();
         var corpses = new List<uint>();
         if (!RampageEffectCurrent(player, job.Epoch)) return;
+        double addedEffectiveness = 1;
         if (job.Step.Kind == RampageExecution.StepKind.Corpses)
         {
             foreach (var (corpseId, target) in player.Area.Monsters.Where(p => p.Value.Dead && p.Value.Hostile && p.Value.OwnerId is null)
@@ -141,7 +138,13 @@ public static partial class Game
                     corpses.Add(corpseId);
                 }
         }
-        else origins.Add((job.Origin, RampageSpellPacket(player, job.Tier.Skill.Row, job.Level)));
+        else
+        {
+            double multiplier = RampageMinionDamageFactor(StatSourceValues(player));
+            int effect = job.Tier.Skill.Row;
+            origins.Add((job.Origin, SkillsFor(player).HitDamage(effect, job.Level).Scale(multiplier)));
+            addedEffectiveness = AddedEffectiveness(player, effect, job.Level) * multiplier;
+        }
         foreach (uint id in corpses)
         {
             if (!RampageEffectCurrent(player, job.Epoch)) return;
@@ -161,25 +164,42 @@ public static partial class Game
                 .Select(p => (p.Key, p.Value)).ToArray();
             foreach (var (id, target) in targets)
                 await RampageOwnedHit(player, job.Epoch, id, target, packet, own,
-                    job.Step.Kind == RampageExecution.StepKind.Corpses ? "Rampage corpse explosion" : "Rampage nova");
+                    job.Step.Kind == RampageExecution.StepKind.Corpses ? "Rampage corpse explosion" : "Rampage nova",
+                    addedEffectiveness: addedEffectiveness);
         }
     }
 
     static async Task<bool> RampageOwnedHit(Player player,
         long epoch, uint id, SpawnedMonster target, DamagePacket packet, RampageCatalog.SkillLevel? own, string label,
-        bool attack = false, int accuracy = 0)
+        bool attack = false, int accuracy = 0, double addedEffectiveness = 1)
     {
         MonsterHit? hit; int damage; RampageStunToken? stun;
         using (ProjectileMutation(player))
         {
             if (!RampageEffectCurrent(player, epoch) || player.Paused || target.Dead || !target.Hostile
                 || target.OwnerId is not null || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), target)) return false;
-            if (attack && !RampageAttackHits(player, id, target, accuracy, ProjectileWorldTime(player), AreaRng(player))) return false;
+            double now = ProjectileWorldTime(player);
+            int hitChance = 100;
+            if (attack)
+            {
+                hitChance = RampageAttackHitChance(player, id, target, accuracy, now);
+                if (!DamageModel.Hits(hitChance, AreaRng(player).Next(100))) return false;
+            }
             if (MonsterBlocks(target, AreaRng(player), !attack)) return false;
+            // An attack that rolled to hit takes the critical confirmation roll against the same chance, as the
+            // Rampage bow projectile and every other attack do; a spell always hits.
             bool critical = AreaRng(player).Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0)
-                + BrittleCriticalChance(target, ProjectileWorldTime(player));
-            (damage, _) = MonsterDamage(target, packet.Roll(AreaRng(player)), critical, attack, default);
-            if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, 150, CharacterPlayerStats(player)));
+                + BrittleCriticalChance(target, now)
+                && (!attack || EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
+            var added = PoachersAddedPhysical(target, now).Scale(addedEffectiveness);
+            damage = RampageOwnedDamage(target, packet.Add(DamageType.Physical, added).Roll(AreaRng(player)), critical, attack, now);
+            if (critical)
+            {
+                var caster = CharacterPlayerStats(player);
+                // The animated weapon attacks with its own critical stats. The direct effects use the player's source.
+                int multiplier = attack ? CriticalMultiplierOn(target, 150, caster) : CriticalMultiplierOn(target, 150, now, caster);
+                damage = DamageModel.CriticalDamage(damage, multiplier);
+            }
             hit = ApplyMonsterHitLocked(player, target, damage, rampageSource: true); // Proven by this contact's effect guard.
             if (hit is null) return false;
             player.RecentEvents.RecordCriticalOutcome(ProjectileWorldTime(player), critical);
@@ -199,13 +219,25 @@ public static partial class Game
         return hit.Value.Life == 0;
     }
 
-    public static bool RampageAttackHits(Player player, uint id, SpawnedMonster target, int accuracy, double now, Random random,
+    // Rampage's existing damage path does not take a general debuff timestamp. The mine aura still uses this contact.
+    static int RampageOwnedDamage(SpawnedMonster target, DamagePacket rolled, bool critical, bool attack, double now) =>
+        ResolveMonsterHit(target, rolled, critical, attack, double.NaN, default,
+            additionalTakenPct: StormblastDamageTaken(target, now)).Damage;
+
+    /// <summary>The chance a Rampage attack has to hit this target, the value its hit roll is taken against. The
+    /// critical strike's confirmation roll is taken against the same chance (Path of Building's
+    /// <c>Modules/CalcOffence.lua:3058</c>).</summary>
+    public static int RampageAttackHitChance(Player player, uint id, SpawnedMonster target, int accuracy, double now,
         IReadOnlyDictionary<uint, int>? playerStats = null)
     {
         int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
         evasion = MonsterBlindRating(player, id, target, evasion, now, playerStats);
-        return DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), random.Next(100));
+        return DamageModel.AccuracyHitChance(evasion, accuracy);
     }
+
+    public static bool RampageAttackHits(Player player, uint id, SpawnedMonster target, int accuracy, double now, Random random,
+        IReadOnlyDictionary<uint, int>? playerStats = null) =>
+        DamageModel.Hits(RampageAttackHitChance(player, id, target, accuracy, now, playerStats), random.Next(100));
 
     static RampageStunToken? RampageStatusLocked(Player player, uint id, SpawnedMonster target,
         RampageCatalog.SkillLevel? own, double now)

@@ -114,6 +114,8 @@ public static partial class Game
             await SendPassiveJewelStats(player);
             if (spentClusterRemoval) await SendPassives(player);
         }
+        await GameEvents.RunInventoryChanged(player, row);
+        if (promoted is not null) await GameEvents.RunInventoryChanged(player, (byte)(row + 1));
     }
 
     // C→S 0x30: the held gem goes into a socket. The cursor loses it (and holds the gem that was in the socket, if any); the
@@ -172,7 +174,8 @@ public static partial class Game
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], now is null ? [] : [now]),
             $"0x00bf cursor: remove gem {before.Id}" + (now is null ? "" : $", hold gem {now.Id} from the socket"));
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id],
+            [EnergyBladeItem(player, row, item)]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} with a gem in socket {s.Socket}");
         if (ItemModStats.EquipmentRows.Contains(row)) await SendEquipment(player, items);
     }
@@ -254,7 +257,8 @@ public static partial class Game
             if (why is not null) await player.Commands!.Reply(why);
             return;
         }
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id],
+            [EnergyBladeItem(player, row, after)]),
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem to level {level + 1}");
         await SendSkills(player);
         Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}'s {ItemsFor(player).GemName(next)} levels to {level + 1}");
@@ -289,7 +293,7 @@ public static partial class Game
         {
             uint[] ids = [.. row.Select(c => c.Item.Id)];
             await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
-                ids, [.. row.Select(c => c.Item)]),
+                ids, [.. row.Select(c => EnergyBladeItem(player, row.Key, c.Item))]),
                 $"0x00bf inventory {PlayerInventories.InventoryId(row.Key)}: {ids.Length} item(s) with ready gems levelled at once");
         }
         foreach (var (before, after) in changed.SelectMany(c => c.Gems))
@@ -316,7 +320,8 @@ public static partial class Game
             return it with { Sockets = sockets };
         });
         if (after is null) return;
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id],
+            [EnergyBladeItem(player, row, after)]),
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem {(s.Locked ? "locked" : "unlocked")}");
         Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}'s {ItemsFor(player).GemName(gem)} in item {after.Id} socket {s.Socket}: {(s.Locked ? "level locked" : "level unlocked")}");
     }
@@ -358,7 +363,8 @@ public static partial class Game
             return;
         }
         var (item, held) = result;
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id],
+            [EnergyBladeItem(player, row, item)]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold gem {held.Id}");
@@ -371,7 +377,8 @@ public static partial class Game
         var effects = ItemsFor(player).GemEffects(gem).Select(e => SkillsFor(player).EffectId(e)).OfType<string>().ToArray();
         foreach (string effect in effects)
         {
-            CharacterSaves.SetAuraActive(CharacterName(player), effect, false);
+            if (!player.Auras.Values.Any(a => a.EffectId == effect))
+                CharacterSaves.SetAuraActive(CharacterName(player), effect, false);
             if (effect == PetrifiedBlood.EffectId)
                 CharacterSaves.SetPetrifiedBlood(CharacterName(player), false);
         }
@@ -879,25 +886,36 @@ public static partial class Game
         recoveryOwner = ResourceEffectsOf(player);
         r = FlaskRecovery.For(use, flask.Item, local,
             stat => flaskCharacter(stat) + (stat == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(player) : 0),
-            player.PlayerLife, player.PlayerMaxLife, playerLevel, finalMultiplier);
+            player.PlayerLife, player.PlayerMaxLife, playerLevel, finalMultiplier,
+            lifeAmountMultiplier: Get(Stat.KeystoneEmperorsHeart) != 0 ? .7 : 1);
         copyLife = ManaFlaskCopiesLife(r, character);
-        bool appliesToPlayer = Get(Stat.CannotBeAffectedByFlasks) == 0;
-        bool lifeFlaskBlocked = use.LifePerUse > 0 && Get(Stat.CannotUseLifeFlasks) != 0;
-        canRecover = !lifeFlaskBlocked && (appliesToPlayer && (Flasks.CanRecover(use, player.PlayerLife, LifeCap(player),
-                player.PlayerMana, (uint)UnreservedMana(player)) || copyLife && player.PlayerLife < LifeCap(player)
-            || ConditionalFlaskAilmentProtectionTriggered(player, local, AreaTime(player)))
-            || CanRecoverRaisedMinionsWithFlask(player, use, Get));
+        string? RecoveryUseRestriction(Func<uint, int> read)
+        {
+            if (use.LifePerUse > 0 && read(Stat.CannotUseLifeFlasks) != 0) return "life flask use disabled";
+            if (use.ManaPerUse > 0 && read(Stat.CannotUseManaFlasks) != 0) return "mana flask use disabled";
+            return null;
+        }
+        string? blockedReason = RecoveryUseRestriction(Get);
+        bool RecoveryTargetAvailable(Func<uint, int> read)
+        {
+            uint lifeCap = LifeCap(player);
+            return read(Stat.CannotBeAffectedByFlasks) == 0
+                && (Flasks.CanRecover(use, player.PlayerLife, lifeCap, player.PlayerMana, (uint)UnreservedMana(player))
+                    || copyLife && player.PlayerLife < lifeCap || use.LifePerUse > 0 && CanRecoverFlaskEnergyShield(player, read)
+                    || ConditionalFlaskAilmentProtectionTriggered(player, local, AreaTime(player)))
+                || CanRecoverRaisedMinionsWithFlask(player, use, read);
+        }
+        canRecover = blockedReason is null && RecoveryTargetAvailable(Get);
         bool CurrentRecovery()
         {
-            return ResourceEffectsCurrent(player, recoveryOwner) && CurrentGameWork
-                && !player.LeavingArea && player.PlayerLife > 0
-                && (use.LifePerUse <= 0 || CharacterPlayerStats(player).GetValueOrDefault(Stat.CannotUseLifeFlasks) == 0)
-                && (appliesToPlayer || CanRecoverRaisedMinionsWithFlask(player, use, Get))
-                && items.Items(PlayerInventories.Flask).Any(i => i.Id == flask.Id && i.X == slot);
+            if (!ResourceEffectsCurrent(player, recoveryOwner) || !CurrentGameWork || player.LeavingArea || player.PlayerLife == 0
+                || !items.Items(PlayerInventories.Flask).Any(i => i.Id == flask.Id && i.X == slot)) return false;
+            var current = CharacterPlayerStats(player);
+            return RecoveryUseRestriction(current.GetValueOrDefault) is null && RecoveryTargetAvailable(current.GetValueOrDefault);
         }
         if (!canRecover)
         {
-            string reason = lifeFlaskBlocked ? "life flask use disabled" : "recovery pools full";
+            string reason = blockedReason ?? "recovery pools full";
             await Send(player, InstanceItems.ItemUsed(flask.Item.TypeHash,
                 PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id, result: 0x4e2),
                 $"0x0263 flask {slot} ({type.Name}) refused: {reason} (0x4e2), charges unchanged");
@@ -918,10 +936,17 @@ public static partial class Game
         var during = UtilityFlasks.DuringEffectSources(local,
             FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct),
                 finalMultiplier: finalMultiplier));
+        // This flag stays with its paid recovery rather than entering the reusable character stat snapshot.
+        uint freeMana = Stat.LocalUniqueFlaskNoManaCostWhileHealing;
+        if (local.GetValueOrDefault(freeMana) != 0)
+            during.Add(new("recovery mana cost waiver", freeMana, 1));
         int? deathEpoch = null;
-        await SpendFlask(player, flask, charges, slot, CurrentRecovery,
-            spent => deathEpoch = AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, Get,
-                appliesToPlayer, during));
+        await SpendFlask(player, flask, charges, slot, CurrentRecovery, spent =>
+        {
+            var current = CharacterPlayerStats(player);
+            deathEpoch = AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, current.GetValueOrDefault,
+                current.GetValueOrDefault(Stat.CannotBeAffectedByFlasks) == 0, during);
+        });
         if (deathEpoch is int epoch)
             await RunOnAreaFrame(player, () => PlayerDiedAtEpoch(player, $"death from {type.Name}", epoch));
     }
@@ -1106,7 +1131,8 @@ public static partial class Game
                     : ground.Item;
 
                 // A quest item sets its flags (grant_flag, extra_flag) with the pickup, in the same save.
-                pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(player, f));
+                bool HasLeague(int flag) => player.Character.LeagueQuestFlags.Contains(flag);
+                pickupFlags = questFlags is null ? [] : QuestItems.PickupFlags(questFlags, f => ClientHasQuestFlag(player, f), HasLeague);
                 placed = KeepOnGroundIfNotSaved(player, ground, () =>
                 {
                     InventoryItem Put() => items.Put(row, new InventoryItem(items.NewItemId(), cell.X, cell.Y, itemToPut));
@@ -1114,7 +1140,7 @@ public static partial class Game
                         foreach (bool support in new[] { false, true })
                             if (player.Instance.IsStartWeapon(TutorialObjects.DropKey(CharacterName(player), tutorial, support), id))
                                 return TutorialObjects.Claim(CharacterName(player), support, ground.Item, Put);
-                    return questFlags is not null ? QuestItems.Claim(CharacterName(player), questFlags, Put) : Put();
+                    return questFlags is not null ? QuestItems.Claim(CharacterName(player), questFlags, Put, HasLeague) : Put();
                 }, id);
                 if (placed is not null)
                 {
@@ -1585,6 +1611,11 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use item {use}: no such item: {hex}");
             return false;
         }
+        if (item.Item.MercenaryLocked || r == PlayerInventories.MercenaryTemporary)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use item {use}: refused, locked mercenary gear");
+            return false;
+        }
         if (ItemsFor(player).ByHash(item.Item.TypeHash) is not { } type)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use item {use}: unknown type 0x{item.Item.TypeHash:x8}: {hex}");
@@ -1958,6 +1989,11 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: refused, currency is in public stash tab {pubTab}");
             return;
         }
+        if (target.Item.MercenaryLocked || (targetTab is null && targetRow == PlayerInventories.MercenaryTemporary))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: refused, target is locked mercenary gear");
+            return;
+        }
         var type = ItemsFor(player).ByHash(used.Item.TypeHash);
         // A worn item (equipment, the flask bar, jewels in the passive tree) takes only quality and flask enchant
         // currency: the others' client validators refuse it with ItemErrorItemEquipped, and the client still sends 0x71
@@ -1972,6 +2008,11 @@ public static partial class Game
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use {type?.Name ?? "item"} on item {use.TargetId}: refused, target is {(target.Item.Mirrored ? "mirrored" : "corrupted")}{where}");
             await SendItemError(player, stateError);
+            return;
+        }
+        if (GameEvents.FirstCurrencyRefusal(player, target.Item, used.Item.TypeHash) is { } refusal)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use {type?.Name ?? "item"} on item {use.TargetId}: refused, {refusal}{where}");
             return;
         }
         bool isEssence = type is not null && EssencesFor(player).Contains(type.Hash);
@@ -2131,6 +2172,7 @@ public static partial class Game
     // AccountStash.Merge); anything else (currency on an item …) is not handled yet.
     public static async Task HeldOntoItem(Player player, InstanceItems.ItemAction a, string hex)
     {
+        if (await GameEvents.AnyInventoryItemAction(player, a)) return;
         var items = ItemsOf(player);
         if (StashOf(player).TabOf(a.InventoryId) is int tab)
         {
@@ -2157,7 +2199,7 @@ public static partial class Game
                 var targetItem = items.Items(row).FirstOrDefault(i => i.Id == a.ItemId);
                 if (targetItem is null) why = "no such item";
                 else if (LevelTooLow(player, row, held) is { } low) why = low;
-                else if (held is not null && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } objection) why = objection;
+                else if (held is not null && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a)), (byte)targetItem.X, (byte)targetItem.Y) is { } objection) why = objection;
                 else if (PassiveJewelRefusal(player, targetItem.X, targetItem.Y, held) is { } refusal) why = refusal;
                 else if (ClusterRemovalRefusal(player, targetItem) is { } clusterRefusal) why = clusterRefusal;
                 else if (AllocationBypassRemovalRefusal(player, targetItem) is { } bypassRefusal) why = bypassRefusal;
@@ -2178,7 +2220,10 @@ public static partial class Game
             }
         }
         else if (LevelTooLow(player, row, held) is { } low) why = low;
-        else if (held is not null && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } objection) why = objection;
+        else if (held is not null && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is { } mergeTarget
+            && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a)), (byte)mergeTarget.X, (byte)mergeTarget.Y) is { } objection) why = objection;
+        else if (held is not null && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is null
+            && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } fallbackObjection) why = fallbackObjection;
         else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
             expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player), player: player);
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(player, lr, held) is { } tooLow) why = tooLow;
@@ -2188,14 +2233,20 @@ public static partial class Game
             return;
         }
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x004a held item onto {a}: {hex}");
-        if (done.Merged || done.Rest is not null) { await SendMerged(player, items, done); return; }
+        if (done.Merged || done.Rest is not null)
+        {
+            await SendMerged(player, items, done);
+            await GameEvents.RunInventoryChanged(player, done.Row);
+            return;
+        }
         // Not a stack with room: swapped, as 0x2a on that cell.
         if (done.Row == PlayerInventories.Flask && done.FromRow != PlayerInventories.Flask)
             done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
         var d = done.Displaced;
+        uint[] removedIds = d is not null ? [d.Id] : done.DestroyedId is uint gone ? [gone] : [];
         uint target = PlayerInventories.InventoryId(done.Row);
-        await Send(player, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
-            $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (d is null ? "" : $", remove item {d.Id}"));
+        await Send(player, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), removedIds, [done.Placed]),
+            $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (removedIds.Length == 0 ? "" : $", remove item {removedIds[0]}"));
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
@@ -2210,6 +2261,7 @@ public static partial class Game
             await SendPassiveJewelStats(player);
             if (spentClusterRemoval) await SendPassives(player);
         }
+        await GameEvents.RunInventoryChanged(player, done.Row);
     }
 
     // Shift held on a 0x4a: flag bit 2 (the sender's param 7; live 2026-10-19, Flags = 4 with Shift, 0 without).
@@ -2250,7 +2302,7 @@ public static partial class Game
                 {
                     placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
                     if (LevelTooLow(player, row, placement) is { } low) why = low;
-                    else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
+                    else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0), (byte)place.X, (byte)place.Y) is { } objection) why = objection;
                     else
                     {
                         var sourcesBefore = PlayerSkillSourcesLocked(player);
@@ -2272,7 +2324,7 @@ public static partial class Game
                 placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
                 var leaving = items.Items(row).FirstOrDefault(i => i.X == place.X && i.Y == place.Y);
                 if (LevelTooLow(player, row, placement) is { } low) why = low;
-                else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
+                else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0), (byte)place.X, (byte)place.Y) is { } objection) why = objection;
                 else if (leaving is not null && ClusterRemovalRefusal(player, leaving) is { } clusterRefusal)
                     why = clusterRefusal;
                 else if (leaving is not null && AllocationBypassRemovalRefusal(player, leaving) is { } bypassRefusal)
@@ -2298,7 +2350,7 @@ public static partial class Game
         {
             placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
             if (LevelTooLow(player, row, placement) is { } low) why = low;
-            else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
+            else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0), (byte)place.X, (byte)place.Y) is { } objection) why = objection;
             else
             done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0,
                 expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player), player: player);
@@ -2311,10 +2363,16 @@ public static partial class Game
         if (done.Row == PlayerInventories.Flask && done.FromRow != PlayerInventories.Flask)
             done = done with { Placed = EmptyIfEquippedInHostileArea(player, items, done.Placed) };
         var d = done.Displaced;
+        uint[] removedIds = d is not null ? [d.Id] : done.DestroyedId is uint gone ? [gone] : [];
         uint target = PlayerInventories.InventoryId(done.Row);   // may differ from the clicked one (off hand → main hand)
-        if (done.Merged || done.Rest is not null) { await SendMerged(player, items, done); return; }
-        await Send(player, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
-            $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (d is null ? "" : $", remove item {d.Id}"));
+        if (done.Merged || done.Rest is not null)
+        {
+            await SendMerged(player, items, done);
+            await GameEvents.RunInventoryChanged(player, done.Row);
+            return;
+        }
+        await Send(player, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), removedIds, [done.Placed]),
+            $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (removedIds.Length == 0 ? "" : $", remove item {removedIds[0]}"));
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [done.Held.Id], d is null ? [] : [d]),
             $"0x00bf cursor: remove item {done.Held.Id}" + (d is null ? "" : $", hold item {d.Id}"));
@@ -2329,6 +2387,7 @@ public static partial class Game
             await SendPassiveJewelStats(player);
             if (spentClusterRemoval) await SendPassives(player);
         }
+        await GameEvents.RunInventoryChanged(player, done.Row);
     }
 
     static void CompletePassiveJewelMutationLocked(Player player, IReadOnlyList<PlayerSkillSource> sourcesBefore)

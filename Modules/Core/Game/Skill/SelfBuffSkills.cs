@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -9,15 +10,38 @@ public static partial class Game
     // Phase Run and Blood Rage their own buffs below. Their stats join the character's sources while they last
     // (WithSelfBuffs), as the guard's do. Phase Run is a Movement skill that stays in place, so its instant use is
     // accepted as a self buff's.
-    static bool InPlaceSelfBuff(Player player, int effect) => SkillsFor(player).EffectId(effect) is "PhaseRun" or ApproachingFlamesEffect;
+    static bool InPlaceSelfBuff(Player player, int effect) =>
+        SkillsFor(player).EffectId(effect) is "PhaseRun" or "PhaseRunRoyale" or ApproachingFlamesEffect or WitheringStepEffect;
 
     // Refused before the cost: a guard is running, or the guards' shared recovery after the last one has not passed
-    // (display_this_skill_cooldown_does_not_recover_during_buff).
-    public static string? SelfBuffRefused(Player player, int effect)
+    // (display_this_skill_cooldown_does_not_recover_during_buff), or a standalone instant buff's resource/state gate fails.
+    public static string? SelfBuffRefused(Player player, int effect) => SelfBuffRefused(player, effect, null, triggered: false);
+
+    public static string? SelfBuffRefused(Player player, int effect, ushort? skillId, bool triggered = false)
     {
         string? id = SkillsFor(player).EffectId(effect);
-        return GuardSpellEffect(id) && !GuardReadyFor(player, id, AreaTime(player))
-            ? "a guard skill is active or recovering" : null;
+        double now = AreaTime(player);
+        if (GuardSpellEffect(id))
+        {
+            if (!GuardReadyFor(player, id, now)) return "a guard skill is active or recovering";
+            if (id == ArcaneCloakEffect)
+            {
+                if (player.PlayerMana == 0) return "no mana for Arcane Cloak";
+                if (skillId is ushort sid)
+                {
+                    int consumePct = Math.Clamp(SupportedSkill(player, sid).Stats.GetValueOrDefault(Stat.ArcaneCloakConsumePctOfMana), 0, 100);
+                    if ((long)player.PlayerMana * consumePct / 100 <= 0) return "not enough mana for Arcane Cloak";
+                }
+            }
+            return null;
+        }
+        if (id == WitheringStepEffect)
+            return CanUseWitheringStepReadOnly(player) ? null : "cannot use Withering Step while Elusive";
+        if (id == BerserkEffect)
+            return CanStartBerserkReadOnly(player, skillId, effect) ? null : "not enough Rage or Berserk already active";
+        if (id == PlagueBearerEffect)
+            return CanUsePlagueBearerReadOnly(player, automated: triggered) ? null : "Plague Bearer cannot toggle in this state";
+        return null;
     }
 
     // After the paid use: true when this was one of the self buffs (its effect has started).
@@ -30,21 +54,65 @@ public static partial class Game
             StartTriggeredGuard(player, session, skillId, AreaTime(player));
             return true;
         }
-        if (id == "PhaseRun") { await StartPhaseRun(player, skillId); return true; }
+        if (id is "PhaseRun" or "PhaseRunRoyale") { await StartPhaseRun(player, skillId); return true; }
         if (id == "BloodRage") { await StartBloodRage(player, skillId); return true; }
+        if (id == WitheringStepEffect) { using (ProjectileMutation(player)) return StartWitheringStepLocked(player, skillId, AreaTime(player)); }
+        if (id == BerserkEffect) { using (ProjectileMutation(player, advance: false)) return StartBerserkLocked(player, skillId, AreaTime(player)); }
+        if (id == CorruptingFeverEffect) { using (ProjectileMutation(player, advance: false)) return StartCorruptingFeverLocked(player, skillId, AreaTime(player)); }
+        if (id == PlagueBearerEffect) { using (ProjectileMutation(player, advance: false)) return TogglePlagueBearerLocked(player, skillId, AreaTime(player), automated: false); }
         return false;
+    }
+
+    internal static async Task TickInstantBuffSkills(Player player, double now)
+    {
+        bool wsActive = WitheringSteps.TryGetValue(player, out var ws) && ws.Active;
+        if (wsActive
+            || Berserks.TryGetValue(player, out var bk) && bk.Active
+            || CorruptingFevers.TryGetValue(player, out var cf) && cf.Active)
+        {
+            using (ProjectileMutation(player, advance: wsActive))
+            {
+                if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return;
+                TickWitheringStepLocked(player, now);
+                TickBerserkLocked(player, now);
+                TickCorruptingFeverLocked(player, now);
+            }
+        }
+        await TickPlagueBearer(player, now);
+    }
+
+    public static void ClearInstantBuffSkills(Player player)
+    {
+        var area = player.Area;
+        void Cleanup(GameArea _)
+        {
+            using (ProjectileMutation(player, advance: false))
+                ClearInstantBuffSkillsLocked(player);
+        }
+        if (area.Driven && !area.Owned) area.Defer(Cleanup);
+        else Cleanup(area);
+    }
+
+    public static void ClearInstantBuffSkillsLocked(Player player, IReadOnlyCollection<ushort>? onlyIds = null)
+    {
+        ClearWitheringStepLocked(player, onlyIds);
+        ClearBerserkLocked(player, onlyIds);
+        ClearCorruptingFeverLocked(player, onlyIds);
+        ClearPlagueBearerLocked(player, onlyIds);
     }
 
     sealed class SelfBuff
     {
         public ushort Buff, Skill;
         public int Token;
-        public double Until, Seconds, Degen;
+        public double Until, Seconds;
+        public int LifeDegenPctPerMinute, ShieldDegenPctPerMinute;
         public readonly Dictionary<uint, int> Stats = [];
     }
     sealed class SelfBuffSet
     {
         public SelfBuff? PhaseRun, PhaseRunDamage, BloodRage;
+        public EnergyBladeState? EnergyBlade;
     }
     static readonly RuleTable<Player, SelfBuffSet> SelfBuffs = new();
 
@@ -64,25 +132,40 @@ public static partial class Game
         PhaseRunBuffRow = BuffRow("new_phase_run", 467);
         PhaseRunDamageBuffRow = BuffRow("new_phase_run_damage", 468);
         BloodRageBuffRow = BuffRow("blood_rage", 11);
+        EnergyBladeBuffRow = BuffRow("storm_blade", 1942);
     }
 
     // Under the Monsters lock (WithSupportGemBuffs): the running self buffs' stats, from the accepted cast on.
     static Dictionary<uint, int> WithSelfBuffs(Player player, Dictionary<uint, int> stats)
     {
-        if (!SelfBuffs.TryGetValue(player, out var set)) return stats;
         // On the item-stat lookup's path (performance.md, "Hot paths"): no allocation, nothing read when none runs.
         if (player.PlayerLife <= 0) return stats;
+        AddWitheringStepStats(player, stats);
+        AddBerserkStats(player, stats);
+        AddPlagueBearerStats(player, stats);
+        if (!SelfBuffs.TryGetValue(player, out var set)) return stats;
         double now = AreaTime(player);
+        if (set.EnergyBlade is { } blade)
+        {
+            stats[Stat.WieldingStormBlades] = 1;
+            stats[Stat.StormBladeEnergyShieldPlusPctFinal] = blade.ShieldMore;
+            stats[Stat.AttackSpeedPlusPct] = ActorScale.Saturate((long)stats.GetValueOrDefault(Stat.AttackSpeedPlusPct) + blade.AttackSpeed);
+        }
         AddRunning(set.PhaseRun);
         AddRunning(set.PhaseRunDamage);
-        AddRunning(set.BloodRage);
+        if (AddRunning(set.BloodRage))
+        {
+            stats[Stat.AttackSpeedPlusPct] += stats.GetValueOrDefault(Stat.BloodRageGrantsAdditionalAttackSpeedPlusPct);
+            stats[Stat.AddFrenzyChargeOnKillPctChance] += stats.GetValueOrDefault(Stat.BloodRageGrantsAdditionalPctChanceToGainFrenzyOnKill);
+        }
         return stats;
 
-        void AddRunning(SelfBuff? buff)
+        bool AddRunning(SelfBuff? buff)
         {
-            if (buff is null || now >= buff.Until) return;
+            if (buff is null || now >= buff.Until) return false;
             foreach (var (key, value) in buff.Stats)
                 stats[key] = stats.GetValueOrDefault(key) + value;
+            return true;
         }
     }
 
@@ -211,20 +294,27 @@ public static partial class Game
         buff.Stats[Stat.AttackSpeedPlusPct] = Own(Stat.AttackSpeedPlusPctGrantedFromSkill);
         buff.Stats[Stat.LifeLeechFromPhysicalAttackDamagePermyriad] = Own(Stat.LifeLeechFromPhysicalAttackDamagePermyriad);
         buff.Stats[Stat.AddFrenzyChargeOnKillPctChance] = Own(Stat.AddFrenzyChargeOnKillPctChance);
-        double degen = (player.PlayerMaxLife * (double)Own(Stat.BasePhysicalDamagePctOfMaximumLifeToDealPerMinute)
-            + player.Pools.EnergyShield * (double)Own(Stat.BasePhysicalDamagePctOfMaximumEnergyShieldToDealPerMinute)) / 6000;
-        player.Degens[buff] = degen;
-        buff.Degen = degen;
+        buff.LifeDegenPctPerMinute = Own(Stat.BasePhysicalDamagePctOfMaximumLifeToDealPerMinute);
+        buff.ShieldDegenPctPerMinute = Own(Stat.BasePhysicalDamagePctOfMaximumEnergyShieldToDealPerMinute);
+        UpdateBloodRageDegen(player, buff);
         Console.WriteLine($"[gateway] {player.Connection.Remote} Blood Rage: {seconds:0.###} s, +{buff.Stats[Stat.AttackSpeedPlusPct]}% attack speed, "
-            + $"{buff.Degen:0.#} physical damage per second");
-        await ShowSelfBuff(player, buff, BloodRageBuffRow, "Blood Rage", () => EndBloodRageDegen(player, buff));
+            + $"{player.Degens[buff]:0.#} physical damage per second");
+        await ShowSelfBuff(player, buff, BloodRageBuffRow, "Blood Rage", () => player.Degens[buff] = 0);
     }
 
-    // When the buff ends.
-    static void EndBloodRageDegen(Player player, SelfBuff buff)
+    static void RefreshBloodRageDegen(Player player)
     {
-        player.Degens[buff] = 0;
-        buff.Degen = 0;
+        if (SelfBuffs.TryGetValue(player, out var set) && set.BloodRage is { Until: > 0 } buff)
+            UpdateBloodRageDegen(player, buff);
+    }
+
+    static void UpdateBloodRageDegen(Player player, SelfBuff buff)
+    {
+        var pools = player.Pools;
+        double rate = AreaTime(player) < buff.Until
+            ? (pools.Life * (double)buff.LifeDegenPctPerMinute + pools.EnergyShield * (double)buff.ShieldDegenPctPerMinute) / 6000
+            : 0;
+        player.Degens.Set(buff, DamageType.Physical, rate);
     }
 
     // A hostile monster the player killed (ChargesOnKill): a running Blood Rage starts its duration again.
@@ -237,6 +327,6 @@ public static partial class Game
         if (!player.Connection.Connected) return;
         // Per kill: the stats are the same while it runs, so only the buff's timer is shown again (no stat build).
         _ = ShowSelfBuff(player, rage, BloodRageBuffRow, "Blood Rage refreshed by a kill",
-            () => EndBloodRageDegen(player, rage), restat: false);
+            () => player.Degens[rage] = 0, restat: false);
     }
 }

@@ -5,7 +5,7 @@ public static partial class Game
         && (BallistaRain(player, effect) || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null);
 
     static bool BallistaRain(Player player, int effect) =>
-        SkillsFor(player).EffectId(effect) is var id && (IsBlastRain(id) || id is TrarthusBlastRain or ConflagrationEffect || IsToxicRain(id) || IsArtilleryBallista(id) || IsStormRain(id));
+        SkillsFor(player).EffectId(effect) is var id && (id is "RainOfArrows" or TrarthusBlastRain or ConflagrationEffect || IsRainOfArrowsVariant(id) || IsBlastRain(id) || IsToxicRain(id) || IsArtilleryBallista(id) || IsStormRain(id));
 
     public static bool BallistaPathAvailable(Player player, ushort skill)
     {
@@ -34,6 +34,9 @@ public static partial class Game
         if (SkillsFor(player).IsAttack(effect)) limit += GolemStat(stats, Stat.AttackSkillsAdditionalTotemsAllowed);
         if (GolemStat(own, Stat.IsRangedAttackTotem) != 0)
             limit += GolemStat(stats, Stat.AttackSkillsAdditionalBallistaTotemsAllowed);
+        if (GolemStat(stats, Stat.NumberOfAdditionalSiegeBallistaePer200Dexterity) is not 0 and var perDexterity
+            && SkillsFor(player).EffectId(effect) is "SiegeBallista" or "SiegeBallistaAltX" or "SiegeBallistaAltY" or "SiegeBallistaRoyale")
+            limit += (long)perDexterity * (Math.Max(0, GolemStat(stats, Stat.Dexterity)) / 200);
         return (int)Math.Clamp(limit, 0, int.MaxValue);
     }
 

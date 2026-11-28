@@ -10,7 +10,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [Idols](../docs/game/idols.md).
 - Heist Locker is placed in each hideout and opens its native window (0x7b kind 0x37).
   The native window handler and visible state were verified through the real client.
-  Its placement supports the hideout editor; storage transfers were not added by this change.
+  Its placement supports the hideout editor; 0x00fc quick-move and 0x002a HeistStorageLayout region guards are wired.
   See [21](../docs/protocol/21-hideouts.md), Heist Locker.
 - Horticrafting Station (2026-10-27): placed beside the ordinary bench in every selected hideout; interaction opens
   the native recipe browser (0x7b kind 0x39).
@@ -130,6 +130,21 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- **Settlers of Kalguur / Kingsmarch (`Modules/Core/Content/Settlers`, verified live in 3.29.3d):** Karui Shores
+  Johan/Faustus intro & tutorial quests, native `kingsmarch.arm` `0x02bb` hub (349 objects, zero client patches),
+  ruleset `0x9b` town/workers/production/shipping/mapping/disenchanting/dual-mode recombinator, all 6 map ore/dust
+  encounters, Lost Shipments, Kalguuran Scarabs, Refiner's Bargain, Prospecting Astrolabe integration, 3 boss arenas
+  (Black Knight, Admiral Valerius, Sasan), SQLite persistence (`settlers_village.sql`), and Waypoint tunables
+  (`settings.json`, retail `1.0` defaults); see [30](../docs/protocol/30-settlers-kingsmarch.md).
+- Act 11 Atlas endgame progression (verified live in 3.29.3d): unconditional endgame flag bypass removed (kept as
+  `/atlas_unlock`), Karui Shores War Room Map Device works for `a11q1`, and Eagon stands in hideouts once unlocked.
+  `0x01a3` carries Tangle/Cleansing 28-map counts and sections `0x04` (Maven witnessed), `0x08` (Memory Lines), and
+  `0x10` (Astrolabe Shaped Regions); `0x01a4` bit `0x04` marks incremental witnessing.
+  Envoy encounters, Maven witnessing and Crucible (`0x7b` `0x52`, `0x0298`, Ruleset 112), Eldritch influence packs and
+  Altars (`0x028e`, Ruleset 99), Zana/Eagon Memory Tears (`0x7b` `0x42`, `0x0297`), Astrolabes (`0x0075`/`0x0076`),
+  Memory Vaults, 3.29 Atlas Anomalies, all nine Atlas Books of Skill (138-point retail budget), and Merciless/Eternal
+  Labyrinth (`labyrinth_a11`) are implemented.
+  See [21](../docs/protocol/21-hideouts.md).
 - Hideout template export and import (`0x0213`) save and restore doodads and music per account; live check pending.
 - Crafting bench close (`0x02b1`) and Horticrafting quick-move (`0x00f8`) update bench balance and slot state.
 - Guild hideouts (`0x7b` `0x22` arg 1, `0x1f2`/`0x1f5` guild bit, `0x254` bit 15, `Hideout2`): offline verified.
@@ -137,8 +152,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Rogue Harbour: NPCs and stashes at the room's cells; Heist screens open (0x34, 0x35, 0x36), no contract start yet.
 - Tier 17 Marked for Death follows rare/unique kills; monster impales detonate on the fifth stack (checked offline).
 - Rogue Harbour: PlanningNPCs, 0x27c/0x164, 0x279/0x27d–0x27f planning ([21](../docs/protocol/21-hideouts.md)).
-- Map Delirium Mirror: all five scarabs, Mania depth/counter growth, Paranoia types, Neuroses bosses/kill types,
-  Delusions found-map enchants, shared reload/reentry and single payout ([boundaries](../docs/game/league-encounters.md#delirium-scarabs)).
+- Map Delirium Mirror: native fog, reward bars, extra Atlas completion reward types, all five scarabs, Mania
+  depth/counter growth, Paranoia types, Neuroses bosses/kill types, Delusions found-map enchants, shared reload/reentry
+  and single payout ([boundaries](../docs/game/league-encounters.md#delirium-scarabs)).
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
   The Tier 17 block, suppression, monster Energy Shield and recipient curse modifiers are checked offline.
@@ -150,9 +166,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   The client still refuses them: on their own Atlas node it shows "The device requires a map" and sends no 0x00d8, and an
   ordinary node does not take them (live 2026-11-22; a WorldAreas HASH16 in MapKey flag bit 1 did not change it).
   Their fixed unique modifiers are not applied.
+- Valdo's Puzzle Box (Atlas module, `ValdoMaps`): right-click opens a foil, rare Valdo Map (tier 17, level 84) from
+  world.db `valdo_box_outcomes` (poewiki's trade-observed outcomes, weighted by the reward's `unique_weights`), with
+  4–7 MapSupporter modifiers and a 25% Void modifier (G). The device opens its layout without the Atlas tree; 90% of
+  monsters and every rare/unique dead raises a Singular Reliquary holding the Celestial foil unique and completes
+  Valdo's Oubliette (live 2026-11-27: box, mods, name/layout/reward lines). Of the modifiers, the "contains …" bosses,
+  inhabitants, extra packs, extra random mods, rare-mods-on-kill and the player/monster stat ones act; the daemons,
+  apparitions, Maven, fatal timer, portal decay, solo mode, Void on death and league-completion requirements do not.
+- Voidborn Reliquary (Atlas module, `VoidbornReliquary`): the key's recipe opens `ClassicTreasury_Cosmic`, where a Relic
+  Vault (`ForgottenReliquaryCosmic`) drops one foil unique (item level 75) from world.db `voidborn_reliquary_outcomes`
+  (poewiki's trade-observed list, weighted by entries x `unique_weights`). Not checked live; the other reliquary keys'
+  vaults stay empty.
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability, Terrors bosses,
   Bestiary's additional red beasts/family lures/Shadowed Crow/capture copies and Sulphite's owner yield/Fumes.
-  Delirium, Shaper/Elder influence, Legion, Abyss and Mercenary inputs use their existing encounter paths
+  Delirium, Shaper/Elder influence, Legion, Abyss, Mercenary, Expedition, Incursion, Betrayal and Pandemonium inputs
+  use their existing encounter paths
   ([encounters](../docs/game/league-encounters.md)); remaining families still report provider diagnostics.
   Terrors' boss kit skills inherit map damage, speed, projectile and area modifiers alongside their default attacks.
   Bestiary captures persist per account and league; mission identities and claims survive module reload.
@@ -223,13 +251,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   selector). Not compared with a retail capture: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
 
-- Legion (partial): one or more Timeless Monoliths per area (`LegionInitiator` 7-state progression, General link
-  `0xec72e38c`, `LegionFlashLight`, `LegionRules` `0x2c9` modes 0/1/5, `0xdf` world/battle/post-battle environments),
-  timer, two armies in stasis (`LegionBreakout` action with `present`/`owning_initiator`), full
-  combat damage break-out via a non-lethal life floor (hits, DoTs/Contagion, minions, totems, brands, traps, mines,
-  culling), release wave, seamless wake, post-battle fade-out and war chests with floating 3D reward symbols opening at
-  release. Scarab inputs, repeated breakouts and reward drops have native verification; retail reward weights and
-  difficulty need calibration. The Domain and remaining Atlas rules are separate work. Docs: [Legion](../docs/game/legion.md).
+- Legion (partial): the Timeless Monolith with its timer, two armies in stasis, break-out on damage, release wave and war chests;
+  rewards (symbols, rolled drops, splinters, Ruthless scaling), the scarabs and the Atlas passives. The Domain of Timeless Conflict
+  follows 3.29: ghosts, revival waves in the control zone, the 100-crystal tracker, the generals' lines and recipe portals. The army
+  fills the arena; Aukuna fights mounted and dismounts on the mount's death; Hyrri is her Fish with the rider and water clones;
+  Generals and Sergeants use the S6 combo hooks. Scarab inputs, repeated breakouts and reward drops have native verification;
+  the rest is not checked in the client, and retail reward weights and difficulty need calibration.
+  Docs: [Legion](../docs/game/legion.md).
 
 - Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).
 
@@ -241,7 +269,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Starting a wave destroys every item on the ground, as the client warns.
   Its arenas use their encounter rules independently of the owner's Atlas preset.
   Scheduled bosses spawn before a scaled wave can award its rewards.
-- Simulacrum's flask drain and map hit effects work offline. See [map hits](../docs/game/maps.md#monster-hit-modifiers).
+- Simulacrum waves apply their rolled hit and defence modifiers.
+  See [map hits](../docs/game/maps.md#monster-hit-modifiers).
 
 - **Waypoint arrival.** Hideout entry uses the exact saved waypoint cell for spawn and movement origin,
   including login and returns from other areas.
@@ -382,8 +411,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ducat socketing and reclaim, and Message in a Bottle reveal.
   Ship upgrades (`DeepwaterUpgrades` rows 0–4: `+1` lantern, Sulphur scaling, extra scattered objects, final-lantern
   Adrenaline, all five upgrade pieces with Vesper turn-ins `#3920–3924` unlocking copy-cap tiers and
-  `GhostflameCraftingBenchProps_Stage1..6`), Act 1 Deepwater Fairgraves (`1_1_9` with `FlameBarrier1` and
-  `AllFlameLanternDeepwater`), and Kishara's Rest (`#29` barrier → `#30` imbued level ≥ 83 boss arena with two-phase
+  `GhostflameCraftingBenchProps_Stage1..6`), Act 1 Deepwater Fairgraves (`1_1_9` with dynamic `FlameBarrier1` and
+  `AllFlameLanternDeepwater`, crediting minion/totem/trap/mine kills too), and Kishara's Rest (`#29` barrier → `#30` imbued level ≥ 83 boss arena with two-phase
   Cressie and Velka, guaranteed unique + 8% Coursing Current Support + first-kill quest drops, and
   `VelkaDescensionObject` opening Velka Bloodline `Descendancy#15`) work
   ([03](../docs/protocol/03-area-and-world.md) §8, [12](../docs/protocol/12-quests.md) §5,

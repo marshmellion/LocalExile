@@ -6,12 +6,26 @@ namespace GameServer.Modules.Mercenary;
 
 public sealed partial class MercenaryModule
 {
-    // ---- the roll -----------------------------------------------------------------------------------------------------------
+    static readonly string[] OwnerQuestFlags = [MercenaryWire.OwnerQuestFlag];
+
+    // ---- Quest flag (IsMapOwner / 0xbd0b7d78) ---------------------------------------------------------------------------------
+
+    IReadOnlyList<string> EncounterQuestFlags(Player player)
+    {
+        if (Peek(player) is not { Stage: not Stage.None } run) return [];
+        return IsEncounterOwner(player, run) ? OwnerQuestFlags : [];
+    }
+
+    static bool IsEncounterOwner(Player player, Run run)
+    {
+        if (string.IsNullOrEmpty(run.OwnerName)) return true;
+        return string.Equals(CharacterName(player), run.OwnerName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ---- The Roll & Campaign / Map Spawning -----------------------------------------------------------------------------------
 
     /// <summary>The percent chance a map area holds a mercenary. CoreLeagues row 28 is not rolled by <see cref="LeagueChances.Count"/>,
-    /// so the area's own WorldAreaLeagueChances column is read (as Delve's sulphite does) and the map's stats are added. The
-    /// stat ids are the table's stored values plus one: Mercenaries' disable-from-chance, disable, additional-chance and
-    /// chance-increase stats and the forcing <c>map_mercenary_league</c>. 100 for a forced one, 0 for an excluded one.</summary>
+    /// so the area's own WorldAreaLeagueChances column is read (as Delve's sulphite does) and the map's stats are added.</summary>
     public static long ChanceOf(string areaId, bool hardMode, IReadOnlyDictionary<uint, int> stats)
     {
         int S(uint stat) => stats.GetValueOrDefault(stat);
@@ -26,31 +40,105 @@ public sealed partial class MercenaryModule
         return Math.Max(0L, chance) * Math.Max(0L, 100L + S(Stat.MapMercenaryChancePlusPct)) / 100;
     }
 
-    /// <summary>A new instance of a map area: roll once, and place the mercenary where the packs leave room. Towns, hideouts and
-    /// the campaign's areas are not map areas and roll nothing.</summary>
+    /// <summary>The chance, in hundredths of a percent, that a Mercenary is Infamous. The wiki: "the base chance is
+    /// approximately 20%, though this chance varies with each class"; since 3.29.1 Infamous ones are "50% more common in tier
+    /// 1 Maps, scaling up to approximately twice as common in tier 16 Maps". map_mercenary_infamous_chance_+% raises it.
+    /// [ESTIMATE] 20% for every class (the per-class rates are not published) and a linear scale between tiers 1 and 16.</summary>
+    public static int InfamousChanceBasisPoints(int mapTier, int increasedPct)
+    {
+        double tierScale = mapTier <= 0 ? 1 : 1.5 + 0.5 * (Math.Clamp(mapTier, 1, 16) - 1) / 15.0;
+        return (int)Math.Round(2000 * tierScale * Math.Max(0, 100 + increasedPct) / 100.0);
+    }
+
+    /// <summary>Evaluates whether a new combat instance (map or campaign) rolls a mercenary encounter, honoring retail 3.29
+    /// Act 3+ campaign rules, Warrant calls, map chances, and <see cref="GameEvents.EncounterSpawn"/> overrides (for Phase 2 mods).</summary>
     async Task Place(AreaPopulated area)
     {
         var player = area.Player;
         var layout = player.Layout;
-        if (!MapDevices.IsMapArea(layout.Hash) || layout.Walkable is not { } walkable) return;
+        if (layout.Walkable is null || IsTownOrHideout(player)) return;
+
         var run = State(player);
         lock (run)
         {
             if (run.Rolled) return;
             run.Rolled = true;
-            run.Level = area.Level; run.Seed = area.Seed;
+            run.Level = area.Level;
+            run.Seed = area.Seed;
+            run.OwnerName = CharacterName(player);
         }
+
+        bool isMap = MapDevices.IsMapArea(layout.Hash);
         var stats = AreaLeagueStats(player);
-        long chance = ChanceOf(layout.Id, LeagueFor(player).HardMode, stats);
-        bool placed = chance >= 100 || chance > 0 && new Random(area.Seed ^ RollTag).Next(100) < chance;
+
+        // Check if this map was opened with a Mercenary Warrant rematch blueprint
+        var warrant = ConsumePendingWarrant(player);
+
+        bool allowed;
+        long chance;
+        bool force = warrant is not null;
+
+        if (isMap)
+        {
+            allowed = true;
+            chance = force ? 100 : ChanceOf(layout.Id, LeagueFor(player).HardMode, stats);
+        }
+        else
+        {
+            // Campaign: the area's own WorldAreaLeagueChances column (Act 3 16%, later acts less, 100 in five zones, 0 in
+            // Acts 1-2, labyrinth rooms, side areas and Ruthless), while playerLevel <= areaLevel + 10. The five guaranteed
+            // zones ignore the level gate.
+            var meta = MercenaryTables.AreaOf(layout.Id);
+            allowed = meta is { IsTown: false, IsHideout: false };
+            chance = allowed ? ChanceOf(layout.Id, LeagueFor(player).HardMode, stats) : 0;
+            bool guaranteed = chance >= 100;
+            if (!guaranteed && player.Pools.Level > area.Level + 10) { allowed = false; chance = 0; }
+            force |= guaranteed;
+            lock (run) run.Guaranteed = guaranteed;
+        }
+
+        // Allow Phase 2 mods (e.g. 3.26 Mercenaries mod) to enable encounters from Mud Flats onward and scale level
+        var spawnRequest = new EncounterSpawnRequest(player, "mercenary", area.Level, chance, allowed) { Force = force };
+        GameEvents.ResolveEncounterSpawn(spawnRequest);
+
+        bool placed = spawnRequest.Allowed && (spawnRequest.Force || spawnRequest.Chance >= 100
+            || spawnRequest.Chance > 0 && new Random(area.Seed ^ RollTag).Next(100) < spawnRequest.Chance);
+
         var rng = new Random(area.Seed ^ PlanTag);
-        if (placed && MercenaryTables.Pick(rng, stats.GetValueOrDefault(Stat.MapMercenariesAreInfamous) > 0) is { } pick
-            && AreaPopulation.EncounterSpot(area, area.Taken, rng) is { } at)
-            await Spawn(player, run, pick.Kind, pick.Build, at, area.Level, area.Seed);
+        if (placed)
+        {
+            (MercenaryTables.Class Kind, MercenaryTables.Build Build)? pick = null;
+            byte spawnLevel = spawnRequest.Level;
+            if (warrant is not null
+                && MercenaryTables.ClassOf(warrant.ClassRow) is { } wKind
+                && MercenaryTables.BuildOf(warrant.BuildRow) is { } wBuild)
+            {
+                pick = (wKind, wBuild);
+                spawnLevel = warrant.Level;
+                lock (run)
+                {
+                    run.IsWarrantCall = true;
+                    run.FirstNameHash32 = warrant.FirstNameHash32;
+                    run.SecondNameHash32 = warrant.SecondNameHash32;
+                    run.FlavourHash16 = warrant.FlavourHash16;
+                    run.Skills = warrant.Skills;
+                }
+            }
+            else
+            {
+                bool infamous = stats.GetValueOrDefault(Stat.MapMercenariesAreInfamous) > 0
+                    || rng.Next(10000) < InfamousChanceBasisPoints(isMap ? MapRunOf(player)?.Area.Tier ?? 0 : 0,
+                        stats.GetValueOrDefault(Stat.MapMercenaryInfamousChancePlusPct));
+                pick = MercenaryTables.Pick(rng, infamous) ?? MercenaryTables.Pick(rng, false);
+            }
+
+            if (pick is { } chosen && AreaPopulation.EncounterSpot(area, area.Taken, rng) is { } at)
+                await Spawn(player, run, chosen.Kind, chosen.Build, at, spawnLevel, area.Seed);
+        }
         Save(player, run);
     }
 
-    // ---- the mercenary --------------------------------------------------------------------------------------------------------
+    // ---- The Encounter Mercenary ----------------------------------------------------------------------------------------------
 
     static IReadOnlyList<VisibleItem> GearOf(MercenaryTables.Class kind, MercenaryTables.Build build, byte level, int seed, Run? run = null)
     {
@@ -58,8 +146,6 @@ public sealed partial class MercenaryModule
         return run is { Equipment.Count: > 0 } ? MercenaryEquipment.Looks(run.Equipment, looks) : looks;
     }
 
-    /// <summary>The variety's own StateMachine with these values, all kept as sent (the client takes the type's default for a state
-    /// the update does not mark).</summary>
     static StateMachineData? States(MonsterCatalog.Variety variety, IReadOnlyList<int> values) =>
         variety.StateMachine is { } machine && machine.SharedStates.Count == values.Count
             ? machine with { SharedStates = values, Overridden = Enumerable.Range(0, values.Count).ToHashSet() } : null;
@@ -67,15 +153,12 @@ public sealed partial class MercenaryModule
     static IEnumerable<Player> Members(Player player) => player.Instance.PlayersExcept(player.Id)
         .Prepend(player).Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, player.Instance)).Distinct();
 
-    /// <summary>A record every player of the instance sees, sent once: in the area's frame a world record already goes to every
-    /// client of the area, outside it each member's own connection gets it.</summary>
     static async Task Everyone(Player player, Func<Player, Task> send)
     {
         if (player.Area.Owned && player.Connection.WorldOutput.Started) { await send(player); return; }
         foreach (var member in Members(player)) await send(member);
     }
 
-    /// <summary>Sends what only this player is shown: not kept for a later one.</summary>
     static async Task Privately(Player player, Func<Task> send)
     {
         var previous = ViewOf.Value;
@@ -86,30 +169,54 @@ public sealed partial class MercenaryModule
 
     static bool Alive(Player player) => !player.Closed && !player.LeavingArea && player.PlayerLife > 0;
 
-    /// <summary>Places the friendly, scripted mercenary: unique, of its class and build, wearing its own gear, with the Mercenary
-    /// component's build and the create's team, states and clickable flags the official map create carries. It is the instance's
-    /// (<c>instanceOwned</c>), so a player who enters later is given it, with the states it has by then.</summary>
     async Task<bool> Spawn(Player player, Run run, MercenaryTables.Class kind, MercenaryTables.Build build, (int X, int Y) at,
         byte level, int seed)
     {
         if (Monsters.Find(kind.Path) is not { Supported: true } variety || States(variety, MercenaryWire.MetStates) is not { } met)
-        {
             return false;
+
+        var rng = new Random(unchecked(seed * 397 ^ build.Row));
+        var stats = AreaLeagueStats(player);
+
+        if (run.FirstNameHash32 == 0 || run.SecondNameHash32 == 0 || run.FlavourHash16 == 0 || run.Skills.Count == 0)
+        {
+            var identity = MercenaryTables.RollIdentity(build, level, rng,
+                stats.GetValueOrDefault(Stat.MapMercenaryAdditionalSupportChancePct));
+            run.FirstNameHash32 = identity.FirstNameHash32;
+            run.SecondNameHash32 = identity.SecondNameHash32;
+            run.FlavourHash16 = identity.FlavourHash16;
+            run.Skills = identity.Skills;
         }
-        if (run.Equipment.Count == 0) run.Equipment = MercenaryEquipment.Roll(kind, build, level, new Random(unchecked(seed * 397 ^ build.Row)),
-            AreaLeagueStats(player).GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player));
+
+        if (run.Equipment.Count == 0)
+        {
+            run.Equipment = MercenaryEquipment.WithInfamousModifier(MercenaryEquipment.Roll(kind, build, level, rng,
+                stats.GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player)), build, level, rng);
+        }
+
+        if (run.GearItems.Count == 0)
+            run.GearItems = MercenaryEquipment.ToInventoryItems(run.Equipment, startingId: 1);
+
+        // As in 3.29, every Mercenary carries a Rucksack except the guaranteed campaign ones, which carry none.
+        if (run.RucksackItems.Count == 0 && !run.Guaranteed && stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsEmpty) <= 0)
+            run.RucksackItems = RollRucksack(level, rng, build.Infamous, MapDevices.IsMapArea(player.Layout.Hash), run.Skills,
+                full: stats.GetValueOrDefault(Stat.MapMercenaryRucksackIsFull) > 0);
+
+        run.WagerCost = MercenaryTables.WagerGoldCost(level, build.Infamous, stats.GetValueOrDefault(Stat.MapMercenaryWagerGoldAmountPlusPct));
+
         var gear = GearOf(kind, build, level, seed, run);
-        await SendRulesets(player, kind, gear);
+        string displayName = MercenaryTables.FormatName(run.FirstNameHash32, run.SecondNameHash32) ?? build.Name;
+        // MinimapIcon's u16 is the MinimapIcons row + 1: row 668 itself drew row 667's ship's wheel (live 2026-11-27).
+        int iconRow = MercenaryTables.EncounterIconRow;
         uint id = await SpawnMonster(player, variety, level, MonsterRarity.Unique, at.X, at.Y, friendly: true, instanceOwned: true,
             scripted: true, ownedLooks: gear, shape: m => m with
             {
-                Team = MercenaryWire.MercenaryTeam, StateMachine = met, MercenaryBuild = build.Hash16,
+                Name = displayName, Team = MercenaryWire.MercenaryTeam, StateMachine = met, MercenaryBuild = build.Hash16,
                 HasDialogue = true, NpcFlags = 1, InteractionFlags = 1,
+                MinimapIcon = iconRow >= 0 ? (ushort)(iconRow + 1) : (ushort)0,
+                Skills = WithPortalOut(player, variety, level, m.Skills),
             });
-        if (id == 0)
-        {
-            return false;
-        }
+        if (id == 0) return false;
         if (player.Area.Monsters.TryGetValue(id, out var body))
         {
             body.States = met;
@@ -122,32 +229,134 @@ public sealed partial class MercenaryModule
         }
         Register(player, run);
         Save(player, run);
-        context.Log($"{player.Layout.Id}: mercenary {build.Name} ({kind.House}, {kind.Path.Split('/')[^1]}) at ({at.X}, {at.Y}), level {level}, id {id}");
+
+        // Flush transient IsMapOwner quest flag to owner & send full 0xa1 encounter ruleset + manager-1 inventories
+        if (IsEncounterOwner(player, run))
+            await SendPlayerQuestFlags(player, "0x02bc player quest flags (Mercenary encounter owner)");
+        await SendEncounterState(player, run, kind, build, gear);
+
+        context.Log($"{player.Layout.Id}: mercenary {build.Name} ({kind.House}, {kind.Path.Split('/')[^1]}) at ({at.X}, {at.Y}), level {level}, id {id}, wager {run.WagerCost}g");
         return true;
     }
 
-    /// <summary>The ruleset rows of the encounter (0x1f), then their bodies: what the mercenary wears and the area rules' two. Once
-    /// per player: the first player gets them as the mercenary is placed, a later one as they enter.</summary>
-    async Task SendRulesets(Player player, MercenaryTables.Class kind, IReadOnlyList<VisibleItem> gear)
+    // [ESTIMATE] Retail's Rucksack table is server-side. The wiki (Mercenary, 2026-11) gives its shape: four slots that roll
+    // independently, each a currency stack or a Trarthan gem; Infamous Mercenaries roll rarer currency, bigger stacks and
+    // Trarthan gems a little more often; since 3.29 map Rucksacks roll no Transmutation or Augmentation. The weights, stack
+    // sizes and chances here are this server's. Common entries are left out for Infamous ones; Exalted needs level 68.
+    static readonly (string Id, int Weight, int Min, int Max, bool Common)[] RucksackCurrency =
+    [
+        // No Scroll of Wisdom (CurrencyIdentification): left out of the pool by choice.
+        ("UpgradeToMagic", 100, 2, 8, true), ("AddModToMagic", 80, 2, 6, true), ("Portal", 60, 2, 5, true), ("ArmourQuality", 60, 2, 6, true), ("WeaponQuality", 50, 2, 5, true),
+        ("RerollMagic", 70, 2, 6, true), ("RerollSocketColours", 50, 3, 8, true), ("RerollSocketNumbers", 40, 2, 6, false),
+        ("UpgradeRandomly", 30, 1, 4, false), ("UpgradeToRare", 30, 1, 3, false), ("RerollSocketLinks", 25, 1, 4, false),
+        ("ConvertToNormal", 20, 1, 3, false), ("PassiveRefund", 15, 1, 2, false), ("RerollImplicit", 12, 1, 3, false),
+        ("MapQuality", 15, 1, 3, false), ("FlaskQuality", 15, 1, 3, false), ("Corrupt", 10, 1, 2, false),
+        ("GemQuality", 6, 1, 1, false), ("UpgradeMagicToRare", 8, 1, 2, false), ("RerollRare", 15, 1, 3, false),
+        ("AddModToRare", 2, 1, 1, false),
+    ];
+
+    /// <summary>Fills the 2x2 Rucksack: each of its four cells rolls on its own (all four with <paramref name="full"/>), at
+    /// least one is filled, and a cell holds a currency stack or, for a Mercenary using a Trarthan skill, that gem.</summary>
+    static List<InventoryItem> RollRucksack(byte level, Random rng, bool infamous, bool map, IReadOnlyList<MercenaryTables.RolledSkill> skills,
+        bool full)
     {
-        if (MercenaryTables.EncounterRulesRow is not { } encounter || MercenaryTables.AreaRulesRow is not { } area) return;
-        lock (told)
+        var currency = RucksackCurrency.Where(c => !(infamous && c.Common) && !(map && c.Id is "UpgradeToMagic" or "AddModToMagic")
+            && (c.Id != "AddModToRare" || level >= 68)).ToArray();
+        var trarthan = skills.Select(s => MercenaryTables.SkillOf(s.SkillRow)?.Name).FirstOrDefault(n => n?.EndsWith(" of Trarthus") == true)
+            is { } name
+            ? Program.Items.All.Where(t => t.Supported).SelectMany(t => Program.Items.Gem(t)?.Variants.Where(v => v.Name == name)
+                .Select(v => (Type: t, Variant: v)) ?? []).FirstOrDefault()
+            : default;
+        bool[] filled = [.. Enumerable.Range(0, 4).Select(_ => full || rng.Next(100) < 50)];
+        if (!filled.Contains(true)) filled[rng.Next(4)] = true;
+
+        var result = new List<InventoryItem>();
+        bool gemTaken = false;
+        for (int cell = 0; cell < 4; cell++)
         {
-            if (told.TryGetValue(player, out _)) return;
-            told.Add(player, new object());
+            if (!filled[cell]) continue;
+            Item? item = null;
+            if (!gemTaken && trarthan.Type is not null && rng.Next(100) < (infamous ? 8 : 5))
+            {
+                item = ItemCatalog.Create(trarthan.Type) with { GemVariant = trarthan.Variant.Index };
+                gemTaken = true;
+            }
+            else if (currency.Length > 0)
+            {
+                int roll = rng.Next(currency.Sum(c => c.Weight));
+                var pick = currency.First(c => (roll -= c.Weight) < 0);
+                if (Program.Items.Find("Metadata/Items/Currency/Currency" + pick.Id) is not { Supported: true } bt) continue;
+                int max = infamous ? (pick.Max * 3 + 1) / 2 : pick.Max;
+                ushort stack = (ushort)Math.Clamp(rng.Next(pick.Min, max + 1), 1, Math.Max(1, (int)bt.MaxStack));
+                item = ItemCatalog.Create(bt) with { StackSize = stack, Identified = true };
+            }
+            if (item is not null) result.Add(new InventoryItem((uint)(100 + cell), (byte)(cell % 2), (byte)(cell / 2), item));
         }
-        var items = MercenaryGear.Visuals(gear);
-        await Send(player, InstanceProtocol.AddRuleset(encounter), $"0x001f ruleset MercenaryEncounterRules (row {encounter})");
-        await Send(player, InstanceProtocol.AddRuleset(area), $"0x001f ruleset MercenaryAreaRules (row {area})");
-        // The official order: the mercenary's own items first, then the area rules' two bodies.
-        await Send(player, InstanceRulesets.Data(encounter, MercenaryWire.EncounterRulesBody(MercenaryGear.Attributes(kind), items)),
-            $"0x02c9 ruleset {encounter} ({items.Count} items the mercenary wears)");
-        await Send(player, InstanceRulesets.Data(area, MercenaryWire.AreaRulesBody1), $"0x02c9 ruleset {area} (1/2)");
-        await Send(player, InstanceRulesets.Data(area, MercenaryWire.AreaRulesBody2), $"0x02c9 ruleset {area} (2/2)");
+        return result;
     }
 
-    /// <summary>The mercenary is a monster, so a click on it is a talk with the NPC row of its variety (NPCs has one per
-    /// mercenary): registered for this player while it waits.</summary>
+    /// <summary>Sends ruleset <c>0xa1</c> (and <c>0xa2</c>), manager-1 encounter gear &amp; rucksack inventories,
+    /// and <c>0xa1</c> subs 0, 1, 2, 3 to <paramref name="player"/>.</summary>
+    async Task SendEncounterState(Player player, Run run, MercenaryTables.Class kind, MercenaryTables.Build build,
+        IReadOnlyList<VisibleItem> gear)
+    {
+        if (MercenaryTables.EncounterRulesRow is not { } encounter) return;
+        lock (sentEncounterData)
+        {
+            if (sentEncounterData.TryGetValue(player, out _)) return;
+            sentEncounterData.Add(player, new object());
+        }
+        await EnsureAreaRulesSent(player);
+
+        bool firstForPlayer;
+        lock (toldEncounter)
+        {
+            firstForPlayer = !toldEncounter.TryGetValue(player, out _);
+            if (firstForPlayer) toldEncounter.Add(player, new object());
+        }
+        if (firstForPlayer)
+            await Send(player, InstanceProtocol.AddRuleset(encounter), $"0x001f ruleset MercenaryEncounterRules (row {encounter})");
+
+        // 1. Register manager-1 encounter gear inventory (0x640) and optional rucksack (0x641) BEFORE sub 1 references them
+        await Send(player, InstanceInventories.AddInventory(
+            MercenaryWire.EncounterGearInventoryId,
+            InstanceMercenaries.EncounterGearSlot,
+            InstanceMercenaries.EncounterInventoryManager,
+            run.GearItems),
+            $"0x00c0 encounter gear inventory 0x{MercenaryWire.EncounterGearInventoryId:x} ({run.GearItems.Count} items)");
+
+        uint rucksackId = 0;
+        if (run.RucksackItems.Count > 0)
+        {
+            rucksackId = MercenaryWire.EncounterRucksackInventoryId;
+            await Send(player, InstanceInventories.AddInventory(
+                rucksackId,
+                InstanceMercenaries.EncounterRucksackSlot,
+                InstanceMercenaries.EncounterInventoryManager,
+                run.RucksackItems),
+                $"0x00c0 encounter rucksack inventory 0x{rucksackId:x} ({run.RucksackItems.Count} items)");
+        }
+
+        // 2. Sub 0: visual overrides (7 bytes per entry)
+        var visuals = MercenaryGear.Visuals(gear).Select(v => new InstanceMercenaries.MercenaryVisualOverride(v)).ToArray();
+        await Send(player, InstanceMercenaries.EncounterVisuals(MercenaryGear.Attributes(kind), visuals),
+            $"0x02c9 ruleset 0xa1 sub 0 ({visuals.Length} visuals)");
+
+        // 3. Sub 1: full BaseMercenaryRecord + wager + warrant flag + gear/rucksack inventory IDs
+        var baseRec = MercenaryWire.BaseRecord(build.Hash16, run.Level, run.FirstNameHash32, run.SecondNameHash32,
+            run.FlavourHash16, run.Skills);
+        await Send(player, InstanceMercenaries.EncounterDetails(baseRec, run.WagerCost, run.IsWarrantCall,
+            MercenaryWire.EncounterGearInventoryId, rucksackId),
+            $"0x02c9 ruleset 0xa1 sub 1 ({build.Name} lvl {run.Level}, wager {run.WagerCost}, warrant={run.IsWarrantCall})");
+
+        // 4. Sub 2: opted-in status for this player
+        bool optedIn = run.OptedInPlayers.Contains(CharacterName(player), StringComparer.OrdinalIgnoreCase);
+        await Send(player, InstanceMercenaries.EncounterOptIn(optedIn), $"0x02c9 ruleset 0xa1 sub 2 (optedIn={optedIn})");
+
+        // 5. Sub 3: wager cost
+        await Send(player, InstanceMercenaries.EncounterWagerCost(run.WagerCost), $"0x02c9 ruleset 0xa1 sub 3 (wager {run.WagerCost})");
+    }
+
     void Register(Player player, Run run)
     {
         if (run.Body == 0 || run.Stage is not (Stage.Met or Stage.Talk) || MercenaryTables.ClassOf(run.Class) is not { } kind
@@ -156,14 +365,15 @@ public sealed partial class MercenaryModule
             { MonsterBodySize = Math.Clamp(variety.ObjectSize - 1, 0, 127) });
     }
 
-    /// <summary>A player enters an instance that has a mercenary: they are given its rulesets and can talk to it. The monster itself
-    /// comes with the instance's own. An instance that was kept and restored brings it back as an ordinary monster under another
-    /// id; that one goes and the mercenary is placed again.</summary>
     async Task Enter(Player player)
     {
+        // Always initialize 0xa2 roster, Town/Hideout NPCs, or active combat companion on every area entry
+        await EnterRoster(player);
+
         if (Peek(player) is { } existing) RebindWilds(player, existing);
         if (Peek(player) is not { Stage: not Stage.None } run
             || MercenaryTables.ClassOf(run.Class) is not { } kind || MercenaryTables.BuildOf(run.Build) is not { } build) return;
+
         if (run.Body != 0 && run.Stage is Stage.Met or Stage.Talk or Stage.Countdown)
         {
             var host = player.Instance.World.Runner ?? player;
@@ -184,18 +394,45 @@ public sealed partial class MercenaryModule
             }
             Register(player, run);
         }
-        await SendRulesets(player, kind, GearOf(kind, build, run.Level, run.Seed, run));
+        if (run.Stage is Stage.Met or Stage.Talk or Stage.Countdown or Stage.Duel)
+            await SendEncounterState(player, run, kind, build, GearOf(kind, build, run.Level, run.Seed, run));
     }
 
     async Task Remove(Player player, uint id)
     {
-        player.Instance.World.MonsterOrigins.TryRemove(id, out _);
+        var world = player.Instance.World;
+        int miIdx = -1;
+        if ((player.Area.Monsters.TryGetValue(id, out var existing)
+                || player.Area.DormantMonsters.TryGetValue(id, out existing)
+                || world.Area.Monsters.TryGetValue(id, out existing)
+                || world.Area.DormantMonsters.TryGetValue(id, out existing))
+            && existing.Variety is { } ev)
+            miIdx = IndexOf(ev.ComponentsOrBase, "MinimapIcon");
+        else if (world.MonsterOrigins.TryGetValue(id, out var origin))
+            miIdx = IndexOf(origin.Object.Components, "MinimapIcon");
+
+        bool removed = world.MonsterOrigins.TryRemove(id, out _);
+        removed |= player.Area.Monsters.Remove(id);
+        removed |= player.Area.DormantMonsters.Remove(id);
+        removed |= world.Area.Monsters.Remove(id);
+        removed |= world.Area.DormantMonsters.Remove(id);
+        lock (player.Npcs) removed |= player.Npcs.Remove(id);
+
+        Player? viewer = null;
         foreach (var member in Members(player))
         {
-            member.Area.Monsters.Remove(id);
-            lock (member.Npcs) member.Npcs.Remove(id);
+            viewer ??= member;
+            removed |= member.Area.Monsters.Remove(id);
+            removed |= member.Area.DormantMonsters.Remove(id);
+            lock (member.Npcs) removed |= member.Npcs.Remove(id);
         }
-        await Everyone(player, member => SendWorldRemoval(member, id, $"0x02bd remove mercenary 0x{id:x}"));
+        if (!removed || viewer is null) return;
+        // Hide MinimapIcon before 0x02bd: MercenaryEncounter (row 668) has __col3 == 0, so removing a visible
+        // entity detaches and permanently pins its crossed-swords icon on the minimap/tab map.
+        if (miIdx >= 0)
+            await Everyone(viewer, member => SendWorldRecord(member, id, InstanceEntities.HideMinimapIcon(id, (byte)miIdx),
+                $"0x02bc hide mercenary 0x{id:x} minimap icon"));
+        await Everyone(viewer, member => SendWorldRemoval(member, id, $"0x02bd remove mercenary 0x{id:x}"));
     }
 
     static int IndexOf(IReadOnlyList<string> items, string value)
@@ -205,8 +442,6 @@ public sealed partial class MercenaryModule
         return -1;
     }
 
-    /// <summary>The body's StateMachine to these values: for the instance's record (a later player), the server's monster and every
-    /// client's component.</summary>
     async Task SetStates(Player player, uint id, int[] values, string what)
     {
         if (!player.Area.Monsters.TryGetValue(id, out var body) || body.Variety is not { } variety
@@ -217,18 +452,30 @@ public sealed partial class MercenaryModule
             player.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = states } };
         foreach (var member in Members(player))
             if (member.Area.Monsters.TryGetValue(id, out var shown)) shown.States = states;
-        // A client far from it has put its copy to sleep, and a component update for a sleeping object closed the client: the
-        // instance's record above gives it the states when it creates the mercenary.
         await Everyone(player, member => !member.Area.Monsters.TryGetValue(id, out var shown) || shown.Asleep ? Task.CompletedTask
             : SendWorldRecord(member, id, InstanceEntities.StateMachineUpdate(id, (byte)component, states),
                 $"0x02bc mercenary 0x{id:x} StateMachine {what}"));
     }
 
-    // ---- the press, the choice, the countdown ---------------------------------------------------------------------------------
+    // ---- Talk (0x61 Encounter or 0x60 Hired Loadout) --------------------------------------------------------------------------
 
-    /// <summary>The press: the panel (0x7b), the mark (0x285) and the talk states. Which player pressed is the only one shown the panel.</summary>
     async Task<bool> Talk(Player player, uint id, SpawnedNpc npc)
     {
+        // 1. Check if clicking a hired/reserved mercenary (town, hideout, or active companion) -> open MercenaryLoadout (0x7b 0x60)
+        if (loadoutNpcs.TryGetValue(player, out var map))
+        {
+            byte key;
+            bool found;
+            lock (map) found = map.TryGetValue(id, out key);
+            if (found)
+            {
+                await Send(player, InstanceWaypoints.OpenUi(MercenaryWire.LoadoutPanelKind, id, key),
+                    $"0x007b mercenary loadout 0x{id:x} key {key}");
+                return true;
+            }
+        }
+
+        // 2. Otherwise check if clicking the area's encounter mercenary -> open EncounterMercenaryLoadout (0x7b 0x61)
         if (Peek(player) is not { } run || run.Body != id || run.Stage is not (Stage.Met or Stage.Talk)) return false;
         if (!Alive(player)) return true;
         bool first;
@@ -248,34 +495,116 @@ public sealed partial class MercenaryModule
         return true;
     }
 
-    /// <summary>C→S 0x2ca: the panel's duel choice starts the countdown. An action of another ruleset, another choice, or one with no
-    /// open panel is not this module's.</summary>
-    async Task<bool> Choose(Player player, byte[] message)
+    // ---- C->S 0x2ca Ruleset 0xa1 (MercenaryEncounterRules) Actions ------------------------------------------------------------
+
+    async Task<bool> Choose(Player player, byte[] payload)
     {
-        byte row;
-        byte[] payload;
-        try { (row, payload) = InstanceRulesets.ReadAction(message); }
-        catch (InvalidDataException) { return false; }
-        if (row != MercenaryTables.EncounterRulesRow || !payload.AsSpan().SequenceEqual(MercenaryWire.DuelChoice)
-            || Peek(player) is not { Stage: Stage.Talk } run) return false;
+        if (!InstanceMercenaries.TryReadEncounterAction(payload, out var action)) return false;
+        if (Peek(player) is not { Stage: Stage.Talk } run) return false;
         if (!Alive(player)) return true;
+
+        // Opt-In is sent by a non-owner party member
+        if (action.Kind == InstanceMercenaries.EncounterActionKind.OptIn)
+        {
+            if (IsEncounterOwner(player, run)) return true;
+            string name = CharacterName(player);
+            lock (run)
+            {
+                if (run.Stage != Stage.Talk || run.OptedInPlayers.Contains(name, StringComparer.OrdinalIgnoreCase)) return true;
+                run.OptedInPlayers.Add(name);
+            }
+            if (run.WagerCost > 0)
+            {
+                uint? left = PersonalStashOf(player).TrySpendGold(run.WagerCost);
+                if (left is null)
+                {
+                    lock (run) run.OptedInPlayers.RemoveAll(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+                    return true;
+                }
+                await Send(player, InstanceEntities.Gold(left.Value), $"0x026e gold {left.Value} after mercenary opt-in wager");
+            }
+            Save(player, run);
+            await Send(player, InstanceMercenaries.EncounterOptIn(true), "0x02c9 ruleset 0xa1 sub 2 opted in");
+            return true;
+        }
+
+        // Take Item, Rematch, Hire: owner-only in retail 3.29 (IsMapOwner / 0xbd0b7d78)
+        if (!IsEncounterOwner(player, run)) return true;
+
+        // Rematch "is only available in maps" (wiki), and not for a Mercenary a Warrant called.
+        if (action.Kind == InstanceMercenaries.EncounterActionKind.Rematch && (!MapDevices.IsMapArea(player.Layout.Hash) || run.IsWarrantCall))
+            return true;
+        if (action.Kind == InstanceMercenaries.EncounterActionKind.TakeRucksack && run.RucksackItems.Count == 0)
+            return true;
+        if (action.Kind == InstanceMercenaries.EncounterActionKind.TakeGearItem
+            && run.GearItems.Count > 0 && !run.GearItems.Any(i => i.Id == action.ItemId))
+            return true;
+        if (action.Kind == InstanceMercenaries.EncounterActionKind.Hire)
+        {
+            if (!CanHavePermanentFollower(player)) return true;
+            var roster = LoadRoster(player);
+            if (FirstFreePermanentKey(roster) is null) return true;
+        }
+
+        // Atomically claim Stage.Talk before deducting wager gold so rapid duplicate 0x2ca packets cannot double-charge
         lock (run)
         {
-            if (run.Stage != Stage.Talk) return true;
-            run.Stage = Stage.Countdown;
-            run.Clock = 0;
-            run.Steps = 0;
+            if (run.Stage != Stage.Talk || run.Busy) return true;
+            run.Busy = true;
         }
+        uint wagerPaid = 0;
+        uint? remainingGold = null;
+        try
+        {
+            if (run.WagerCost > 0)
+            {
+                remainingGold = PersonalStashOf(player).TrySpendGold(run.WagerCost);
+                if (remainingGold is null) return true;
+                wagerPaid = run.WagerCost;
+            }
+            lock (run)
+            {
+                run.Stage = Stage.Countdown;
+                run.Clock = 0;
+                run.Steps = 0;
+                run.DuelInitiator = CharacterName(player);
+                run.WagerPaidByInitiator = wagerPaid;
+                run.ShouldRecruit = action.ShouldRecruit;
+                run.HireJoinImmediately = action.JoinImmediately;
+                run.ChosenItemId = action.ItemId;
+                run.ChosenOffer = action.Kind switch
+                {
+                    InstanceMercenaries.EncounterActionKind.TakeGearItem => DuelOfferKind.TakeGearItem,
+                    InstanceMercenaries.EncounterActionKind.TakeRucksack => DuelOfferKind.TakeRucksack,
+                    InstanceMercenaries.EncounterActionKind.Rematch => DuelOfferKind.Rematch,
+                    InstanceMercenaries.EncounterActionKind.Hire => DuelOfferKind.Hire,
+                    _ => DuelOfferKind.None,
+                };
+            }
+        }
+        finally
+        {
+            lock (run) run.Busy = false;
+        }
+        if (remainingGold is uint goldLeft)
+            await Send(player, InstanceEntities.Gold(goldLeft),
+                $"0x026e gold {goldLeft} after mercenary duel wager ({wagerPaid})");
         await SetStates(player, run.Body, MercenaryWire.CountdownStates, "(7, 0, 1, 1): the duel was chosen");
+        // The "3, 2, 1, Fight!" banner: CountdownTimers row 0 (MercenaryCountdown) shown by S→C 0x162 from 3; the client
+        // steps it down itself (retail 3.29: 3 at the choice, Fight! about 1.6 s later, as the duel switch lands).
+        foreach (var member in Members(player))
+            await Send(member, InstanceTimers.CountdownTimer(3),
+                "0x0162 countdown timer: 3 (MercenaryCountdown)");
         Save(player, run);
         return true;
     }
 
-    /// <summary>The countdown, on the frames of the connection that steps the instance's monsters: the second mark,
-    /// the quiet state, then the switch to the duel, at the frames the official duels show.</summary>
+    // ---- Countdown & Duel -----------------------------------------------------------------------------------------------------
+
     async Task Tick(Player player, double seconds)
     {
-        if (!player.Paused && IsMonsterRunner(player) && Peek(player) is { WildsPlanned: false } pending)
+        if (!player.Paused && IsMonsterRunner(player) && Peek(player) is { WildsPlanned: false } pending
+            && MapDevices.IsMapArea(player.Layout.Hash))
         {
             await PlaceWilds(player, pending, new AreaPopulated(player, pending.Level, pending.Seed, []),
                 AreaLeagueStats(player), new Random(pending.Seed ^ PlanTag));
@@ -293,6 +622,7 @@ public sealed partial class MercenaryModule
             while (run.Steps < MercenaryWire.CountdownFrames.Length
                 && run.Clock >= MercenaryWire.CountdownFrames[run.Steps] * MercenaryWire.FrameSeconds)
             {
+                lock (run) if (run.Stage != Stage.Countdown) break;
                 int step = run.Steps++;
                 uint id = run.Body;
                 if (step == 0)
@@ -302,7 +632,7 @@ public sealed partial class MercenaryModule
                 else if (step == 1) await SetStates(player, id, MercenaryWire.QuietStates, "(7, 0, 0, 1): the countdown");
                 else if (!await StartDuel(player, run))
                 {
-                    run.Steps = step;   // tried again on the next frame
+                    run.Steps = step;
                     break;
                 }
             }
@@ -310,20 +640,14 @@ public sealed partial class MercenaryModule
         finally { lock (run) run.Busy = false; }
     }
 
-    /// <summary>The kit of a mercenary: the skills its build lists (<see cref="MercenaryTables.SkillsOf"/>) that the ordinary AI
-    /// can play, made once when the duel opponent is created. A build with no usable direct attack still gets a swing: the
-    /// plain melee hit, prepended ahead of any shaped utility skills, so the opponent is never left with no attack. Null only
-    /// when even that shapes to nothing, so the opponent has its variety's own kit, which never holds the effect a mercenary
-    /// leaves by (BossKits.IsLeavePortal). Only the duel opponent has it: the hire is scripted and keeps no kit.</summary>
     static IReadOnlyList<MonsterKitSkill>? KitOf(Player player, MonsterCatalog.Variety variety, MercenaryTables.Build build,
-        byte level, int seed)
+        byte level, int seed, IReadOnlyList<MercenaryTables.RolledSkill>? rolled = null)
     {
-        var effects = MercenaryTables.SkillsOf(build, level, new Random(unchecked(seed * 397 ^ build.Row)));
+        var effects = rolled is { Count: > 0 }
+            ? MercenaryTables.EffectsFromRolled(rolled, encounter: true)
+            : MercenaryTables.SkillsOf(build, level, new Random(unchecked(seed * 397 ^ build.Row)));
         var kit = BossKits.KitFromEffects(player, variety, level, effects);
         if (kit.Any(k => k.Attack.Use is null && k.TriggerThreshold == 0)) return kit;
-        // No usable direct attack (a build whose only skill is DoLiterallyNothing, a low-level build that reaches none
-        // of its rows yet, or one that only shaped curses/buffs/travels/triggers): the variety's own default attack is
-        // the effect it leaves by, so prepend the plain melee hit while keeping any shaped utility skills behind it.
         if (MercenaryTables.MeleeFallbackEffect >= 0)
         {
             var fallback = BossKits.KitFromEffects(player, variety, level, [MercenaryTables.MeleeFallbackEffect, .. effects]);
@@ -332,36 +656,244 @@ public sealed partial class MercenaryModule
         return kit.Count > 0 ? kit : null;
     }
 
-    /// <summary>The switch: the friendly mercenary is replaced by a hostile one of its variety (a monster's scripted and hostile
-    /// flags are fixed when it is made), in the duel states, with the same gear, at the same cell. It fights with the skills of
-    /// its build, or the plain melee hit when its build lists none it can use.</summary>
     async Task<bool> StartDuel(Player player, Run run)
     {
         if (MercenaryTables.ClassOf(run.Class) is not { } kind || MercenaryTables.BuildOf(run.Build) is not { } build
             || Monsters.Find(kind.Path) is not { Supported: true } variety || States(variety, MercenaryWire.DuelStates) is not { } duel
             || !Alive(player)) return false;
-        uint old = run.Body;
+        uint old;
+        lock (run)
+        {
+            if (run.Stage != Stage.Countdown) return false;
+            old = run.Body;
+        }
+        string displayName = MercenaryTables.FormatName(run.FirstNameHash32, run.SecondNameHash32) ?? build.Name;
         uint id = await SpawnMonster(player, variety, run.Level, MonsterRarity.Unique, run.X, run.Y,
             ownedLooks: GearOf(kind, build, run.Level, run.Seed, run), extraMods: MercenaryEquipment.Effects(run.Equipment), shape: m => m with
             {
-                StateMachine = duel, MercenaryBuild = build.Hash16, HasDialogue = false, NpcFlags = 0,
-            }, ownedKit: KitOf(player, variety, build, run.Level, run.Seed));
+                Name = displayName, StateMachine = duel, MercenaryBuild = build.Hash16, HasDialogue = false, NpcFlags = 0,
+                Skills = WithPortalOut(player, variety, run.Level, m.Skills),
+            }, ownedKit: KitOf(player, variety, build, run.Level, run.Seed, run.Skills));
         if (id == 0) return false;
-        if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = duel;
-        await Remove(player, old);
+        bool aborted;
         lock (run)
         {
-            run.Stage = Stage.Duel;
-            run.Body = id;
+            aborted = run.Stage != Stage.Countdown;
+            if (!aborted)
+            {
+                run.Stage = Stage.Duel;
+                run.Body = id;
+            }
         }
+        if (aborted)
+        {
+            await Remove(player, id);
+            return false;
+        }
+        if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = duel;
+        await Remove(player, old);
+        await JoinEscorts(player, run);
         Save(player, run);
-        context.Log($"{player.Layout.Id}: mercenary 0x{old:x} duels as 0x{id:x}");
+        context.Log($"{player.Layout.Id}: mercenary 0x{old:x} duels as 0x{id:x} (offer={run.ChosenOffer})");
         return true;
     }
 
-    // ---- the end -------------------------------------------------------------------------------------------------------------------
+    /// <summary>The Trarthan Scarab of Infamy's two escorts join the duel as it starts: each idle body gives way to a hostile
+    /// one with its kit, where it stood (the wiki: they fight with the main Mercenary and go on if it is beaten).</summary>
+    async Task JoinEscorts(Player player, Run run)
+    {
+        Wild[] escorts;
+        lock (run)
+        {
+            if (run.Stage != Stage.Duel) return;
+            escorts = [.. run.Wilds.Where(w => w.Escort && !w.Joined && !w.Paid)];
+        }
+        foreach (var wild in escorts)
+        {
+            lock (run) if (run.Stage != Stage.Duel || wild.Paid) return;
+            if (MercenaryTables.ClassOf(wild.Class) is not { } kind || MercenaryTables.BuildOf(wild.Build) is not { } build
+                || Monsters.Find(kind.Path) is not { Supported: true } variety) continue;
+            uint oldBody = wild.Body;
+            var at = player.Area.Monsters.TryGetValue(oldBody, out var idle) ? idle.Walk.Position(AreaTime(player)) : (wild.X, wild.Y);
+            var looks = MercenaryEquipment.Looks(wild.Equipment, MercenaryGear.Of(kind, build, run.Level,
+                new Random(unchecked(run.Seed * 397 ^ build.Row))));
+            uint id = await SpawnMonster(player, variety, run.Level, MonsterRarity.Unique, at.X, at.Y, instanceOwned: true,
+                ownedLooks: looks, extraMods: MercenaryEquipment.Effects(wild.Equipment, wild.Difficulty),
+                ownedKit: KitOf(player, variety, build, run.Level, run.Seed), shape: o => o with
+                {
+                    Name = wild.Name, MercenaryBuild = build.Hash16,
+                    StateMachine = States(variety, MercenaryWire.DuelStates), HasDialogue = false, NpcFlags = 0,
+                    Skills = WithPortalOut(player, variety, run.Level, o.Skills),
+                });
+            if (id == 0) continue;
+            bool aborted;
+            lock (run)
+            {
+                aborted = run.Stage != Stage.Duel || wild.Paid;
+                if (!aborted)
+                {
+                    wild.Body = id;
+                    wild.X = at.X;
+                    wild.Y = at.Y;
+                    wild.Joined = true;
+                }
+            }
+            if (aborted)
+            {
+                await Remove(player, id);
+                return;
+            }
+            await Remove(player, oldBody);
+        }
+    }
 
-    /// <summary>The duel opponent's death: the <c>*Allied</c> mercenary stands where it fell.</summary>
+    // ---- Duel Resolution (Win & Loss) -----------------------------------------------------------------------------------------
+
+    async Task OnPlayerDied(Player player, uint experienceLost)
+    {
+        // Despawn active companion on player death (stays alive in roster, just leaves area)
+        await DespawnCompanion(player);
+
+        // If player died during a mercenary duel, wager is forfeited and encounter fails
+        if (Peek(player) is { Stage: Stage.Duel or Stage.Countdown } run && IsDuelInitiator(player, run))
+            await LoseDuel(player, run, "the initiator died", leaving: false);
+    }
+
+    static bool IsDuelInitiator(Player player, Run run) => string.IsNullOrEmpty(run.DuelInitiator)
+        || string.Equals(run.DuelInitiator, CharacterName(player), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A lost duel (the wiki: "Dying to any of the mercenaries or leaving the area will forfeit the match ... both
+    /// the main mercenary and the accompanying wild mercenaries ... leave without dropping any items"). The wager is kept;
+    /// the Mercenary takes Mercenary.ot's encounter_state 3 ("Duel failed": its beat-player line, no minimap icon) and then
+    /// leaves, and the Trarthan Scarab of Infamy's escorts leave with it, unpaid. A player who left sees none of it.</summary>
+    async Task LoseDuel(Player player, Run run, string why, bool leaving)
+    {
+        uint body;
+        Wild[] escorts;
+        lock (run)
+        {
+            if (run.Stage is not (Stage.Duel or Stage.Countdown)) return;
+            run.Stage = Stage.Failed;
+            body = run.Body;
+            escorts = [.. run.Wilds.Where(w => w.Escort && !w.Paid)];
+            foreach (var wild in escorts) wild.Paid = true;
+        }
+        Save(player, run);
+        context.Log($"{player.Layout.Id}: mercenary duel lost ({why}); 0x{body:x} and {escorts.Length} escort(s) leave");
+        uint[] leavers = [.. new[] { body }.Concat(escorts.Select(w => w.Body)).Where(id => id != 0)];
+        await RemoveEncounterInventories(player, run);
+        if (!leaving)
+        {
+            foreach (uint id in leavers) FreezeMonster(player, id);
+            if (body != 0)
+                await SetStates(player, body, MercenaryWire.FailedStates, "(3, 0, 0, 1): the duel was lost");
+            if (leavers.Length > 0)
+                _ = AreaFrames.Start(() => FinishFailedDuelAsync(player, body, leavers));
+            return;
+        }
+        foreach (uint id in leavers) await Remove(player, id);
+    }
+
+    async Task FinishFailedDuelAsync(Player player, uint body, uint[] leavers)
+    {
+        try
+        {
+            if (body != 0)
+                await AreaDelay(player, 1.5); // [ESTIMATE] time for its line before it goes
+            var viewer = Members(player).FirstOrDefault();
+            if (viewer is null)
+            {
+                foreach (uint id in leavers) await Remove(player, id);
+                return;
+            }
+            bool any = false;
+            foreach (uint id in leavers) any |= await StartPortalOut(viewer, id);
+            // portal_out_01 fires its "leave" event at 0.64 s; Merc_FadeOut (from 0.39 s) needs a little longer.
+            if (any) await AreaDelay(viewer, 1.0);
+            var finalViewer = Members(player).FirstOrDefault() ?? viewer;
+            foreach (uint id in leavers) await Remove(finalViewer, id);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { context.Log($"{player.Layout.Id}: mercenary duel-loss cleanup failed: {ex.Message}"); }
+    }
+
+    async Task RemoveFailedLeavers(Player player, Run run)
+    {
+        uint[] leavers;
+        lock (run)
+        {
+            if (run.Stage != Stage.Failed) return;
+            leavers = [.. new[] { run.Body }.Concat(run.Wilds.Where(w => w.Escort).Select(w => w.Body)).Where(id => id != 0).Distinct()];
+        }
+        var world = player.Instance.World;
+        foreach (uint id in leavers)
+            if (player.Area.Monsters.ContainsKey(id)
+                || player.Area.DormantMonsters.ContainsKey(id)
+                || world.Area.Monsters.ContainsKey(id)
+                || world.Area.DormantMonsters.ContainsKey(id)
+                || world.MonsterOrigins.ContainsKey(id))
+                await Remove(player, id);
+    }
+
+    static async Task RemoveEncounterInventories(Player player, Run run)
+    {
+        bool hasRucksack = run.RucksackItems.Count > 0;
+        foreach (var member in Members(player))
+        {
+            await Send(member, InstanceInventories.RemoveInventory(MercenaryWire.EncounterGearInventoryId, InstanceMercenaries.EncounterInventoryManager),
+                "0x00c1 remove encounter gear inventory");
+            if (hasRucksack)
+                await Send(member, InstanceInventories.RemoveInventory(MercenaryWire.EncounterRucksackInventoryId, InstanceMercenaries.EncounterInventoryManager),
+                    "0x00c1 remove encounter rucksack inventory");
+        }
+    }
+
+    static void FreezeMonster(Player player, uint id)
+    {
+        double now = AreaTime(player);
+        if (player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead) Freeze(m, now);
+        if (!ReferenceEquals(player.Instance.World.Area.Monsters, player.Area.Monsters)
+            && player.Instance.World.Area.Monsters.TryGetValue(id, out var wm) && !wm.Dead)
+            Freeze(wm, now);
+
+        static void Freeze(SpawnedMonster m, double now)
+        {
+            var at = m.Walk.Position(now);
+            m.Walk.Order(at.X, at.Y, now);
+            ++m.ActionGeneration;
+            m.SwingGeneration = null;
+            m.BusyUntil = double.MaxValue;
+        }
+    }
+
+    /// <summary>The duel body's actor skills with EASMercenaryPortalOut added last, so it can leave as in retail.</summary>
+    static IReadOnlyList<GrantedSkill>? WithPortalOut(Player player, MonsterCatalog.Variety variety, byte level,
+        IReadOnlyList<GrantedSkill>? skills)
+    {
+        if (skills?.Any(s => s.Id == MercenaryWire.PortalOutSkillId) == true) return skills;
+        var catalog = SkillsFor(player);
+        int effect = variety.GrantedEffects?.FirstOrDefault(e => BossKits.IsLeavePortal(catalog, e), -1) ?? -1;
+        if (effect < 0 || catalog.FindByRow(MercenaryWire.PortalOutSkillId, effect, catalog.MaxLevelAt(effect, level)) is not { } portal)
+            return skills;
+        return [.. skills ?? [], portal];
+    }
+
+    /// <summary>Starts the body's portal_out_01 (from its class .ao: a town portal opens at 0.33 s and Merc_FadeOut plays at
+    /// 0.39 s) and stops its AI for good; the caller removes it once the clip has played.</summary>
+    async Task<bool> StartPortalOut(Player player, uint id)
+    {
+        if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead) return false;
+        FreezeMonster(player, id);
+        if (!player.Instance.World.MonsterOrigins.TryGetValue(id, out var origin)
+            || origin.Object.Skills?.Any(s => s.Id == MercenaryWire.PortalOutSkillId) != true)
+            return false;
+        var at = m.Walk.Position(AreaTime(player));
+        // Sent directly, not by SendMonsterAction: that sends nothing once the player is dead, which is how most duels are lost.
+        await Everyone(player, member => SendWorldRecord(member, id, InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y,
+            MercenaryWire.PortalOutSkillId, member.NextActionSequence(), 0), $"mercenary 0x{id:x} portal_out_01"));
+        return true;
+    }
+
     void OnKill(KillContext kill)
     {
         if (Peek(kill.Player) is not { Stage: Stage.Duel } run || MercenaryTables.ClassOf(run.Class) is not { } kind
@@ -375,26 +907,251 @@ public sealed partial class MercenaryModule
             run.Stage = Stage.Hired;
         }
         Save(kill.Player, run);
-        kill.Later(() => Hire(kill.Player, run, kill.At));
+        // The reward is the owner's who paid the wager, not the party member who landed the kill.
+        var owner = Members(kill.Player).FirstOrDefault(m =>
+            string.Equals(CharacterName(m), run.DuelInitiator, StringComparison.OrdinalIgnoreCase)) ?? kill.Player;
+        kill.Later(() => CompleteDuelWin(owner, run, kill.At));
     }
 
-    /// <summary>The hire, as the official one is created: the <c>*Allied</c> variety of the class in the states (0, 1, 0, 1), team
-    /// 0x8001 and the same build. It stands where the duel ended: that it follows and fights for the player, and is bound to
-    /// them, is not built.</summary>
-    async Task Hire(Player player, Run run, (int X, int Y) at)
+    async Task CompleteDuelWin(Player player, Run run, (int X, int Y) at)
     {
-        if (MercenaryTables.ClassOf(run.Class) is not { } kind || MercenaryTables.BuildOf(run.Build) is not { } build
-            || Monsters.Find(kind.AlliedPath) is not { Supported: true } allied
+        if (MercenaryTables.ClassOf(run.Class) is not { } kind || MercenaryTables.BuildOf(run.Build) is not { } build) return;
+
+        // 1. Refund wager gold (+ any map wager return bonus) to duel initiator and any opted-in party members
+        int bonusPct = AreaLeagueStats(player).GetValueOrDefault(Stat.MapMercenaryWagerGoldReturnedPlusPct);
+        if (run.WagerPaidByInitiator > 0)
+        {
+            uint refund = (uint)Math.Max(0, Math.Round(run.WagerPaidByInitiator * (1.0 + bonusPct / 100.0)));
+            var initiator = Members(player).FirstOrDefault(m =>
+                string.Equals(CharacterName(m), run.DuelInitiator, StringComparison.OrdinalIgnoreCase)) ?? player;
+            uint total = PersonalStashOf(initiator).AddGold(refund);
+            await Send(initiator, InstanceEntities.Gold(total), $"0x026e refund mercenary wager {refund}g (total {total})");
+        }
+        if (run.WagerCost > 0 && run.OptedInPlayers.Count > 0)
+        {
+            uint refund = (uint)Math.Max(0, Math.Round(run.WagerCost * (1.0 + bonusPct / 100.0)));
+            foreach (var opted in Members(player).Where(m => run.OptedInPlayers.Contains(CharacterName(m), StringComparer.OrdinalIgnoreCase)))
+            {
+                uint total = PersonalStashOf(opted).AddGold(refund);
+                await Send(opted, InstanceEntities.Gold(total), $"0x026e refund opt-in mercenary wager {refund}g (total {total})");
+            }
+        }
+
+        // Clean up encounter manager-1 inventories on all clients in the instance
+        await Everyone(player, async member =>
+        {
+            await Send(member, InstanceInventories.RemoveInventory(MercenaryWire.EncounterGearInventoryId, InstanceMercenaries.EncounterInventoryManager),
+                "0x00c1 remove encounter gear inventory");
+            if (run.RucksackItems.Count > 0)
+                await Send(member, InstanceInventories.RemoveInventory(MercenaryWire.EncounterRucksackInventoryId, InstanceMercenaries.EncounterInventoryManager),
+                    "0x00c1 remove encounter rucksack inventory");
+        });
+
+        var rng = AreaRng(player);
+
+        // 2. Grant offer reward
+        switch (run.ChosenOffer)
+        {
+            case DuelOfferKind.TakeGearItem:
+                if (run.GearItems.FirstOrDefault(i => i.Id == run.ChosenItemId) is { } chosen)
+                    await DropOrGiveReward(player, chosen.Item with { Identified = true, MercenaryLocked = false }, at, rng, "Mercenary Take Item reward");
+                break;
+
+            case DuelOfferKind.TakeRucksack:
+                foreach (var entry in run.RucksackItems)
+                    await DropOrGiveReward(player, entry.Item, at, rng, "Mercenary Rucksack reward");
+                break;
+
+            case DuelOfferKind.Rematch:
+                if (CreateWarrantItem(run, build) is { } warrantItem)
+                    await DropOrGiveReward(player, warrantItem, at, rng, "Mercenary Warrant rematch reward");
+                break;
+
+            case DuelOfferKind.Hire:
+                await CompletePermanentHire(player, run, kind, build, at);
+                return;
+        }
+
+        // 3. For non-Hire duels: if ShouldRecruit was checked, recruit as temporary ally (key 3) AND spawn allied body
+        if (run.ShouldRecruit)
+        {
+            await CompleteTemporaryRecruit(player, run, kind, build, at);
+            return;
+        }
+
+        // Otherwise still spawn the allied body at the duel spot (for non-recruit completions / legacy test expectations)
+        await SpawnLegacyAlliedBody(player, run, kind, build, at);
+    }
+
+    async Task CompletePermanentHire(Player player, Run run, MercenaryTables.Class kind, MercenaryTables.Build build, (int X, int Y) at)
+    {
+        var inv = ItemsOf(player);
+        byte? assignedKey = null;
+        HiredMercenary? hiredRecord = null;
+        IReadOnlyList<InventoryItem> placedItems = [];
+        IReadOnlyList<uint> oldIds = [];
+
+        Saves.Atomically(() =>
+        {
+            MutateRoster(player, roster =>
+            {
+                assignedKey = FirstFreePermanentKey(roster);
+                if (assignedKey is not byte key) return;
+                hiredRecord = new HiredMercenary
+                {
+                    Key = key,
+                    ClassRow = run.Class,
+                    BuildRow = run.Build,
+                    Level = run.Level,
+                    Seed = run.Seed,
+                    FirstNameHash32 = run.FirstNameHash32,
+                    SecondNameHash32 = run.SecondNameHash32,
+                    FlavourHash16 = run.FlavourHash16,
+                    Skills = run.Skills,
+                    Dead = false,
+                    ReviveCost = MercenaryTables.ReviveGoldCost(run.Level, build.Infamous),
+                };
+                roster.Slots[key] = hiredRecord;
+                if (run.HireJoinImmediately) roster.InvitedKey = key;
+            });
+
+            if (assignedKey is byte k && PlayerInventories.MercenaryRowForKey(k) is byte row)
+            {
+                var toPlace = run.GearItems.Count > 0 ? run.GearItems : MercenaryEquipment.ToInventoryItems(run.Equipment);
+                // Mark initial rolled equipment locked in place (header bit 0x0040): cannot be removed, only replaced.
+                (oldIds, placedItems) = inv.ReplaceRow(row, [.. toPlace.Select(i => (i.X, i.Y, i.Item with { MercenaryLocked = true }))]);
+            }
+        });
+
+        if (assignedKey is not byte slotKey || hiredRecord is null) return;
+
+        if (PlayerInventories.MercenaryRowForKey(slotKey) is byte mercRow)
+        {
+            await Send(player, InstanceItems.InventoryChange(
+                PlayerInventories.InventoryId(mercRow), inv.NextRevision(mercRow), oldIds, placedItems),
+                $"0x0041 populate hired mercenary inventory row {mercRow} ({placedItems.Count} items)");
+        }
+
+        await Send(player, InstanceMercenaries.AreaInsert(hiredRecord.ToWireRecord()),
+            $"0x02c9 ruleset 0xa2 sub 3 insert permanent mercenary key {slotKey}");
+
+        if (run.HireJoinImmediately)
+        {
+            await Send(player, InstanceMercenaries.AreaSetInvited(slotKey),
+                $"0x02c9 ruleset 0xa2 sub 6 invited key {slotKey}");
+            await SpawnActiveCompanionIfEligible(player, LoadRoster(player), at);
+            if (companions.TryGetValue(player, out var comp))
+            {
+                lock (run) run.Hired = comp.EntityId;
+                Save(player, run);
+            }
+        }
+    }
+
+    async Task CompleteTemporaryRecruit(Player player, Run run, MercenaryTables.Class kind, MercenaryTables.Build build, (int X, int Y) at)
+    {
+        bool isMap = MapDevices.IsMapArea(player.Layout.Hash);
+        var inv = ItemsOf(player);
+        HiredMercenary tempRecord = null!;
+        bool hadOldTemp = false;
+        IReadOnlyList<uint> oldIds = [];
+        IReadOnlyList<InventoryItem> placedItems = [];
+
+        Saves.Atomically(() =>
+        {
+            MutateRoster(player, roster =>
+            {
+                hadOldTemp = roster.Slots.ContainsKey(3);
+                tempRecord = new HiredMercenary
+                {
+                    Key = 3,
+                    ClassRow = run.Class,
+                    BuildRow = run.Build,
+                    Level = run.Level,
+                    Seed = run.Seed,
+                    FirstNameHash32 = run.FirstNameHash32,
+                    SecondNameHash32 = run.SecondNameHash32,
+                    FlavourHash16 = run.FlavourHash16,
+                    Skills = run.Skills,
+                    Dead = false,
+                    ReviveCost = MercenaryTables.ReviveGoldCost(run.Level, build.Infamous),
+                    RemainingAreas = isMap ? 0 : 3, // Current map only (expires on leaving map), or 3 campaign zones
+                    TemporaryMapOnly = isMap,
+                    LastAreaId = player.Layout.Id,
+                    LastAreaSeed = player.Seed,
+                };
+                roster.Slots[3] = tempRecord;
+                // Only set invited to temporary if no permanent mercenary is currently invited
+                if (roster.InvitedKey is null || !roster.Slots.ContainsKey(roster.InvitedKey.Value))
+                    roster.InvitedKey = 3;
+            });
+
+            var toPlace = run.GearItems.Count > 0 ? run.GearItems : MercenaryEquipment.ToInventoryItems(run.Equipment);
+            (oldIds, placedItems) = inv.ReplaceRow(PlayerInventories.MercenaryTemporary,
+                [.. toPlace.Select(i => (i.X, i.Y, i.Item with { MercenaryLocked = true }))]);
+        });
+
+        await Send(player, InstanceItems.InventoryChange(
+            PlayerInventories.InventoryId(PlayerInventories.MercenaryTemporary),
+            inv.NextRevision(PlayerInventories.MercenaryTemporary), oldIds, placedItems),
+            $"0x0041 populate MercenaryTemporary ({placedItems.Count} items)");
+
+        if (hadOldTemp)
+            foreach (var pkt in InstanceMercenaries.AreaReplacePackets(tempRecord.ToWireRecord()))
+                await Send(player, pkt, "0x02c9 ruleset 0xa2 replace temporary mercenary key 3 (sub 1+3)");
+        else
+            await Send(player, InstanceMercenaries.AreaInsert(tempRecord.ToWireRecord()),
+                "0x02c9 ruleset 0xa2 sub 3 insert temporary mercenary key 3");
+
+        var latest = LoadRoster(player);
+        if (latest.InvitedKey == 3)
+        {
+            await Send(player, InstanceMercenaries.AreaSetInvited(3), "0x02c9 ruleset 0xa2 sub 6 invited temporary key 3");
+            await SpawnActiveCompanionIfEligible(player, latest, at);
+            if (companions.TryGetValue(player, out var comp))
+            {
+                // Keep MonsterOrigins entry too so instance-level checks see AlliedTeam / HiredStates
+                if (player.Area.Monsters.TryGetValue(comp.EntityId, out var m) && m.Variety is { } v)
+                {
+                    string displayName = MercenaryTables.FormatName(run.FirstNameHash32, run.SecondNameHash32) ?? build.Name;
+                    player.Instance.World.MonsterOrigins[comp.EntityId] = new(
+                        InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(v.Id, run.Level)),
+                        new MonsterObject(at.X, at.Y, m.Life, v.ComponentsOrBase, Rarity: MonsterRarity.Unique,
+                            StateMachine: m.States, Team: MercenaryWire.AlliedTeam)
+                        { Name = displayName, MercenaryBuild = build.Hash16 },
+                        (ushort)v.Row, run.Level, MonsterRarity.Unique);
+                }
+                lock (run) run.Hired = comp.EntityId;
+                Save(player, run);
+                return;
+            }
+        }
+
+        await SpawnLegacyAlliedBody(player, run, kind, build, at);
+    }
+
+    async Task SpawnLegacyAlliedBody(Player player, Run run, MercenaryTables.Class kind, MercenaryTables.Build build, (int X, int Y) at)
+    {
+        if (Monsters.Find(kind.AlliedPath) is not { Supported: true } allied
             || States(allied, MercenaryWire.HiredStates) is not { } hired) return;
+        string displayName = MercenaryTables.FormatName(run.FirstNameHash32, run.SecondNameHash32) ?? build.Name;
         uint id = await SpawnMonster(player, allied, run.Level, MonsterRarity.Unique, at.X, at.Y, friendly: true, instanceOwned: true,
             scripted: true, ownedLooks: GearOf(kind, build, run.Level, run.Seed, run), shape: m => m with
             {
-                Team = MercenaryWire.AlliedTeam, StateMachine = hired, MercenaryBuild = build.Hash16, NpcFlags = 0, InteractionFlags = 1,
+                Name = displayName, Team = MercenaryWire.AlliedTeam, StateMachine = hired, MercenaryBuild = build.Hash16,
+                NpcFlags = 0, InteractionFlags = 1, HideMinimapIcon = true,
             });
         if (id == 0) return;
         if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = hired;
         lock (run) run.Hired = id;
         Save(player, run);
-        context.Log($"{player.Layout.Id}: mercenary hired as 0x{id:x} ({allied.Id})");
+    }
+
+    static async Task DropOrGiveReward(Player player, Item item, (int X, int Y) at, Random rng, string log)
+    {
+        var dropAt = ScatterDropPosition(player, at, rng);
+        var ground = new WorldItemObject(dropAt.X, dropAt.Y, item);
+        uint id = player.Instance.Ground.Add(ground, player);
+        await SendGroundItem(player, id, ground, log, justDropped: true);
     }
 }

@@ -266,7 +266,7 @@ public static partial class Game
                         continue;
                     }
                 }
-                if (cast && gem.Name is not null && IsDashEffect(SkillsFor(player).EffectId(gem.Effect)))
+                if (cast && gem.Name is not null && IsDashMovementEffect(SkillsFor(player).EffectId(gem.Effect)))
                 {
                     bool valid;
                     valid = TryDashLanding(player, gem.Effect, (use.X, use.Y), out _, out _,
@@ -288,7 +288,7 @@ public static partial class Game
                     Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={AreaTime(player):0.000})");
                     continue;
                 }
-                if (cast && gem.Name is not null && IsDashEffect(SkillsFor(player).EffectId(gem.Effect)))
+                if (cast && gem.Name is not null && IsDashMovementEffect(SkillsFor(player).EffectId(gem.Effect)))
                 {
                     if (!TryCommitDashUse(player, use.SkillId, gem.Effect, (use.X, use.Y), out var dashUse, at, flags: use.Flags))
                     {
@@ -299,9 +299,9 @@ public static partial class Game
                     if (!await CastGemSkill(player, use.SkillId, dashUse!.From, (use.X, use.Y),
                             sequence: use.Slot, dashReceipt: dashUse)) continue;
                     bool dashAcknowledged = false;
-                    await Send(player,
-                        [.. InstanceProtocol.ActionStarted(player.Id, dashUse.From.X, dashUse.From.Y, use.X, use.Y,
-                            use.SkillId, use.Slot, use.Flags), .. InstanceProtocol.ActionEnded(player.Id)],
+                    await SendWorldRecords(player, player.Id, () =>
+                        [InstanceProtocol.ActionStarted(player.Id, dashUse.From.X, dashUse.From.Y, use.X, use.Y,
+                            use.SkillId, use.Slot, use.Flags), InstanceProtocol.ActionEnded(player.Id)],
                         $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name}: accepted Dash from ({dashUse.From.X}, {dashUse.From.Y}) " +
                         $"to ({dashUse.To.X}, {dashUse.To.Y}) (t={dashUse.AcceptedAt:0.000})",
                         still: () => dashAcknowledged = dashUse.ConfirmNativeUse(player));
@@ -323,6 +323,8 @@ public static partial class Game
                 bool flicker = cast && gem.Name is not null && SkillsFor(player).ActionHash(gem.Effect) == FlickerStrike.Action;
                 (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
                 var moveEffect = cast && gem.Name is not null && chargeBonus == 0 ? SkillsFor(player).EffectId(gem.Effect) : null;
+                bool ambush = moveEffect == AmbushEffect;
+                AmbushTarget? ambushTarget = null;
                 bool flameDash = IsFlameDashEffect(moveEffect);
                 (int X, int Y)? flameDashTo = null;
                 LeapSlam.Use? leap = null;
@@ -355,7 +357,7 @@ public static partial class Game
                         moveLanding = fd;
                         movedByCast = fd != (px, py);
                     }
-                    else if (chargeBonus == 0 && gem.Name is not null && !IsDashEffect(SkillsFor(player).EffectId(gem.Effect)) && LandsAtAim(player, gem.Effect))
+                    else if (chargeBonus == 0 && gem.Name is not null && !IsDashMovementEffect(SkillsFor(player).EffectId(gem.Effect)) && LandsAtAim(player, gem.Effect))
                     {
                         var landing = MovementLanding(player, gem.Effect, (px, py), (use.X, use.Y), use.SkillId, use.Flags);
                         player.Walk.Teleport(landing.X, landing.Y, at);
@@ -374,6 +376,12 @@ public static partial class Game
                     noFlickerTarget = flickerTo is null;
                     return !noFlickerTarget;
                 }
+                bool AmbushAdmit()
+                {
+                    double now = ProjectileWorldTime(player);
+                    ambushTarget = FindAmbushTarget(player, gem.Effect, 0, (use.X, use.Y), now);
+                    return ambushTarget is not null && CanPaySkillCost(player, use.SkillId);
+                }
                 if (leapSkill)
                 {
                     if (!TryBeginAttackUse(player, use.SkillId, gem.Effect, at,
@@ -391,9 +399,11 @@ public static partial class Game
                 {
                     if (!TryBeginSkillCooldownUse(player, use.SkillId, gem.Effect,
                         CooldownForSkill(player, use.SkillId),
-                        false, StartAction, out cooldownUse, requestedAt: at, admit: flicker ? FlickerAdmit : null))
+                        false, StartAction, out cooldownUse, reserve: !ambush, requestedAt: at,
+                        admit: flicker ? FlickerAdmit : ambush ? AmbushAdmit : null))
                     {
                         if (noFlickerTarget) await FlickerRefused(player, gem.Name);
+                        else if (ambush) await SendPlayerMana(player, "Ambush: skill refused, cost back");
                         continue;
                     }
                 }
@@ -428,19 +438,26 @@ public static partial class Game
                 bool predictedLeap = cast && PredictsLeapSlam(player, SkillsFor(player).EffectId(gem.Effect), use.Slot);
                 Func<Task> echo = async () =>
                 {
-                    await Send(player, [],
-                    $"{(predictedLeap ? "0x01ac predicted Leap Slam acknowledged" : "0x01ab action started")} {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {player.Walk.Destination} in {player.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
-                    still: () => acknowledged = cast
+                    string echoLog = $"{(predictedLeap ? "0x01ac predicted Leap Slam acknowledged" : "0x01ab action started")} {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {player.Walk.Destination} in {player.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})";
+                    bool EchoStill() => acknowledged = cast
                         ? SkillAcknowledgementAllowed(player, gem.Effect, use.SkillId,
                             () => cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action))
-                        : (cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action)),
-                    atGate: () =>
-                    {
-                        Interlocked.Exchange(ref startCharge, null)?.Invoke();
-                        byte[] reply = [.. InstanceProtocol.ActionStarted(player.Id, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
-                            .. cast ? InstanceProtocol.ActionEnded(player.Id) : []];
-                        return predictedLeap ? LeapSlamAcknowledgement(player, reply) : reply;
-                    });
+                        : (cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action));
+                    if (predictedLeap)
+                        await Send(player, [], echoLog, still: EchoStill, atGate: () =>
+                        {
+                            Interlocked.Exchange(ref startCharge, null)?.Invoke();
+                            byte[] reply = [.. InstanceProtocol.ActionStarted(player.Id, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
+                                .. cast ? InstanceProtocol.ActionEnded(player.Id) : []];
+                            return LeapSlamAcknowledgement(player, reply);
+                        });
+                    else
+                        await SendWorldRecords(player, player.Id, () =>
+                        {
+                            Interlocked.Exchange(ref startCharge, null)?.Invoke();
+                            var started = InstanceProtocol.ActionStarted(player.Id, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags);
+                            return cast ? [started, InstanceProtocol.ActionEnded(player.Id)] : [started];
+                        }, echoLog, still: EchoStill);
                     if (acknowledged) await SendNativeCooldownRefresh(player);
                     else if (ServerTrace.Latency)
                         Console.WriteLine($"[gateway] {player.Connection.Remote} action echo refused 0x{use.SkillId:x4}:"
@@ -476,7 +493,7 @@ public static partial class Game
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At)
                     : flameDash || IsWhirlingBlades(moveEffect) ? ((px, py), moveLanding)
                     : ((px, py), (use.X, use.Y));
-                if (cast && !projectileRuntime && (!flameDash || movedByCast)) _ = CastGemSkill(player, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
+                if (cast && !projectileRuntime && (!flameDash || movedByCast)) _ = CastGemSkill(player, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? ambushTarget?.Id ?? 0, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse, swingAt: swingAt, movedByCast: movedByCast);
                 // Reconcile the skills that use the immediate landing estimate once their action has finished.
                 if (leap is { } jump)
@@ -819,7 +836,7 @@ public static partial class Game
             {
                 // A channelled skill (Cyclone, Winter Orb) goes on, aimed at this cell: Cyclone walks toward it
                 // (ChannelAimedAt). Its hits run on their own timer (RunChannel), at the skill's attack rate, wherever the
-                // player is. Without this update the channel counts as silent and ends (ChannelSilenceSeconds).
+                // player is. Only moving channels rely on regular aim updates (ChannelSilenceSeconds).
                 var (cx, cy) = InstanceProtocol.ReadChannelUpdate(bytes);
                 double t = player.ClockAt(readAt);
                 ushort? changedAim = null;
@@ -956,6 +973,8 @@ public static partial class Game
                             $"0x00bf stash tab {noteTab}: item {updated.Id} note updated");
                 }
             }
+            else if (id == InstanceItems.ListWithPriceId)
+                await ListInMerchantTab(player, InstanceItems.ReadListWithPrice(bytes));
             else if (id == InstanceAsyncTrade.RequestHistoryId)
                 await SendAsyncTradeHistory(player);
             else if (id == InstanceAsyncTrade.TakeEarningsId)
@@ -1087,6 +1106,7 @@ public static partial class Game
                     // Waypoint travel: next to the destination's waypoint instead of the area's spawn. A generated area's
                     // waypoint is only known from the walk-map recorder's capture for this seed (live.ps1 -Walkmaps).
                     // Back through a town portal: where the portal stands (OpenTownPortal).
+                    if (player.ArriveAt is null) ClearLocalGateCheckpoint(player);
                     var (arrivalLayout, arrivalNote) = ArrivalLayout(player);
                     if (!ReferenceEquals(arrivalLayout, player.Layout)) player.Use(arrivalLayout);
                     if (arrivalNote is not null) Console.WriteLine($"[gateway] {player.Connection.Remote} {arrivalNote}");

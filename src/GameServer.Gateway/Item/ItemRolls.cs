@@ -130,7 +130,7 @@ public sealed class ItemRolls
             for (int i = 0; i < domainMods.Length; i++)
             {
                 var m = domainMods[i];
-                if (m.Level > itemLevel) continue;
+                if (m.Level > itemLevel || itemLevel > m.MaxLevel) continue;
                 int weight = m.WeightFor(tags);
                 if (weight > 0) result.Add((m, weight));
             }
@@ -155,6 +155,9 @@ public sealed class ItemRolls
 
     /// <summary>Whether the item accepts affix changes (<see cref="TryModifiable"/>).</summary>
     public bool Modifiable(Item item) => TryModifiable(item, out _);
+
+    /// <summary>A base the client marks Unmodifiable (BaseItemTypes.Unmodifiable: Valdo Maps, …): no currency changes it.</summary>
+    bool Unmodifiable(Item item) => catalog.ByHash(item.TypeHash) is { Unmodifiable: true };
 
     /// <summary>The item and its base accept affix changes: the item is not corrupted or mirrored, has Mods, and its
     /// base is known, serializable, has Mods and is not unmodifiable.</summary>
@@ -203,6 +206,11 @@ public sealed class ItemRolls
     public Item? Augment(Item item, Random random) =>
         item.Rarity == ItemRarity.Magic && TryModifiable(item, out _) ? AddAffix(item, 1, random) : null;
 
+    /// <summary>Foulborn Orb of Augmentation (<c>mutated_add_mod_to_magic</c>): augments a magic item with a new random
+    /// modifier with higher-level modifiers being more likely (weight × (1 + level / 20)).</summary>
+    public Item? FoulbornAugment(Item item, Random random) =>
+        item.Rarity == ItemRarity.Magic && TryModifiable(item, out _) ? AddAffixCore(item, (1, 1), random, respectMetamods: true, requiredTag: null, favorHigherTiers: true) : null;
+
     static bool IsMagicOnly(Item item) => item.Components.Contains("Flask") || item.Components.Contains("Tincture");
 
     /// <summary>Regal Orb's validated magic-to-rare upgrade: the magic affixes stay, one more comes from the rare
@@ -212,6 +220,16 @@ public sealed class ItemRolls
         if (item.Rarity != ItemRarity.Magic || IsMagicOnly(item) || !TryModifiable(item, out var type))
             return null;
         return AddAffix(item, MaxAffixesPerSide(type, item), random) is not { } added ? null
+            : added with { Rarity = ItemRarity.Rare, Identified = true, NameWords = RareName(type, random) };
+    }
+
+    /// <summary>Foulborn Regal Orb (<c>mutated_upgrade_magic_to_rare</c>): upgrades a magic item to rare while favoring
+    /// higher-level modifiers (weight × (1 + level / 20)).</summary>
+    public Item? FoulbornRegal(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Magic || IsMagicOnly(item) || !TryModifiable(item, out var type))
+            return null;
+        return AddAffixCore(item, MaxAffixesPerSide(type, item), random, respectMetamods: true, requiredTag: null, favorHigherTiers: true) is not { } added ? null
             : added with { Rarity = ItemRarity.Rare, Identified = true, NameWords = RareName(type, random) };
     }
 
@@ -241,6 +259,15 @@ public sealed class ItemRolls
         if (item.Rarity != ItemRarity.Rare || IsMagicOnly(item) || !TryModifiable(item, out var type))
             return null;
         return AddAffix(item, MaxAffixesPerSide(type, item), random);
+    }
+
+    /// <summary>Foulborn Exalted Orb (<c>mutated_add_mod_to_rare</c>): augments a rare item with a new random modifier
+    /// while favoring higher-level modifiers (weight × (1 + level / 20)).</summary>
+    public Item? FoulbornExalted(Item item, Random random)
+    {
+        if (item.Rarity != ItemRarity.Rare || IsMagicOnly(item) || !TryModifiable(item, out var type))
+            return null;
+        return AddAffixCore(item, MaxAffixesPerSide(type, item), random, respectMetamods: true, requiredTag: null, favorHigherTiers: true);
     }
 
     /// <summary>Chaos Orb's validated rare reroll: every unprotected explicit affix is replaced by 4-6 new weighted
@@ -429,13 +456,13 @@ public sealed class ItemRolls
         return item with { Mods = kept };
     }
 
-    /// <summary>Orb of Chance, the documented LocalExile rule: a modifiable normal weapon or armour piece becomes
-    /// rare (30%, 4-6 affixes and a rare name) or magic (2-4 affixes, at most two of each side). Refused targets
-    /// return null before rolling or spending, including missing/empty pools.</summary>
+    /// <summary>Orb of Chance, the documented LocalExile rule: a modifiable normal non-magic-only item (weapon, armour,
+    /// jewellery, jewel, map, etc. — excluding flasks and tinctures) becomes rare (30%, 4-6 affixes and a rare name) or
+    /// magic (2-4 affixes, at most two of each side). Refused targets return null before rolling or spending, including
+    /// missing/empty pools.</summary>
     public Item? Chance(Item item, Random random)
     {
-        if (item.Rarity != ItemRarity.Normal ||
-            !(item.Components.Contains("Weapon") || item.Components.Contains("Armour")) ||
+        if (item.Rarity != ItemRarity.Normal || IsMagicOnly(item) ||
             !TryModifiable(item, out var type) || Pool(type, item).Count == 0) return null;
         return (random.Next(100) < 30 ? Roll(item, ItemRarity.Rare, random)
             : Roll(item, ItemRarity.Magic, random, (random.Next(2, 5), 2))) with { Identified = true };
@@ -614,7 +641,7 @@ public sealed class ItemRolls
     /// change the mod, and the client reorders the tooltip by mod). Null when the item has no explicit mods.</summary>
     public Item? Reforge(Item item, Random rng, UniqueCatalog.StatRoll? own = null)
     {
-        if (item.Vestigial) return null;
+        if (item.Vestigial || Unmodifiable(item)) return null;
         var rules = new MetacraftRules(item, catalog.Mods);
         bool Mutable(int i) => item.Mods[i].Section == ModSection.Explicit && !rules.Protected(i) && catalog.Mods.ByHash(item.Mods[i].Hash) is not null;
         if (!Enumerable.Range(0, item.Mods.Count).Any(Mutable)) return null;
@@ -629,7 +656,7 @@ public sealed class ItemRolls
 
     public Item? Scour(Item item)
     {
-        if (item.Rarity is not (ItemRarity.Magic or ItemRarity.Rare)) return null;
+        if (item.Rarity is not (ItemRarity.Magic or ItemRarity.Rare) || Unmodifiable(item)) return null;
         var rules = new MetacraftRules(item, catalog.Mods);
         var kept = item.Mods.Where((m, i) => m.Section != ModSection.Explicit || rules.Protected(i)).ToArray();
         int count = kept.Count(m => m.Section == ModSection.Explicit);
@@ -695,10 +722,17 @@ public sealed class ItemRolls
             !have.Any(h => h.Families.Intersect(p.Mod.Families).Any()) && (requiredTag is null || p.Mod.Tags.Contains(requiredTag)))];
     }
 
-    Item? AddAffixCore(Item item, (int Prefix, int Suffix) max, Random rng, bool respectMetamods, string? requiredTag)
+    /// <summary>The Foulborn orbs' "higher level modifiers being more likely" (their CurrencyItems text): each eligible
+    /// affix weighs <c>weight × (1 + Mods.Level / 20)</c>, the rule Deepwater's vat used, so low tiers can still roll.</summary>
+    static IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> FavorHigherTiers(IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> pool) =>
+        [.. pool.Select(p => (p.Mod, Math.Max(1, p.Weight * (1 + p.Mod.Level / 20))))];
+
+    Item? AddAffixCore(Item item, (int Prefix, int Suffix) max, Random rng, bool respectMetamods, string? requiredTag,
+        bool favorHigherTiers = false)
     {
         var allowed = AffixesToAdd(item, max, respectMetamods, requiredTag);
         if (allowed.Count == 0) return null;
+        if (favorHigherTiers) allowed = FavorHigherTiers(allowed);
         var added = Pick(allowed, rng);
         // Prefixes before suffixes, as Roll orders them.
         var mods = item.Mods.ToList();

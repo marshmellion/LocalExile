@@ -28,9 +28,10 @@ public static partial class Game
 
     static bool SpatialSpellEffect(string? effect) =>
         IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect)
-            || IsCracklingLance(effect) || effect is "LightningConduitAltX" or ManabondEffect or "VortexAltX"
-            or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect or TrarthanBargain
-            || ShockNovaEffect(effect) || GlacialCascadeEffect(effect) || effect == DivineRetributionEffect;
+            || IsCracklingLance(effect) || effect is "LightningConduitAltX" or ManabondEffect || IsVortex(effect)
+            || effect is "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect or TrarthanBargain
+            || ShockNovaEffect(effect) || GlacialCascadeEffect(effect) || effect == DivineRetributionEffect
+            || IsVoltaxicBurst(effect);
 
     static DamagePacket BladeBlastDaggerDamage(Player player, int gain)
     {
@@ -129,7 +130,7 @@ public static partial class Game
                             sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: area.Covers,
                             hitAndAilmentMore: beidatMore);
                     });
-                else if (effect == "VortexAltX")
+                else if (IsVortex(effect))
                     ReleaseVortexProjection(gem, from, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
                         sequence, repeat, damageMore, brandedTarget, dotMore);
                 else if (effect == TrarthanBargain)
@@ -146,8 +147,14 @@ public static partial class Game
                 }
                 else if (ShockNovaEffect(effect))
                     ScheduleShockNova(gem.Effect, gem.Level, gem.Quality, SpellCentre(Player, gem.Effect, from, aim), aim, source.Stats, caster, CurrentSource,
-                        pulse => Hit(pulse.Centre, pulse.Radius, pulse.DamageMore,
-                            targetFilter: (_, at) => pulse.OutsideInnerRadius(at), centred: true, extraShockChance: pulse.ExtraShockChance));
+                        pulse =>
+                        {
+                            Hit(pulse.Centre, pulse.Radius, pulse.DamageMore,
+                                targetFilter: (_, at) => pulse.OutsideInnerRadius(at), centred: true, extraShockChance: pulse.ExtraShockChance);
+                            // Triggered Shock Nova has no cast clip; draw circle + donut once on the full nova pulse (not the ring contact or hand-casts).
+                            if (sacrifice.Triggered && pulse.InnerRadius == 0)
+                                Enqueue(() => CurrentSource() ? ShowTriggeredShockNova(Player, gem.Gem, pulse.Centre, pulse.Radius) : Task.CompletedTask);
+                        });
                 else if (effect == ArcSurgingEffect)
                 {
                     int distance = Own(Stat.ArcChainDistance);
@@ -199,6 +206,9 @@ public static partial class Game
                     ScheduleGlacialCascade(effect, from, aim, source.Stats,
                         () => SkillRadius(Player, source.Stats, spell: true, gem.Effect), CurrentSource,
                         pulse => Hit(pulse.Centre, pulse.Radius, burstMore: pulse.DamageMore, cascadeBurst: pulse.Burst));
+                else if (IsVoltaxicBurst(effect))
+                    ScheduleVoltaxicBurst(gem, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
+                        sequence, repeat, damageMore, brandedTarget, beidatMore);
             });
 
             bool CurrentSource() => Active && !Player.Paused && Player.PlayerLife > 0 && sacrifice.Current

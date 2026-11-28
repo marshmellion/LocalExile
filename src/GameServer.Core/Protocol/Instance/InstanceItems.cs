@@ -124,8 +124,17 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// <summary>Synthesised: the Mods component's flag bit 5 (+0x2e5, "synthetic" in its debug dump 0x1421e7b00).</summary>
     public bool Synthesised { get; init; }
 
+    /// <summary>Mods flag bit 9 (0x0200, <c>0x1421e614e</c> → <c>Mods + 0x2e6</c>): Foulborn / mutated item (shows the
+    /// Breach/Foulborn icon, prefixes unique names with "Foulborn {0}", and enforces Foulborn currency rules).</summary>
+    public bool Foulborn { get; init; }
+
     /// <summary>Mods flag bit 10: a vestigial item, which the client excludes from currency modification.</summary>
     public bool Vestigial { get; init; }
+
+    /// <summary>The BrequelFruit component (Component 170, reader <c>0x141ebaec0</c>): 4-byte <c>u32 LE</c>
+    /// <c>fleshgraftLevel</c> stored at <c>+0x18</c> (default 1), driving Wombgift Hiveblood cost via
+    /// <c>BrequelItemResourceValues</c>.</summary>
+    public uint? BrequelFruitLevel { get; init; }
     public HeistBlueprintState? HeistBlueprint { get; init; }
 
     /// <summary>The DeepwaterChart component (slot 5 0x1424bbe90): u8 +0x30 the Area Level its tooltip shows, u8 +0x31
@@ -136,6 +145,20 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// <summary>The RitualEncounter component (157, Blood-filled Vessel; write 0x1425121e0 → 0x14250eab0, read 0x142512230 → 0x14250ebc0):
     /// u8 monster count, u32 LE monster level, count × (u16 LE MonsterVarieties HASH16, u16 LE count), u16 LE WorldAreas HASH16.</summary>
     public RitualEncounterData? RitualEncounter { get; init; }
+    public IncursionTempleData? IncursionTemple { get; init; }
+    public ExpeditionSagaData? ExpeditionSaga { get; init; }
+
+    /// <summary>MercenaryContract component 173 (Mercenary Warrant rematch blueprint, 0x1424ac0f0): serialized directly
+    /// on the item wire payload and persisted independently of <see cref="Note"/>.</summary>
+    public MercenaryContractData? MercenaryContract { get; init; }
+
+    /// <summary>Item header flag bit 6 (0x0040, reader 0x1421f2d00 → item +0x2c): marks a hired mercenary's rolled gear
+    /// as locked in place ("This Mercenary item cannot be removed, only replaced." / 0x1edc, or 0x20cb in row 107).</summary>
+    public const ushort MercenaryLockedHeaderFlag = 0x0040;
+
+    /// <summary>Persisted lock for a hired mercenary's rolled gear: emits <see cref="MercenaryLockedHeaderFlag"/> on the
+    /// wire and forbids removing, splitting, socketing or crafting the item (only in-place replacement is allowed).</summary>
+    public bool MercenaryLocked { get; init; }
 
     /// <summary>The u16 after the type hash (reader 0x1421f2d00): bit 0 → item +0x28; bit 1 → +0x29, which keeps the item
     /// out of every inventory but InventoryIdKey 0 and 0x41 and is required for 0x41 (0x141d65f80); bit 2 → +0x2a, with
@@ -167,6 +190,13 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// precedence over <see cref="NameWords"/> when non-null.</summary>
     public string? CustomName { get; init; }
 
+    /// <summary>Server-side data a module keeps with this item (never sent to the client): what a module's item needs to
+    /// remember beyond its mods, keyed by the module. Saved with the item.</summary>
+    public IReadOnlyDictionary<string, string>? ContentData { get; init; }
+
+    /// <summary>The MapKey component's optional fields (<see cref="MapKeyData"/>); null for a plain map key.</summary>
+    public MapKeyData? MapKey { get; init; }
+
     /// <summary>A vendor price: (item type hash, amount) entries, Base flag bit 7 (17-npcs.md §5). Empty for items not
     /// in a shop.</summary>
     public IReadOnlyList<(uint TypeHash, uint Amount)> Price { get; init => field = Owned.List(value); } = [];
@@ -181,7 +211,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter", "IncursionTemple", "ExpeditionSaga", "MercenaryContract", "BrequelFruit"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -210,7 +240,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public byte[] Payload()
     {
         if (!CanSerialize(Components)) throw new ArgumentException($"unsupported item components: {string.Join(", ", Components.Where(c => !Supported.Contains(c)))}");
-        var w = new BlobWriter().U32(TypeHash).U16((ushort)(HeaderFlags & 0x01ff));
+        ushort headerFlags = (ushort)((HeaderFlags | (MercenaryLocked ? MercenaryLockedHeaderFlag : 0)) & 0x01ff);
+        var w = new BlobWriter().U32(TypeHash).U16(headerFlags);
         foreach (string c in Components)
         {
             switch (c)
@@ -255,7 +286,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 case "Mods":
                     w.U8(ItemLevel).U8((byte)Math.Clamp(RequiredLevel ?? LevelRequirementOf?.Invoke(this) ?? 0, 0, 255))
                         .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0)
-                            | (RelicStyle is not null ? 0x10 : 0) | (Vestigial ? 0x400 : 0)));
+                            | (Foulborn ? 0x200 : 0) | (RelicStyle is not null ? 0x10 : 0) | (Vestigial ? 0x400 : 0)));
                     if (RelicStyle is byte relic) w.U8(relic);
                     MagicProperties(w); w.U8(MemoryStrands).U8(Intangibility);
                     break;
@@ -275,7 +306,13 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 case "Map": w.U8(0).U8(0).U8(0); break;
                 // MapKey 0x1424b5290 reads a flag byte, then optional u32/u16/u8. The generic map base already names its
                 // tier; 0 sends no overrides.
-                case "MapKey": w.U8(0); break;
+                case "MapKey":
+                    var key = MapKey;
+                    w.U8((byte)((key?.RewardWord is null ? 0 : 1) | (key?.Area is null ? 0 : 2) | (key?.Extra is null ? 0 : 4)));
+                    if (key?.RewardWord is uint word) w.U32(word);
+                    if (key?.Area is ushort keyArea) w.U16(keyArea);
+                    if (key?.Extra is byte extra) w.U8(extra);
+                    break;
                 case "HeistBlueprint":
                     (HeistBlueprint ?? new HeistBlueprintState(0, 1, 1, false, [])).Write(w);
                     break;
@@ -290,6 +327,19 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     for (int ri = 0; ri < ritualCount; ri++)
                         w.U16(ritual!.Monsters[ri].VarietyHash).U16(ritual.Monsters[ri].Count);
                     w.U16(ritual?.AreaHash ?? 0);
+                    break;
+                case "IncursionTemple":
+                    (IncursionTemple ?? new IncursionTempleData(0, [], 0)).Write(w);
+                    break;
+                case "ExpeditionSaga":
+                    (ExpeditionSaga ?? new ExpeditionSagaData(0, [])).Write(w);
+                    break;
+                case "MercenaryContract":
+                    (MercenaryContract ?? new MercenaryContractData(new(0, 0, 0, 0, 0, []))).Write(w);
+                    break;
+                // BrequelFruit (Component 170, reader 0x141ebaec0 / writer 0x141ebae80): u32 LE fleshgraftLevel (+0x18, default 1).
+                case "BrequelFruit":
+                    w.U32(Math.Max(1u, BrequelFruitLevel ?? 1u));
                     break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an
@@ -765,6 +815,19 @@ public static class InstanceItems
     public static InventoryQuickMove ReadInventoryQuickMove(ReadOnlySpan<byte> m) =>
         new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0, m[7], m[8] != 0);
 
+    /// <summary>C→S 0x010c (9 bytes BE, caller 0x1403107d0, builder 0x14216eed0, writer 0x141f9fa30, reader 0x141fa05c0):
+    /// Ctrl + click quick-move between player carried inventory (main or expanded) and a mercenary equipment inventory
+    /// (rows 95..97, 107). Layout: u32 BE itemId (+2), u8 fromExpanded (+6), u8 toMercenary (+7: 1 = into mercenary,
+    /// 0 = out to player), u8 target (+8: roster key 0..3 when toMercenary == 1, or Inventories._row 95/96/97/107 when
+    /// toMercenary == 0; note opposite offset order of +7/+8 vs C→S 0x00fd).</summary>
+    public const ushort MercenaryQuickMoveId = 0x010c;
+    public const int MercenaryQuickMoveLength = 9;
+
+    public readonly record struct MercenaryQuickMove(uint ItemId, bool FromExpanded, bool ToMercenary, byte Target);
+
+    public static MercenaryQuickMove ReadMercenaryQuickMove(ReadOnlySpan<byte> m) =>
+        new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0, m[7] != 0, m[8]);
+
     public const ushort UseItemClickId = 0x57, FlaskChargesId = 0x00c6, ItemUseResultId = 0x0174;
     public const int UseItemClickLength = 11;
 
@@ -986,9 +1049,45 @@ public static class InstanceItems
         uint rawItem = r.U32();
         return new(inventory, rawItem & 0x7fffffff, (rawItem & 0x80000000) != 0, r.WStr());
     }
+
+    /// <summary>C→S 0x1a2 (variable length, writer 0x141fa2510, sender 0x140b05b50): Ctrl + click of an inventory item while
+    /// the Merchant window is open, after the client asked for its price. u8 (1: the item is in the expanded inventory,
+    /// type 0x54), u32 BE item id, WStr note (as in 0x1a1), u32 BE inventory id of the merchant tab, u8 + u8 token (low
+    /// byte first, as in 0xe0). Live 2026-11-26: <c>01A2 00 4000000D 000D "~b/o 1 divine" 00000A00 90 86</c>.</summary>
+    public const ushort ListWithPriceId = 0x1a2;
+
+    public sealed record ListWithPrice(bool Expanded, uint ItemId, string Note, uint InventoryId, byte TokenLo, byte TokenHi);
+
+    public static int? ListWithPriceLength(ReadOnlySpan<byte> m) =>
+        MeasureListWithPriceLength(m, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureListWithPriceLength(ReadOnlySpan<byte> m, out int length)
+    {
+        length = 0;
+        if (m.Length < 7) return WireMeasure.Incomplete;
+        var status = LoginReader.TryMeasureWStr(m[7..], out int textLength);
+        if (status != WireMeasure.Ok) return status;
+        if (m.Length < 7 + textLength + 6) return WireMeasure.Incomplete;
+        length = 7 + textLength + 6;
+        return WireMeasure.Ok;
+    }
+
+    public static ListWithPrice ReadListWithPrice(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        bool expanded = r.U8() != 0;
+        uint item = r.U32();
+        string note = r.WStr();
+        return new(expanded, item, note, r.U32(), r.U8(), r.U8());
+    }
 }
 
 /// <summary>The DeepwaterChart component's three bytes: the Area Level (+0x30), the rotation (+0x31) and the DeepwaterRooms
 /// row. Rotation: quarter turns applied to the room's connection mask as the DeepwaterPlugin cell orientation
 /// (0x141fbeda0); not copied by the client's component copy.</summary>
 public readonly record struct ChartData(byte AreaLevel, byte Rotation, byte Room);
+
+/// <summary>The MapKey component's optional fields (reader 0x1424b5290, a flag byte then each present field): bit 0 a
+/// <c>Words</c> HASH32 (+0x30: the unique a Valdo Map rewards, "Reward: Foil {0}"), bit 1 a <c>WorldAreas</c> HASH16
+/// (+0x20: the layout the map names, "Burial Chambers Map"), bit 2 a u8 (+0x40, meaning unknown). Null sends none.</summary>
+public sealed record MapKeyData(uint? RewardWord = null, ushort? Area = null, byte? Extra = null);
