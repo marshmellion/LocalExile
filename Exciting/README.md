@@ -94,7 +94,7 @@ LocalExile runs only the client versions it knows (3.29.3c and 3.29.3d); your no
    - copies the mods into `Mods\Binaries\`, and with Python makes the orbs' art from your client (`Exciting\client-art.ps1`);
    - offers to make your login account.
 
-3. Double-click **`Exciting\play.cmd`**. The first start builds the servers and the game data (a few minutes), puts the
+3. Double-click **`Exciting\play.cmd`** (**`Exciting\stop.cmd`** stops the game and the servers). The first start builds the servers and the game data (a few minutes), puts the
    mods' content into the game, and opens the game. Log in with the account from step 2. With Python, the second start
    also makes the Body Auras (they read the game data the first start made).
 
@@ -142,6 +142,7 @@ the first two). Your characters, accounts, keys and mod settings stay (they are 
 | No buttons inside the game (only the overlay window) | Run `Exciting\setup.cmd -NativeMods` (they need the 3.29.3d client) |
 | The game closes at start | Run `Exciting\setup.cmd -NoNativeMods` (the in-game buttons off) and tell us |
 | A mod does not load | `/mod` in game, and `logs\live-gateway.log` |
+| Waypoint's Stop says "nothing was running" but the servers run | Waypoint has another LocalExile folder chosen (top left): pick this install there (**Add a folder you already have...** once), or double-click `Exciting\stop.cmd` |
 | `Game.patched.exe` disappears | Your antivirus removed it (a patched executable): allow it, then run `setup.cmd` again |
 | `setup.cmd` or `update.cmd` stops with a red line | It says what is missing; fix that and run it again (each step is safe to repeat) |
 | No Body Auras in the cosmetics | Python was missing: install it, run `setup.cmd`, then start twice |
