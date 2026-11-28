@@ -329,40 +329,112 @@ public sealed class CooldownAdmissionTests
     }
 
     [Fact]
-    public void Frostblink_resolves_in_walkmapless_hideout_clamps_oob_aim_and_handles_non_monster_targets()
+    public async Task Frostblink_resolves_hideout_oob_objects_and_EndAreaPlacedSkills_purges_area_objects()
     {
-        using var f = new Fixture();
-        var c = f.Player;
-        c.Connection.PlayerSent = true;
-        // HideoutDivine has GridW=0, GridH=0, Walkable=null.
-        c.Use(new(1, "HideoutDivine", 0, 0, 197, 261, null, []));
-        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (250, 261), false, _ => 0, out var from, out var to));
-        Assert.Equal((197, 261), from);
-        Assert.Equal((239, 261), to);
-        // Dead monster / corpse target falls back to non-monster ground target resolution without Walkable!.
-        var zombie = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Zombies/ZombieBite"));
-        c.Area.Monsters[0x80000010u] = new("corpse", new(240, 261, 0), 0, 0, 0) { Dead = true, Hostile = true, Variety = zombie };
-        Assert.True(InstantLocationSkill.TryResolveObject(c, c.ProjectileEpoch, 0x80000010u, false, _ => 0,
-            out _, out var corpseTo, out var corpseAim, out bool monsterTarget));
-        Assert.False(monsterTarget);
-        Assert.Equal((240, 261), corpseAim);
-        Assert.Equal((239, 261), corpseTo);
-        // Living monster target on a walkmap-less hideout also works without NRE and marks monsterTarget=true.
-        c.Area.Monsters[0x80000011u] = new("alive", new(240, 261, 0), 0, 0, 100) { Hostile = true, Variety = zombie };
-        Assert.True(InstantLocationSkill.TryResolveObject(c, c.ProjectileEpoch, 0x80000011u, false, _ => 0,
-            out _, out _, out _, out monsterTarget));
-        Assert.True(monsterTarget);
-        // Out-of-bounds positive cursor on a walked map is clamped instead of rejected.
-        c.Use(new(2, "map-oob", 200, 200, 165, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, []));
-        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (350, 100), false, _ => 0, out _, out var clampedTo));
-        Assert.Equal((199, 100), clampedTo);
-        // With a sight grid, aiming OOB near the edge still falls back to the last clear floor cell.
-        c.Use(new(3, "map-oob-sight", 200, 200, 180, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, [])
+        using (var f = new Fixture())
         {
-            Sight = (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 ? (byte)5 : (byte)0
-        });
-        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (350, 100), false, _ => 0, out _, out var edgeTo));
-        Assert.Equal((199, 100), edgeTo);
+            var c = f.Player;
+            c.Connection.PlayerSent = true;
+            // HideoutDivine has GridW=0, GridH=0, Walkable=null.
+            c.Use(new(1, "HideoutDivine", 0, 0, 197, 261, null, []));
+            Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (250, 261), false, _ => 0, out var from, out var to));
+            Assert.Equal((197, 261), from);
+            Assert.Equal((239, 261), to);
+            // Walkmap-less hideout still enforces Barrier / SightBarrier / Blockers.
+            c.DoorBarriers[1] = new HashSet<(int X, int Y)> { (239, 261) };
+            c.SightDoorBarriers[1] = new HashSet<(int X, int Y)>();
+            c.UpdateBarrier();
+            Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (250, 261), false, _ => 0, out _, out _));
+            c.DoorBarriers[1] = new HashSet<(int X, int Y)> { (210, 261) };
+            c.SightDoorBarriers[1] = new HashSet<(int X, int Y)> { (210, 261) };
+            c.UpdateBarrier();
+            Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (250, 261), false, _ => 0, out _, out _));
+            c.DoorBarriers.Clear();
+            c.SightDoorBarriers.Clear();
+            c.UpdateBarrier();
+            // Bounded combat layout with missing Walkable must fail closed.
+            c.Use(new(11, "missing-walkmap", 200, 200, 100, 100, null, []));
+            Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out _));
+            c.Use(new(1, "HideoutDivine", 0, 0, 197, 261, null, []));
+            // Dead monster / corpse target falls back to non-monster ground target resolution without Walkable!.
+            var zombie = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Zombies/ZombieBite"));
+            c.Area.Monsters[0x80000010u] = new("corpse", new(240, 261, 0), 0, 0, 0) { Dead = true, Hostile = true, Variety = zombie };
+            Assert.True(InstantLocationSkill.TryResolveObject(c, c.ProjectileEpoch, 0x80000010u, false, _ => 0,
+                out _, out var corpseTo, out var corpseAim, out bool monsterTarget));
+            Assert.False(monsterTarget);
+            Assert.Equal((240, 261), corpseAim);
+            Assert.Equal((239, 261), corpseTo);
+            // Living monster target on a walkmap-less hideout also works without NRE and marks monsterTarget=true.
+            c.Area.Monsters[0x80000011u] = new("alive", new(240, 261, 0), 0, 0, 100) { Hostile = true, Variety = zombie };
+            Assert.True(InstantLocationSkill.TryResolveObject(c, c.ProjectileEpoch, 0x80000011u, false, _ => 0,
+                out _, out _, out _, out monsterTarget));
+            Assert.True(monsterTarget);
+            // Out-of-bounds positive cursor on a walked map stops at the last clear floor cell along the unclamped ray.
+            c.Use(new(2, "map-oob", 200, 200, 165, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, []));
+            Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (350, 100), false, _ => 0, out _, out var clampedTo));
+            Assert.Equal((199, 100), clampedTo);
+            // Diagonal OOB cursor preserves the exact ray angle (~12.5 deg) instead of bending toward a pre-clamped edge.
+            c.Use(new(4, "map-oob-diag", 200, 200, 170, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, []));
+            Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (350, 140), false, _ => 0, out _, out var diagTo));
+            Assert.Equal(199, diagTo.X);
+            Assert.InRange(diagTo.Y, 105, 108);
+            // With a sight grid, aiming OOB near the edge still falls back to the last clear floor cell.
+            c.Use(new(3, "map-oob-sight", 200, 200, 180, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, [])
+            {
+                Sight = (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 ? (byte)5 : (byte)0
+            });
+            Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (350, 100), false, _ => 0, out _, out var edgeTo));
+            Assert.Equal((199, 100), edgeTo);
+        }
+
+        // EndAreaPlacedSkills purges traps, mines, leaving entries, and grounds from Area.Objects and is idempotent.
+        using var placedFixture = new TriggeredSummonTests.Fixture();
+        var player = placedFixture.Player;
+        var clock = new PlacedCleanupClock();
+        var previous = Game.AreaUpdateContext.Value;
+        player.ProjectileRuntimeState = placedFixture.Session;
+        player.Walk.Teleport(100, 100, clock.At);
+        Game.AreaUpdateContext.Value = new(placedFixture.Lifetime, clock);
+        try
+        {
+            ushort skill = Assert.Single(placedFixture.Equip(("Stormblast Mine", 1)));
+            placedFixture.Session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(clock.At));
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (112, 100)));
+            var mine = Assert.Single(player.Placed.All.Values);
+
+            uint leavingId = 0x9001u, groundId = 0x9002u;
+            player.Area.Objects.RecordDirect(mine.Id, new byte[20], AreaDelta.Kind.Create, player);
+            player.Area.Objects.RecordDirect(leavingId, new byte[20], AreaDelta.Kind.Create, player);
+            player.Area.Objects.RecordDirect(groundId, new byte[20], AreaDelta.Kind.Create, player);
+            player.Placed.Leaving.Add((leavingId, 99));
+            player.Placed.Grounds.Add(new(groundId, 1, (100, 100), 10, 50, 99, 0));
+            Assert.True(player.Area.Objects.Has(mine.Id));
+            Assert.True(player.Area.Objects.Has(leavingId));
+            Assert.True(player.Area.Objects.Has(groundId));
+
+            Game.EndAreaPlacedSkills(player);
+            Game.EndAreaPlacedSkills(player);
+
+            Assert.Empty(player.Placed.All);
+            Assert.Empty(player.Placed.Leaving);
+            Assert.Empty(player.Placed.Grounds);
+            Assert.False(player.Area.Objects.Has(mine.Id));
+            Assert.False(player.Area.Objects.Has(leavingId));
+            Assert.False(player.Area.Objects.Has(groundId));
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    sealed class PlacedCleanupClock : IPlayerUpdateSchedule
+    {
+        public double At = 1;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            At += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
     }
 
     sealed class Fixture : IDisposable

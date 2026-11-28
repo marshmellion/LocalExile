@@ -103,24 +103,21 @@ public static class InstantLocationSkill
             long dx = (long)target.X - from.X, dy = (long)target.Y - from.Y;
             return dx * dx + dy * dy >= 25;
         }
-        if (player.Layout.Walkable is not { } walkable || player.Layout.GridW <= 0 || player.Layout.GridH <= 0)
-        {
-            if (Endpoint(from, ((uint)aim.X, (uint)aim.Y), travelDistancePct, minRange, baseMaxRange) is not { } openEndpoint)
-                return false;
-            if (!FarEnough(openEndpoint)) return false;
-            to = openEndpoint;
-            return true;
-        }
-        int clampedX = Math.Clamp(aim.X, 0, player.Layout.GridW - 1);
-        int clampedY = Math.Clamp(aim.Y, 0, player.Layout.GridH - 1);
-        if (Endpoint(from, ((uint)clampedX, (uint)clampedY), travelDistancePct, minRange, baseMaxRange) is not { } endpoint)
+        var walkable = player.Layout.Walkable;
+        bool openLayout = walkable is null && player.Layout.GridW <= 0 && player.Layout.GridH <= 0;
+        if (!openLayout && (walkable is null || player.Layout.GridW <= 0 || player.Layout.GridH <= 0))
+            return false;
+        // Compute Endpoint before clamping so diagonal OOB cursors preserve the exact ray angle sent in 0x01ce.
+        if (Endpoint(from, ((uint)aim.X, (uint)aim.Y), travelDistancePct, minRange, baseMaxRange) is not { } endpoint)
             return false;
         var blockers = player.Blockers;
         var walkBarrier = player.Barrier;
         var sightBarrier = player.SightBarrier;
         var sight = player.Layout.Sight;
-        bool Allowed(int x, int y) => x >= 0 && y >= 0 && x < player.Layout.GridW && y < player.Layout.GridH
-            && walkable(x, y) && !walkBarrier.Contains((x, y));
+        bool Allowed(int x, int y) => openLayout
+            ? x >= 0 && y >= 0 && !walkBarrier.Contains((x, y))
+            : x >= 0 && y >= 0 && x < player.Layout.GridW && y < player.Layout.GridH
+                && walkable!(x, y) && !walkBarrier.Contains((x, y));
         bool Blocked(int x, int y)
         {
             for (int i = 0; i < blockers.Count; i++)
@@ -143,7 +140,9 @@ public static class InstantLocationSkill
             return true;
         }
         if (!Allowed(from.X, from.Y)) return false;
-        bool directAllowed = Allowed(endpoint.X, endpoint.Y);
+        bool endpointOob = !openLayout
+            && (endpoint.X < 0 || endpoint.Y < 0 || endpoint.X >= player.Layout.GridW || endpoint.Y >= player.Layout.GridH);
+        bool directAllowed = !endpointOob && Allowed(endpoint.X, endpoint.Y);
         bool directClear = directAllowed && ClearSightLine(endpoint);
         if (!directClear)
         {
@@ -153,10 +152,11 @@ public static class InstantLocationSkill
             // 0x141c04a1c (r8 = 1) skips recording cells with layer 1 == 1 and updates the landing only where
             // layer 1 >= 2. 0x141c00440 then re-checks dx^2 + dy^2 >= 25 and 0x141c006d0 (layer 1 >= 1 along the line),
             // so sight == 0 or a SightBarrier also terminates the trace instead of being skipped over.
-            if (!allowTerrainFallback && sight is null) return false;
+            if (!allowTerrainFallback && sight is null && !endpointOob) return false;
             (int X, int Y)? terrain = null;
             foreach (var cell in ClientPathfinder.Line(from, endpoint))
             {
+                if (!openLayout && (cell.X < 0 || cell.Y < 0 || cell.X >= player.Layout.GridW || cell.Y >= player.Layout.GridH)) break;
                 if (sightBarrier.Contains(cell) || sight is not null && sight(cell.X, cell.Y) < 1) break;
                 if (cell == from) continue;
                 if (!Allowed(cell.X, cell.Y)) break;
@@ -233,6 +233,11 @@ public static class InstantLocationSkill
                 foreach (var cell in ClientPathfinder.Line(trace.Start, trace.End))
                     if (cell.X < 0 || cell.Y < 0 || cell.X >= player.Layout.GridW || cell.Y >= player.Layout.GridH
                         || !walkable(cell.X, cell.Y) || player.Barrier.Contains(cell)) return false;
+            }
+            else if (player.Barrier.Count > 0)
+            {
+                foreach (var cell in ClientPathfinder.Line(trace.Start, trace.End))
+                    if (player.Barrier.Contains(cell)) return false;
             }
             if (Math.Max(Math.Abs((long)trace.End.X - aim.X), Math.Abs((long)trace.End.Y - aim.Y))
                 - (variety.ObjectSize - 1) < 1) return false; // Native candidate must be outside the target's footprint.
