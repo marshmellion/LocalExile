@@ -94,6 +94,14 @@ public static partial class Game
 
     sealed record AttackKillExplosion(int PhysicalChance, int WandChaosChance);
     static readonly RuleTable<SpawnedMonster, AttackKillExplosion> AttackKillExplosions = new();
+    sealed record WarcryTaunt(double Until);
+    static readonly RuleTable<SpawnedMonster, WarcryTaunt> WarcryTauntedUntil = new();
+
+    internal static void MarkWarcryTaunted(SpawnedMonster monster, double until) =>
+        WarcryTauntedUntil.AddOrUpdate(monster, new(until));
+
+    internal static bool WasWarcryTaunted(SpawnedMonster monster, double now) =>
+        WarcryTauntedUntil.TryGetValue(monster, out var taunt) && now < taunt.Until;
 
     static void CaptureAttackKillExplosionLocked(SpawnedMonster victim, IReadOnlyDictionary<uint, int> stats, bool wand = false)
     {
@@ -207,7 +215,8 @@ public static partial class Game
             || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsFireOnKillChancePct) > 0
             || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor500PctLifeAsFireOnKillPctChance) > 0
             || stats.GetValueOrDefault(Stat.ShockedEnemiesExplodeForPctLifeAsLightningDamage) > 0
-            || stats.GetValueOrDefault(Stat.ExplodeBurningEnemiesFor10PctLifeAsFireOnKillChancePct) > 0)
+            || stats.GetValueOrDefault(Stat.ExplodeBurningEnemiesFor10PctLifeAsFireOnKillChancePct) > 0
+            || stats.GetValueOrDefault(Stat.EnemiesTauntedByWarcryExplodeOnDeathPctChanceDealing8PctLifeAsChaosDamage) > 0)
             return true;
         if (equipment is not null) return false;
         return stats.GetValueOrDefault(CursedCorpseBlast) > 0
@@ -256,8 +265,11 @@ public static partial class Game
                 AttackKillExplosions.Remove(corpse);
             }
             if (physicalChance > 0 && rng.Next(100) < physicalChance) percent += 10;
-            // Quarter-life chaos sources share the same roll and damage.
-            chaosPercent = chaosChance > 0 && rng.Next(100) < chaosChance ? 25 : 0;
+            // Quarter-life chaos sources share the same roll and damage; Al Dhih warcry-taunted kills explode for 8% chaos.
+            int warcryTauntChance = WasWarcryTaunted(corpse, now)
+                ? Get(Stat.EnemiesTauntedByWarcryExplodeOnDeathPctChanceDealing8PctLifeAsChaosDamage) : 0;
+            bool warcryTauntChaos = warcryTauntChance > 0 && rng.Next(100) < warcryTauntChance;
+            chaosPercent = (chaosChance > 0 && rng.Next(100) < chaosChance ? 25 : 0) + (warcryTauntChaos ? 8 : 0);
             // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
             // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).
             // K'Tash's Magnificence (Demonic Power): 40% chance for killed enemies to explode for 10% of life as fire.

@@ -18,11 +18,12 @@ public static partial class Game
     /// <paramref name="seconds"/> (a warcry, a Basalt Flask); a new taunt replaces the player's old one on a monster (wiki
     /// Taunt: "you can replace your own taunts"). The enemy-debuff step shows it and takes it off. In the area's frame;
     /// the number taunted.</summary>
-    public static int TauntLocked(Player player, (int X, int Y) at, int radius, double now, double seconds) =>
-        TauntLocked(player, at, radius, now, seconds, intimidate: false, stunDurationPct: 0);
+    public static int TauntLocked(Player player, (int X, int Y) at, int radius, double now, double seconds,
+        bool fromWarcry = false) =>
+        TauntLocked(player, at, radius, now, seconds, intimidate: false, stunDurationPct: 0, fromWarcry: fromWarcry);
 
     static int TauntLocked(Player player, (int X, int Y) at, int radius, double now, double seconds,
-        bool intimidate, int stunDurationPct)
+        bool intimidate, int stunDurationPct, bool fromWarcry = false)
     {
         if (!CurrentGameWork || player.PlayerLife == 0 || seconds <= 0) return 0;
         int taunted = 0;
@@ -30,6 +31,7 @@ public static partial class Game
         {
             if (Dist(m.Walk.Position(now), at) > radius || !ApplyPlayerTauntLocked(player, m, now, seconds)) continue;
             taunted++;
+            if (fromWarcry) MarkWarcryTaunted(m, m.TauntedUntil);
             if (intimidate) ApplyIntimidateLocked(m, now, m.TauntedUntil, stunDurationPct);
         }
         return taunted;
