@@ -199,6 +199,7 @@ public static partial class Game
                 GainPhasingOnKill(player);
             var explosionStats = PlayerStatValues(player);
             var explosionEquipment = CaptureKillEquipment(player, monster, position, now, explosionStats);
+            SporeguardOnKillLocked(player, position, now);
             if (MayExplodeOnKill(player, monster, explosionEquipment, explosionStats, killSkill))
                 session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment, killSkill));
         }

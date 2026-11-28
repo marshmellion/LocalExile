@@ -165,6 +165,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.CloseInteractionsIfMovingAway(player, null, Rules.AreaTime(player))));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.TickMapRunBoss(player)));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.TickSporeguardFungalGround(player, Rules.AreaTime(player))));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => Rules.TickMapRunBoss(kill.Player, force: true));
         // A dead monster's debuffs come off: each player's step for it.
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
@@ -267,6 +268,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearInstantBuffSkills(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaTotems(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaSporeguard(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearOwnerAttacks(player); return Task.CompletedTask; });
         GameEvents.ObjectUse.Add(id, Rules.TryUseCustomPortal);

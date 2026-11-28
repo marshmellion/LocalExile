@@ -63,8 +63,9 @@ public static partial class Game
     public readonly record struct KillEquipmentSnapshot(int CursedCorpsePhysicalPct, int PrideChance, int CursedVictimChaosChance)
     {
         public int BannerPhysicalChance { get; init; }
+        public int FungalChaosChance { get; init; }
         public bool Any => CursedCorpsePhysicalPct > 0 || PrideChance > 0 || CursedVictimChaosChance > 0
-            || BannerPhysicalChance > 0;
+            || BannerPhysicalChance > 0 || FungalChaosChance > 0;
     }
 
     static KillEquipmentSnapshot CaptureKillEquipment(Player player, SpawnedMonster victim, (int X, int Y) at, double now,
@@ -81,9 +82,11 @@ public static partial class Game
             || player.Instance is not { } instance || !AreaBanners.TryGetValue(instance, out var placed)
             || !placed.ContainsKey(banner.Object) || now >= banner.Until || Dist(at, banner.At) > banner.Radius))
             bannerChance = 0;
+        int fungalChance = stats.GetValueOrDefault(Stat.EnemiesKilledOnFungalGroundExplodeFor10PctChaosDamagePctChance);
+        if (fungalChance > 0 && !OnFungalGround(player, at, now)) fungalChance = 0;
         return new(corpsePercent, prideChance,
             victim.CursedAtDeath ? stats.GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct) : 0)
-            { BannerPhysicalChance = bannerChance };
+            { BannerPhysicalChance = bannerChance, FungalChaosChance = fungalChance };
     }
 
     static void CaptureEquippedHitExplosionLocked(SpawnedMonster target, IReadOnlyDictionary<uint, int> playerStats)
@@ -222,7 +225,8 @@ public static partial class Game
         return stats.GetValueOrDefault(CursedCorpseBlast) > 0
             || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePctWhileUsingPride) > 0
             || stats.GetValueOrDefault(Stat.BannerAffectedEnemiesExplodeFor10PctLifeAsPhysicalOnKillChancePct) > 0
-            || stats.GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct) > 0;
+            || stats.GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct) > 0
+            || stats.GetValueOrDefault(Stat.EnemiesKilledOnFungalGroundExplodeFor10PctChaosDamagePctChance) > 0;
     }
 
     public static async Task<bool> ExplodeOnKill(Player player, uint corpseId, SpawnedMonster corpse, (int X, int Y) at,
@@ -265,11 +269,13 @@ public static partial class Game
                 AttackKillExplosions.Remove(corpse);
             }
             if (physicalChance > 0 && rng.Next(100) < physicalChance) percent += 10;
-            // Quarter-life chaos sources share the same roll and damage; Al Dhih warcry-taunted kills explode for 8% chaos.
+            // Quarter-life chaos sources share the same roll and damage; Al Dhih and Sporeguard add 8% / 10% chaos.
             int warcryTauntChance = WasWarcryTaunted(corpse, now)
                 ? Get(Stat.EnemiesTauntedByWarcryExplodeOnDeathPctChanceDealing8PctLifeAsChaosDamage) : 0;
             bool warcryTauntChaos = warcryTauntChance > 0 && rng.Next(100) < warcryTauntChance;
-            chaosPercent = (chaosChance > 0 && rng.Next(100) < chaosChance ? 25 : 0) + (warcryTauntChaos ? 8 : 0);
+            int fungalChaosPercent = captured.FungalChaosChance > 0 && rng.Next(100) < captured.FungalChaosChance ? 10 : 0;
+            chaosPercent = (chaosChance > 0 && rng.Next(100) < chaosChance ? 25 : 0)
+                + (warcryTauntChaos ? 8 : 0) + fungalChaosPercent;
             // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
             // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).
             // K'Tash's Magnificence (Demonic Power): 40% chance for killed enemies to explode for 10% of life as fire.

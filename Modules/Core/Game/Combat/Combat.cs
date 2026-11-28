@@ -5944,6 +5944,7 @@ public static partial class Game
             if (corpseConsumed)
                 await Game.SendWorldRemoval(player, id,
                     $"0x02bd corpse 0x{id:x} ({m.Label}) {(corpseDestroyed ? "destroyed on hit kill" : devoured ? "devoured by the supported skill" : "consumed by the killing blow")}");
+            SporeguardOnKillLocked(player, at, now);
             await ExplodeOnKill(player, id, m, at, explosionEquipment, skillStats);
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
