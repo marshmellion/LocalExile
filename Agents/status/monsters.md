@@ -33,7 +33,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   scattered set on top of them (#668). The scattered packs stand only on cells the arrival can walk to, so the pockets
   a generated map's walk map walls off from the entrance get none: a pack standing in one was a monster the area
   counted and nobody could reach or kill.
-  Code: `MonsterPacks.cs`, Gateway (`PopulateArea`), `scripts/walkmaps`, `scripts/re/atlas room-points`.
+  A map area adds a draw from the shared `chaos-*` pool to its Maps.dat signature packs, cut to the packs whose `Tags`
+  suit the area's `AreaTypeTags`: before that Forbidden Woods had only `chaos-vendigo1` and every monster of the map was
+  a Vendigo. The draw is the instance's one set of packs (`AreaPopulation.ForInstance`, asked for through
+  `Game.InstancePacks`): the scattered monsters, a strongbox's guards and summons, an Essence's monster, a Harbinger's
+  wave and the Torment dig pick from it where they run. The Harbinger and Torment on/off checks
+  read the instance's own packs, and the Essence opening checks the signature packs and the pool alike, so on an
+  ordinary map whose list is empty they start from the pool draw.
+  Unique map areas (WorldAreas `IsUniqueMapArea`) get no pool. Which key the areas whose `AreaTypeTags` is not their
+  terrain use (Summit, Estuary, Pier) is open; the per-instance draw size is our own number.
+  Code: `MonsterPacks.cs`, Gateway (`PopulateArea`, `Game.InstancePacks`), `scripts/walkmaps`,
+  `scripts/re/atlas room-points`.
   Docs: [14](../docs/protocol/14-monster-packs.md).
 - The map overlay's "X monsters remain" line: S→C 0x1a0 carries living hostile monsters, including dormant enemies,
   excluding friendly summons and corpses. Shared-instance updates follow entry, kills, spawns and removals; emerging
@@ -191,9 +201,24 @@ Part of [Status](../Status.md); what to build next in this area is in
   possessed exiles (Torment) and the special and exceptional rewards' contents are guesses or missing; the active Atlas
   preset is the last one changed.
   Docs: [league encounters](../docs/game/league-encounters.md).
-- Bestiary: maps roll Einhar's mission from their master-mission stats; red and yellow beasts, captured at the kill.
+- Bestiary: maps use their mission and Bestiary Atlas rules, including Bestial Rage on spawned beasts.
 - Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
-- Mercenaries: a map area may hold one to talk to, duel and hire.
+- Mercenaries & Luminary: Act 3+ campaign and map encounters (`0xa1`/`0xa2`, `0x7b` `0x60`/`0x61`, `0x010c`),
+  Take Item/Rucksack, Rematch Warrants, temporary recruits, persistent 3-slot permanent roster (`Mercenary1..3`),
+  full `CanMercenaryEquipItem` validation, companion owned-skills/weapon-scaled AI/auras/taunt/recoup/death/revive,
+  and all Scion Luminary ascendancy passives (`Noble Blood`, `Oath of Fealty`, `Golden Glory`, `Loyal Bodyguard`,
+  `Bestowed Knighthood`, `Legendary Arms` + unique-slot nodes).
+  Supports roll 3.29 endgame counts from area level 68 with one tier per support by level.
+  Guaranteed campaign zones ignore the level gate with no Rucksack; other encounters carry a 2x2 currency/Trarthan
+  gem Rucksack, show the `MercenaryEncounter` map icon, and exclude the empty Bladereach build.
+  Infamous encounters roll at 20% (1.5x to 2x in T1-T16 maps) with an Infamous modifier from level 68 and at least
+  one unique item.
+  A lost duel (death or leaving the area) keeps the wager; the Mercenary plays its failed state (3) and leaves with
+  its Scarab of Infamy escorts, none of them dropping items. Rematch is offered only in maps. Their
+  `EASMercenaryPortalOut` exit (`portal_out_01`) is sent before removal; its portal is not yet confirmed visible live.
+  Verified live on 3.29.3d.
+  Docs: [league encounters](../docs/game/league-encounters.md).
+- Ritual: maps and Act 2 campaign altars, waves, Tribute, Favour window, Vessels, Scarabs, Atlas, and Omens.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
@@ -203,7 +228,25 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Native ranged actions receive final projectile counts, including `MonsterProjectileSpell` and `rolling_magma`
   server-published projectiles; other than simulated mortars and spell projectiles, flight damage remains incomplete.
+- Weapon projectile attacks with a `monster_projectile_variation` fly their `MonsterProjectileAttack` projectile through
+  kit shaping (`BossKits.ArtShot`, including `ScavengerThrow` variation 0, sibling `ActionType`s, `SkillArtProjectile`
+  variant-0 fallback, ahead of the shared-skill borrow); the default attack (`MavenNucleus.Shot`) still has none.
+- Monster skill data, combos, kits & `.ot` state flags (PR #1618 S0–S6; automated coverage only, not yet verified live
+  with the real client): `monster-contacts` v9 extracts profile-normalized `Animation.dat` pools, ACT modifiers, `.ao`
+  views, named clip events, and `GE.Animation` priority (missing projectile clips 811 → 185/2,342; `EmptyAction*` parent
+  clip coverage 896 → 1,993/2,050); `MonsterCombos` drives `EmptyAction*` child actions on `AreaTime` clip events;
+  ordinary monster kits scale up to 16 skills with `MinRange`, `CooldownGroup`, cached `GrantedSkill` reuse, and
+  module-agnostic `MonsterKitHooks`; `object-types` v14 adds `object_type_state_meta` for data-driven default visibility
+  (`MonsterStates.DefaultVisibleStates`) and `MonsterStateMachine` runtime `0x2bc` state updates.
+  Code: `MonsterCombos.cs`, `MonsterKits.cs`, `MonsterKitHooks.cs`, `MonsterStates.cs`, `MonsterStateMachine.cs`,
+  `scripts/re/monster_contacts.py`, `scripts/re/ot_components.py`. Docs: [11](../docs/protocol/11-skills.md) §6.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
+- Act 11 pinnacle bosses (arenas and spawns verified live in 3.29.3d; full AI/combat tuning pending): The Maven (with
+  Nucleus and Ruleset 112 memory game), The Infinite Hunger (drown swamp), The Black Star (astral polarity), The Eater
+  of Worlds (energising orbs), The Searing Exarch (ball phase), and the Zana Memory Incarnations of Neglect, Fear, and
+  Dread run dedicated multi-phase controllers with `world.db` `drop_boss_items` tables.
+  Code: `Modules/Core/Game/Monster/PinnacleBosses/`, `ItemDrops.cs`, `sql/updates/pending_world/`.
+  Docs: [21](../docs/protocol/21-hideouts.md).
 
 - Monsters using the ordinary AI can acquire an in-range fighting golem even while its owner is outside aggro range.
 - Campaign bosses play their whole skill kit rather than one attack: a monster an act's area names as its boss
@@ -224,15 +267,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   A skill that declares a duration and a per-stack percentage but no stack count applies one stack: the blood-projectile
   and bonespire family (Greed's essence nova, Belly Totem, Breach, Pyramid, Vendigo) rows omit the count.
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
-  Arakaali's unsafe generic laser activators stay out; a dedicated controller supplies linked native turret rails.
-  Her Silk transition and stance-specific attacks run; corner travel, laser ordering and collision calibration remain.
+  Arakaali's unsafe generic laser activators and entity-targeted `ArakaaliHide` stay out of generic kits; her dedicated
+  controller supplies linked native turret rails, engagement-gated combat/relocation timers, and created
+  `TeleportMarkerSerialized1..4` scene objects for native `ArakaaliHide[6885]` corner travel (with server-hidden fallback).
   Campaign Yugul finishes his native entrance before generic AI, making him targetable on first entry as on reentry;
   his two mirror intervals hide the body until ten images die; pools chill, Fearful orbs chase and four native turrets
   fire piercing volleys with terminal bursts. Fearful magnitudes, orb escalation and aura radii remain calibrated.
   Solaris/Lunaris hand off corporeal/celestial forms; celestial fire sweeps/flares and lunar darkness/ice cascades
   have typed contacts. Official cadence, heading distribution and some hazard radii remain calibrated.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
-  `EmptyAction`s), ungrounded `CastGroundEffect` rows (such as The Faun's `TheFaunCastGroundEffectLavaTemporary`),
+  unbound `EmptyAction` shells), ungrounded `CastGroundEffect` rows (such as The Faun's `TheFaunCastGroundEffectLavaTemporary`),
   and secondary `GA*` `GeometryAttack` leap payloads (`GANavaliGoatmanLeapDamage`) stay out of boss kits and default
   attacks (verified live on The Faun), and the attack a boss had before is still its first, unchanged. Checked against
   the tables and in `BossKitsTests`; **not yet played against the real client**: which of the remaining list a client

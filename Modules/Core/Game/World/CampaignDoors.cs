@@ -87,9 +87,8 @@ public static class CampaignDoors
 
     static async Task EnsureAndPresent(Player player)
     {
-        if (!Enabled() || player.Instance is null || InTown(player)
-            || HideoutCatalog.ByArea(player.Layout.Hash) is not null
-            || player.Layout.Id == TutorialObjects.Strand
+        if (!Enabled() || player.Instance is null || IsNonCombatHub(player)
+            || !IsCampaignCombatArea(player.Layout.Id)
             || MapDevices.IsMapArea(player.Layout.Hash)
             || player.Layout.Level is not { } level
             || LabyrinthTrials.InLabyrinth(player.Layout.Id))
@@ -203,14 +202,26 @@ public static class CampaignDoors
         if (opened)
         {
             player.RemoveBlocker(door.Id);
-            if (player.DoorBarriers.Remove(door.Id)) player.UpdateBarrier();
+            bool removed = player.DoorBarriers.Remove(door.Id);
+            removed |= player.SightDoorBarriers.Remove(door.Id);
+            if (removed) player.UpdateBarrier();
             return;
         }
-        player.SetBlocker(door.Id, door.X, door.Y, def.Size);
         var barrier = BarrierCells(player, door, def);
+        // Non-smashable doors are serialized with blocksNoWalker: true (+0x1e6 & 0x40), so the client's 0x141e65ae0
+        // skips their Positioned square and blocks only via the TriggerableBlockage Hull cells. Mirror that on the
+        // server when Hull cells exist so server walk/blink positions stop at the door edge instead of 3 cells back.
+        if (barrier.Count == 0 || def.IsSmashable)
+            player.SetBlocker(door.Id, door.X, door.Y, def.Size);
+        else
+            player.RemoveBlocker(door.Id);
         if (barrier.Count > 0)
         {
             player.DoorBarriers[door.Id] = barrier;
+            if (!string.IsNullOrEmpty(door.Model) && ServerLevels.HasModelHull(door.Model))
+                player.SightDoorBarriers[door.Id] = ServerLevels.ModelSightCells(door.Model, door.X, door.Y, door.Rotation);
+            else
+                player.SightDoorBarriers.Remove(door.Id);
             player.UpdateBarrier();
         }
     }

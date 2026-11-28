@@ -7,12 +7,15 @@ public readonly record struct HitRollModifiers(int DamageExtraRolls = 0, int Ene
     int TripleDamageChance = 0, int DamageMorePct = 0, int InvertElementalResistanceChance = 0, int EnemyHitsNinetyResistanceChance = 0,
     int DoubleDamageChance = 0, int SpellDoubleDamageChance = 0)
 {
+    public int EnemyPhysicalExtraRolls { get; init; }
+
     public static HitRollModifiers From(Func<uint, int> get) => new(
         get(Stat.BaseExtraDamageRolls), get(Stat.BaseEnemyExtraDamageRolls),
         get(Stat.BaseChanceToDealTripleDamagePct), get(Stat.MarauderHiddenAscendancyDamagePlusPctFinal),
         get(Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance),
         get(Stat.EnemyHitsPctChanceToTreatElementalResistancesAs90Pct),
-        get(Stat.ChanceToDealDoubleDamagePct), get(Stat.SpellChanceToDealDoubleDamagePct));
+        get(Stat.ChanceToDealDoubleDamagePct), get(Stat.SpellChanceToDealDoubleDamagePct))
+        { EnemyPhysicalExtraRolls = get(Stat.EnemiesExtraDamageRollsWithPhysicalDamage) };
 
     /// <summary>One skill's hit: the skill's own chance to deal double damage (Heavy Strike's gem) adds to the player's,
     /// a spell adds spell_chance_to_deal_double_damage_%, and the final repeat of a spell adds Awakened Spell Echo's
@@ -39,19 +42,46 @@ public readonly record struct HitRollModifiers(int DamageExtraRolls = 0, int Ene
 
     public double DamageFactor => Math.Max(0, (100.0 + DamageMorePct) / 100.0);
 
-    /// <summary>Apply the less damage and roll the triple-damage chance, then the double-damage one, then roll each damage
-    /// type independently. Critical strike multiplication and target mitigation still belong to the caller.</summary>
-    public DamagePacket RollOutgoingHit(DamagePacket hit, Random random)
+    internal HitRollModifiers ForCriticalStrike(bool critical, IReadOnlyDictionary<uint, int> caster,
+        IReadOnlyDictionary<uint, int>? skill) => critical ? WithCriticalDoubleDamage(CriticalDoubleDamageOf(caster, skill)) : this;
+
+    internal static long CriticalDoubleDamageOf(IReadOnlyDictionary<uint, int> caster, IReadOnlyDictionary<uint, int>? skill) =>
+        (long)caster.GetValueOrDefault(Stat.CriticalStrikePctChanceToDealDoubleDamage)
+            + (skill?.GetValueOrDefault(Stat.CriticalStrikePctChanceToDealDoubleDamage) ?? 0);
+
+    HitRollModifiers WithCriticalDoubleDamage(long chance) => this with
     {
-        // Triple damage overrides double (PoB CalcOffence: having both is the same as triple), so double only rolls when
-        // triple misses.
-        int multiplier = RandomRolls.Chance(TripleDamageChance, 100, random) ? 3
-            : RandomRolls.Chance(DoubleDamageChance, 100, random) ? 2 : 1;
-        return hit.Scale(DamageFactor * multiplier).Roll(random, DamageExtraRolls);
+        DoubleDamageChance = ActorScale.Saturate(DoubleDamageChance + chance),
+    };
+
+    // Ordinary hits keep their existing draw order. A critical-only chance defers the one multiplier roll
+    // until the hit has confirmed its critical strike.
+    internal DamagePacket RollBeforeCritical(DamagePacket hit, Random random, long criticalDoubleDamage) =>
+        criticalDoubleDamage == 0 ? RollOutgoingHit(hit, random)
+            : (DamageFactor == 1 ? hit : hit.Scale(DamageFactor)).Roll(random, DamageExtraRolls);
+
+    internal DamagePacket CompleteCriticalMultiplier(DamagePacket rolled, Random random, bool critical, long criticalDoubleDamage) =>
+        criticalDoubleDamage == 0 ? rolled
+            : (critical ? WithCriticalDoubleDamage(criticalDoubleDamage) : this).ApplyDamageMultiplier(rolled, random);
+
+    internal DamagePacket ApplyDamageMultiplier(DamagePacket rolled, Random random)
+    {
+        int multiplier = RollDamageMultiplier(random);
+        return multiplier == 1 ? rolled : rolled.Scale(factor: multiplier);
     }
 
+    /// <summary>Apply the less damage and roll the triple-damage chance, then the double-damage one, then roll each damage
+    /// type independently. Critical strike multiplication and target mitigation still belong to the caller.</summary>
+    public DamagePacket RollOutgoingHit(DamagePacket hit, Random random) =>
+        hit.Scale(DamageFactor * RollDamageMultiplier(random)).Roll(random, DamageExtraRolls);
+
+    // Triple damage overrides double, so double only rolls when triple misses.
+    int RollDamageMultiplier(Random random) => RandomRolls.Chance(TripleDamageChance, 100, random) ? 3
+            : RandomRolls.Chance(DoubleDamageChance, 100, random) ? 2 : 1;
+
     /// <summary>Overly Confident changes enemy HIT damage rolls, never damage-over-time ticks.</summary>
-    public DamagePacket RollIncomingHit(DamagePacket hit, Random random) => hit.Roll(random, EnemyDamageExtraRolls);
+    public DamagePacket RollIncomingHit(DamagePacket hit, Random random) => hit.Roll(random, EnemyDamageExtraRolls,
+        ActorScale.Saturate((long)EnemyDamageExtraRolls + EnemyPhysicalExtraRolls));
 
     /// <summary>The inversion is a single outcome for this hit. Cap the actual resistance first, then invert it;
     /// recapping the inverted value would incorrectly help targets with negative resistance.</summary>

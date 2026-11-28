@@ -18,7 +18,7 @@ public static partial class Game
         int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own = null, int effect = -1) =>
         OffHandPanelStats(() => OffhandWeaponFor(player), () => ActiveOffHand(player), () => player.Pools,
             () => WeaponProfileFor(player, activeSet: true), ItemsFor(player), () => AttackCriticalMultiplier(player, playerStats, effect, own),
-            playerStats, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindValue(player, playerStats).Less,
+            playerStats, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindPenalty(player, playerStats),
             elusiveActive: ElusiveFactor(player) > 0,
             extraCriticalMultiplier: own is null ? 0 : NightbladeCriticalMultiplier(player, own));
 
@@ -42,8 +42,7 @@ public static partial class Game
             Player(PlayerAccuracyModifiers.BootsMore), localDifference, blindLess);
         var accuracy = AttackAccuracyProfile.From(pools, player, Stats, own, offLocal) with { Rating = rating };
         // Critical chance: the off-hand weapon's base with its local mods, the same override and global increases.
-        int weaponBase = AddedBaseCriticalStrike.LocalWeaponChance(catalog.WeaponCritical(offType),
-            offLocal.GetValueOrDefault(Stat.LocalCriticalStrikeChance), offLocal.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct));
+        int weaponBase = OffHandWeaponCriticalBase(catalog.WeaponCritical(offType), offLocal, player);
         int basis = AttackBaseCriticalStrike.OfMainHand(true, weaponBase, Player);
         if (own is not null && elusiveActive
             && Own(Stat.AdditionalCriticalStrikeChancePermyriadWhileAffectedByElusive) is int elusiveBase and not 0)

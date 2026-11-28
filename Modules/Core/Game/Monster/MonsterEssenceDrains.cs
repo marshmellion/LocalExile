@@ -11,7 +11,7 @@ static partial class Game
         Stat.SupportControlledDestructionSpellDamagePlusPctFinal, Stat.SupportVoidManipulationChaosDamagePlusPctFinal,
         Stat.SupportRapidDecayDamageOverTimePlusPctFinal, Stat.SupportEfficacySpellDamagePlusPctFinal,
         Stat.SupportEfficacyDamageOverTimePlusPctFinal, Stat.SupportPhysChaosProjectileChaosDamageOverTimePlusPctFinal,
-        Stat.CrueltyDamageOverTimePlusPctFinal,
+        Stat.CrueltyDamageOverTimePlusPctFinal, Stat.SupportDivineCryDamagePlusPctFinal,
     ];
 
     /// <summary>Essence Drain (GrantedEffects <c>EssenceDrain</c>) and its transfigured versions: the debuff one projectile
@@ -24,7 +24,7 @@ static partial class Game
     internal static MonsterEssenceDrain.Cast? EssenceDrainCast(Player player, ushort skillId, int effect)
     {
         string? id = SkillsFor(player).EffectId(effect);
-        if (id is not ("EssenceDrain" or "EssenceDrainAltX" or "EssenceDrainAltY")) return null;
+        if (id is not ("EssenceDrain" or "EssenceDrainAltX" or "EssenceDrainAltY" or "EssenceDrainRoyale")) return null;
         var own = SupportedSkill(player, skillId).Stats;
         var playerStats = CharacterPlayerStats(player);
         var merged = MergeSkillStats(playerStats, own);
@@ -40,7 +40,8 @@ static partial class Game
         double more = EssenceDrainSupportMore.Aggregate(1.0, (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
         double multiplier = 1 + ((double)Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)
             + Get(Stat.DamageOverTimeMultiplierPlusWithSpells)) / 100.0;
-        double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
+        double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier)
+            * GhorrDotMore(player, skillId);
         double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own)
             * Math.Max(0, 1 + Get(Stat.SiphonDurationPlusPct) / 100.0);
         return new(dps, seconds, Math.Max(0, Get(Stat.SiphonLifeLeechFromDamagePermyriad)), skillId, player)
@@ -166,7 +167,9 @@ static partial class Game
                         if (cast.LossPermyriad > 0 && actual > 0 && !m.Invulnerable)
                             (losses ??= []).Add((cast, actual));
                         CreditSiphonLeechLocked(player, cast.Caster, m, life);
-                    });
+                    }, MaimDotTaken.TryGetValue(m, out _)
+                        ? (from, until) => MonsterDotTakenOver(m, DamageType.Chaos, from, until, now)
+                        : null);
                 if (damage <= 0)
                 {
                     ApplyLosses(1);
@@ -183,6 +186,7 @@ static partial class Game
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
+                    if (owner is null) CaptureLootAilmentsAtDeath(m, now);
                     m.Dead = true;
                     CleanupDeadMonsterLocked(player.Area, id, m);
                     m.LastHitBy = owner;

@@ -6,8 +6,8 @@ public static partial class Game
     static bool TriggerAreaSpell(Player player, SupportedGem gem)
     {
         string? effect = SkillsFor(player).EffectId(gem.Effect);
-        return effect is "IceNova" or "IceNovaAltY" or "BladeBlastAltY"
-            || IsHexblastEffect(effect) || IsAbsolutionHitSpell(player, gem.Effect);
+        return effect is "IceNova" or "IceNovaAltX" or "IceNovaAltY" or "BladeBlastAltY"
+            || IsHexblastEffect(effect) || IsDischarge(effect) || IsAbsolutionHitSpell(player, gem.Effect);
     }
 
     static bool TriggerChaosDebuff(string? effect) => IsBaneEffect(effect) || IsContagionEffect(effect);
@@ -17,13 +17,14 @@ public static partial class Game
 
     public static bool TriggerPayloadAvailable(Player player, SupportedGem gem)
     {
+        if (SkillsFor(player).IsRetaliation(gem.Effect)) return false;
         string? payload = SkillsFor(player).EffectId(gem.Effect);
-        if (TriggerChaosDebuff(payload)) return true;
+        if (payload is CorpseBodyswapEffect or BodyswapSacrificeEffect or AmbushEffect || TriggerChaosDebuff(payload)) return true;
         if (SpatialSpellEffect(payload)) return SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality).CanHit;
         if (TriggerGuardSpell(player, gem) || TriggerSummonSpell(player, gem)
             || TriggerBrandSpell(player, gem.Effect) || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
         string? effect = SkillsFor(player).EffectId(gem.Effect);
-        if (TimedAreaSpellEffect(effect) && effect != "VaalDetonateDead" || PlacedArcPayload(effect)) return true;
+        if (TimedAreaSpellEffect(effect) && effect is not ("VaalDetonateDead" or VaalBladeVortexEffect) || PlacedArcPayload(effect)) return true;
         if (CurseCatalog.All.ContainsKey(effect ?? "")) return true;
         return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
                 || TriggerAreaSpell(player, gem) || IsFirestorm(player, gem.Effect)
@@ -39,6 +40,16 @@ public static partial class Game
         var gem = SupportedSkill(player, id);
         var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == id);
         if (skill.Name is null || !TriggerPayloadAvailable(player, gem)) return null;
+        uint preferredTarget = triggerTarget != 0 ? triggerTarget : brandedTarget?.ObjectId ?? 0;
+        if (SkillsFor(player).EffectId(gem.Effect) == AmbushEffect)
+            return PrepareTriggeredAmbush(player, session, gem, id, preferredTarget, aim, current);
+        if (SkillsFor(player).EffectId(gem.Effect) == CorpseBodyswapEffect)
+        {
+            var point = player.Area.Monsters.GetValueOrDefault(preferredTarget)?.Walk.Position(ProjectileWorldTime(player)) ?? aim;
+            return PrepareTriggeredCorpseBodyswap(player, session, skill, gem, point, current);
+        }
+        if (SkillsFor(player).EffectId(gem.Effect) == BodyswapSacrificeEffect)
+            return PrepareTriggeredBodyswap(player, session, skill, gem, aim, preferredTarget, current);
         if (TriggerGuardSpell(player, gem))
             return GuardAvailableForTrigger(player, AreaTime(player))
                 ? () => StartTriggeredGuard(player, session, id, AreaTime(player)) : null;
@@ -51,13 +62,13 @@ public static partial class Game
             return () =>
             {
                 var origin = brandOrigin ?? player.Walk.Position(AreaTime(player));
-                session.ScheduleTimedAreaSpell(skill, aim, 0, 0, 0xffff, current, critical, sacrifice, 1, 0);
+                session.ScheduleTimedAreaSpell(skill, aim, 0, 0, 0xffff, current, critical, sacrifice, 1, 0, origin);
                 foreach (var area in SpellCascadeAreas(player, skill.Effect, gem.Stats, origin, aim))
-                    session.ScheduleTimedAreaSpell(skill, area, 0, 0, 0xffff, current, critical, sacrifice, 1, 0);
+                    session.ScheduleTimedAreaSpell(skill, area, 0, 0, 0xffff, current, critical, sacrifice, 1, 0, origin);
             };
         }
         if (PlacedArcPayload(SkillsFor(player).EffectId(gem.Effect)))
-            return () => ScheduleTriggeredArc(player, session, skill, aim, brandOrigin, current, triggerTarget);
+            return () => ScheduleTriggeredArc(player, session, skill, aim, brandOrigin, current, preferredTarget);
         if (IsStormCall(SkillsFor(player).EffectId(gem.Effect)))
         {
             var sacrifice = new SacrificeUse(player, id, skill.Effect, skill.Gem, triggered: true);
@@ -86,7 +97,7 @@ public static partial class Game
             var sacrifice = new SacrificeUse(player, id, skill.Effect, skill.Gem, triggered: true);
             var critical = CaptureSkillCriticalRoll(player, id);
             return () => session.ScheduleSpatialSpell(skill, brandOrigin ?? player.Walk.Position(AreaTime(player)), aim, 0,
-                current, sacrifice, critical, brandedTarget: brandedTarget);
+                current, sacrifice, critical, brandedTarget: brandedTarget, targetId: preferredTarget);
         }
         if (brandOrigin is { } origin && TriggerAreaSpell(player, gem))
             return () => session.Enqueue(() => AreaSkillHitForUse(null, player,
@@ -95,7 +106,7 @@ public static partial class Game
     }
 
     static bool PlacedUtilityPayload(string? effect) =>
-        effect is "FleshOffering" or "BoneOffering" or "SpiritOffering"
+        effect is "FleshOffering" or "BoneOffering" or "SpiritOffering" or BloodOfferingEffect
         || IsContagionEffect(effect) || CurseCatalog.All.ContainsKey(effect ?? "");
 
     public static async Task ReleaseTriggeredNonProjectile(Player player, ProjectileSession session, ushort id,
@@ -128,7 +139,8 @@ public static partial class Game
         if (MinionUtility(effect))
         {
             if (effect is "ConvocationOld" or "Convocation") RecallMinionsLocked(player, gem, now);
-            else StartOfferingLocked(player, id, gem, effect, aim, 0, now);
+            else if (effect == "SignalPrey") SignalPreyLocked(player, id, gem, aim, 0, now);
+            else StartOfferingLocked(player, id, gem, effect, aim, 0, now, fromPlacement: fromPlacement);
         }
         else if (CurseCatalog.All.TryGetValue(effect, out var curse))
         {
@@ -144,6 +156,7 @@ public static partial class Game
             }
             else
             {
+                if (TryPlaceCursedGroundLocked(player, id, gem, aim, now, playerStats)) return;
                 int radius = CurseRadius(player, id, false, gem, playerStats);
                 var nearby = fromPlacement ? player.Area.MonstersNear(aim, radius).Select(p => p.Value) : player.Area.Monsters.Values;
                 foreach (var monster in nearby)

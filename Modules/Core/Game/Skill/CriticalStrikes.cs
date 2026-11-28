@@ -1,6 +1,26 @@
 
 public static partial class Game
 {
+    static int LowestStrengthOrIntelligenceCriticalIncrease(CharacterStats.Pools pools, int enabled) =>
+        enabled != 0 ? Math.Min(pools.Strength, pools.Intelligence) : 0;
+
+    static void LoseLifeOnCriticalStrikeLocked(Player player, int percent, double now)
+    {
+        if (percent <= 0 || player.PlayerLife == 0) return;
+        uint before = player.PlayerLife;
+        uint lost = (uint)Math.Min(before, (long)player.PlayerMaxLife * percent / 100);
+        if (lost == 0) return;
+        player.PlayerLife = VaalImmortalCallLife(player, before - lost, now);
+        LeechOf(player).InstantLifeChanged |= player.PlayerLife != before;
+        if (player.PlayerLife != 0) return;
+        player.InvalidateIncomingHits();
+        ClearWardBreakOnDeath(player);
+        RecordHardcoreDeath(player);
+        int epoch = player.IncomingHitEpoch;
+        ProjectilesFor(player).Enqueue(() => RunOnAreaFrame(player,
+            () => PlayerDiedAtEpoch(player, "life lost on critical strike", epoch)));
+    }
+
     // "Your Critical Strikes do not deal extra Damage": the stat, and the two keystones whose text says the same
     // (Elemental Overload, Perfect Agony). Resolute and Precise Technique say "Never deal Critical Strikes", which is
     // CriticalProhibitedBy instead.
@@ -12,12 +32,19 @@ public static partial class Game
             || Flag(Stat.KeystoneElementalOverload) || Flag(Stat.KeystoneAilmentCrit);
     }
 
-    public static int CriticalHitMultiplier(long ordinary, bool noExtra) => noExtra ? 100
-        : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
+    public static int CriticalHitMultiplier(long ordinary, bool noExtra) =>
+        CriticalHitMultiplier(ordinary, noExtra, fixedMultiplier: false);
+
+    public static int CriticalHitMultiplier(long ordinary, bool noExtra, bool fixedMultiplier) => noExtra ? 100
+        : fixedMultiplier ? 300 : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
+
+    static bool FixedCriticalHitMultiplier(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? own) =>
+        (player?.GetValueOrDefault(Stat.CriticalStrikeMultiplierIs300) ?? 0) != 0
+        || (own?.GetValueOrDefault(Stat.CriticalStrikeMultiplierIs300) ?? 0) != 0;
 
     public static int CriticalHitMultiplier(long ordinary, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null) => CriticalHitMultiplier(ordinary,
-            CriticalHitsDealNoExtraDamage(player, own));
+            CriticalHitsDealNoExtraDamage(player, own), FixedCriticalHitMultiplier(player, own));
 
     static long ClawDaggerCriticalBonus(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own)

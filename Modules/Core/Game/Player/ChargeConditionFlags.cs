@@ -14,14 +14,17 @@ public static partial class Game
         int standard = converted ? 0 : effective;
         flags[names.None] = flags[names.YouHaveNone] = alive && standard == 0;
         flags[names.Any] = alive && standard > 0;
-        flags[names.AtMaximum] = alive && !converted && maximum >= 0
-            && (effective >= maximum || countsAsMaximum && maximum > 0);
+        flags[names.AtMaximum] = alive && StandardChargesAtMaximum(effective, maximum, converted, countsAsMaximum);
     }
+
+    static bool StandardChargesAtMaximum(int effective, int maximum, bool converted, bool countsAsMaximum) =>
+        !converted && maximum >= 0 && (effective >= maximum || countsAsMaximum && maximum > 0);
 
     static Dictionary<string, bool> RequalifyChargeConditions(Player player,
         IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources)
     {
-        var flags = new Dictionary<string, bool>(captured);
+        // A copy to requalify, not a read: copying a recorded map would mark every flag read.
+        var flags = captured is ReadFlags recorded ? recorded.CopyUnrecorded() : new Dictionary<string, bool>(captured);
         int Get(uint key) => sources.GetValueOrDefault(key);
         var state = ChargesOf(player).State;
         Func<uint, int> get = Get;   // one delegate for the three types: every stat lookup comes here

@@ -3,6 +3,9 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
+    // Above any item, gem or jewel attribute requirement.
+    const int IgnoredAttributeRequirement = 10000;
+
     // The tail of the player's stats (PlayerStatSteps.cs: TailPanels, TailOffence, TailCritical): the character panel's
     // derived rows, the default attack's hit and ailment rows, accuracy, critical and off-hand rows. Each stage reads only
     // StatSnapshotTailInputs: the stats before it and the state read into the inputs.
@@ -78,13 +81,14 @@ public static partial class Game
         double lifeRegenerationToEnergyShield, bool moving)
     {
         var items = ItemsOf(player);
-        var mainRow = items.Items(PlayerInventories.Weapon1);
-        var offRow = items.Items(PlayerInventories.Offhand1);
+        var mainRow = EnergyBladeRow(player, PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1));
+        var offRow = EnergyBladeRow(player, PlayerInventories.Offhand1, items.Items(PlayerInventories.Offhand1));
         var (bloodHeld, bloodShown) = BloodChargePanelInputs(player);
+        var recoveryGet = PanelStats.WhileMoving(name => name is var key ? stats.GetValueOrDefault(key) : 0, moving);
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
-            name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
-        double factor = LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name));
-        uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute * factor / 60);
+            recoveryGet, player.Pools.Life, player.Pools.EnergyShield,
+            LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name)));
+        uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
         return new()
         {
             Stats = stats, Pools = player.Pools with { Evasion = PlayerEvasion(player, stats) },
@@ -99,7 +103,7 @@ public static partial class Game
                     >= (uint)((long)player.PlayerMaxLife * LowLifeThresholdPct(stats) / 100),
             LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving,
             IsPhasing = player.IsPhasing, MapLightRadiusPct = MapModsOf(player)?.Get(Stat.MapPlayerLightRadiusPlusPct) ?? 0,
-            BlindLess = PlayerBlindValue(player, stats).Less,
+            BlindLess = PlayerBlindPenalty(player, stats),
             BloodChargesHeld = bloodHeld, BloodChargesShown = bloodShown,
             Ailments = [], SuppressionChance = 0,
             AttackEffectId = SkillEffectId(player, SkillCatalog.FirstSkillId),
@@ -138,7 +142,7 @@ public static partial class Game
                 .Concat(PanelStats.FromPools(Get, pools))
                 .Concat(PanelStats.Defence(Get, pools, Monsters.BaseDamage(pools.Level), Monsters.BaseAccuracy(pools.Level)))
                 .Concat(PanelStats.Recovery(PanelStats.WhileMoving(Get, inputs.Moving), pools.Life, pools.Mana,
-                    LifeRegenerationKeystoneFactor(Get)))
+                    LifeRegenerationKeystoneFactor(Get), pools.EnergyShield))
                 // Leech limits and the client display use the full maximum pool. Petrified Blood caps only the
                 // recovery actually applied, not the instance's contribution or its displayed cap.
                 .Concat(LeechLimits.Compute(Get, pools.Life, pools.Mana, pools.EnergyShield, OnLowLife(stats)))
@@ -161,6 +165,14 @@ public static partial class Game
                 stats[lifeRecovery] = 0;
             // Requirement checks read virtual_*_for_requirements (0x3d1b-0x3d1d, 0x1421f3a40); default them to the
             // resolved attributes without clobbering pre-existing overrides.
+            // Supreme Ostentation (keystone_supreme_prodigy) ignores attribute requirements: the client checks only these
+            // stats, so publish a value no requirement reaches (the server's own checks read the keystone directly).
+            if (Get(Stat.KeystoneSupremeProdigy) != 0)
+            {
+                stats[Stat.VirtualStrengthForRequirements] = IgnoredAttributeRequirement;
+                stats[Stat.VirtualDexterityForRequirements] = IgnoredAttributeRequirement;
+                stats[Stat.VirtualIntelligenceForRequirements] = IgnoredAttributeRequirement;
+            }
             stats.TryAdd(Stat.VirtualStrengthForRequirements, Get(Stat.Strength));
             stats.TryAdd(Stat.VirtualDexterityForRequirements, Get(Stat.Dexterity));
             stats.TryAdd(Stat.VirtualIntelligenceForRequirements, Get(Stat.Intelligence));

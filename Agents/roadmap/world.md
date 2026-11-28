@@ -87,11 +87,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Done when** (low priority: the start and the gate work, these are visual): the Strand's gate plays its opening
   animation when Hillock dies ([12](../docs/protocol/12-quests.md) §6, "The gate's animation");
   "Resurrect at Checkpoint" goes to the last activated checkpoint of the area, with no loading screen.
-  Waypoints are checkpoints, and the activated waypoint is done;
+  Waypoints are checkpoints, and the activated waypoint and intra-area boss-room entrance checkpoints are done;
   the separate `Metadata/MiscellaneousObjects/Checkpoint` objects are not placed yet, so "last activated" across
-  several checkpoints is open.
-  Dying in a boss arena revives just outside the arena's door, even with a checkpoint activated;
-  dying in a map revives in the hideout (hideouts exist, [21](../docs/protocol/21-hideouts.md); maps do not).
+  standalone checkpoint objects is open.
+  Dying in a map revives in the hideout / map device's area (done).
 - **One-way entries:** the arrival next to the exit back needs an exit back.
   Lioneye's Watch from The Twilight Strand uses the town's named point `entrance1` (`AreaLayout.OneWayArrivals`,
   [08](../docs/protocol/08-area-transitions.md) §3): in the real game the player comes out on the town side of the
@@ -136,12 +135,12 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ### Unimplemented campaign league mechanics
 
-- **Known:** campaign areas in Acts 1–10 now spawn Strongboxes (with Rogue Exiles), Essences, Voltaxic Sulphite and
-  Act 6–10 Smuggler's Caches, while five core league encounters that appear during the campaign have no league module yet:
+- **Known:** campaign areas in Acts 1–10 now spawn Strongboxes (with Rogue Exiles), Essences, Voltaxic Sulphite,
+  Act 2 Rituals (`1_2_8`, `1_2_13`) and Act 6–10 Smuggler's Caches, while four core league encounters that appear during
+  the campaign have no campaign hook yet:
   - **Vaal Side Areas** (Acts 1–10 corruption side areas and Vaal Vessel bosses).
   - **Bestiary / Einhar** (Act 2+ campaign beast spawns, Einhar appearances and capture encounters).
   - **Blight / Cassia** (campaign Blight encounters, lanes and tower defence).
-  - **Ritual** (campaign Ritual altars and favour windows).
   - **Delirium Mirrors** (Act 5+ campaign Delirium Mirror spawns and fog scaling).
 - **Done when:** each league module is implemented and wired into campaign area generation at its retail act threshold.
 

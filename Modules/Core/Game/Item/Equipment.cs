@@ -83,7 +83,7 @@ public static partial class Game
     public static (Item Item, ItemCatalog.BaseType? Type)? ActiveOffHand(Player player) => ActiveHand(player, PlayerInventories.Offhand1);
 
     public static (Item Item, ItemCatalog.BaseType? Type)? ActiveHand(Player player, byte row) =>
-        ActiveHandIn(ItemsOf(player).Items(row), id => IsInactive(player, id), ItemsFor(player));
+        ActiveHandIn(EnergyBladeRow(player, row, ItemsOf(player).Items(row)), id => IsInactive(player, id), ItemsFor(player));
 
     // ActiveHand from a row read once, with the items whose requirements are not met (the stat snapshot's tail inputs).
     public static (Item Item, ItemCatalog.BaseType? Type)? ActiveHandIn(IEnumerable<InventoryItem> row, Func<uint, bool> inactive,
@@ -108,7 +108,10 @@ public static partial class Game
         var result = new Dictionary<uint, int>(weaponSources ?? SupportedAttackDamage.WeaponSources(item, ItemsFor(player).Mods));
         var local = ItemModStats.Local(item, ItemsFor(player).Mods);
         if (!local.Keys.Any(name => StatConditions.PlainOf(Stats.Name(name)) is not null)) return result;
-        var flags = player.StatSourcesCache?.Key.Flags ?? ItemConditionFlags(player, ResourceEffectsTime(player));
+        // The cached key's flags are the build-time values: a flag the sum never read can flip while the cache still
+        // hits, and the first local-mods read after the flip would see the build-time value. Read the live flags, so
+        // a conditional local mod always answers from the flag as it is now.
+        var flags = ItemConditionFlags(player, ResourceEffectsTime(player));
         foreach (uint name in local.Keys) result.Remove(name);
         foreach (var (name, value) in ItemModStats.Local(item, ItemsFor(player).Mods, new(Flags: flags), Stats.Has))
             result[name] = value;
@@ -160,15 +163,16 @@ public static partial class Game
     public static WeaponProfile WeaponProfileFor(Player player, bool activeSet = true)
     {
         var items = ItemsOf(player);
-        return WeaponProfileFrom(row => items.Items(row), id => IsInactive(player, id), ItemsFor(player), activeSet, () => HasShield(player));
+        return WeaponProfileFrom(row => EnergyBladeRow(player, row, items.Items(row)),
+            id => IsInactive(player, id), ItemsFor(player), activeSet, () => HasShield(player));
     }
 
     // Animation suffixes and contact geometry use the physical weapon, not its additional gameplay identities.
     public static WeaponProfile AnimationWeaponProfileFor(Player player)
     {
         var items = ItemsOf(player);
-        return WeaponProfileFrom(row => items.Items(row), id => IsInactive(player, id), ItemsFor(player),
-            activeSet: true, () => HasShield(player), expandedIdentities: false);
+        return WeaponProfileFrom(row => EnergyBladeRow(player, row, items.Items(row)),
+            id => IsInactive(player, id), ItemsFor(player), activeSet: true, () => HasShield(player), expandedIdentities: false);
     }
 
     // WeaponProfileFor from rows read once (the stat snapshot's tail inputs hold rows 2 and 3, the active set's hands).
@@ -277,8 +281,12 @@ public static partial class Game
         // and its slot goes out empty, so the client greys out the skills that need it (11-skills.md §10a) and the default
         // attack punches, while the inventory still shows the item where it is.
         foreach (var (row, slot) in new[] { (PlayerInventories.Weapon1, (byte)0), (PlayerInventories.Offhand1, (byte)1) })
-            if (items.Items(row) is [var held, ..] && IsInactive(player, held.Id) && looks.FindIndex(l => l.Slot == slot) is int hand and >= 0)
-                looks[hand] = VisibleItem.Empty(slot);
+        {
+            int hand = looks.FindIndex(l => l.Slot == slot);
+            if (hand < 0 || EnergyBladeRow(player, row, items.Items(row)) is not [var held, ..]) continue;
+            looks[hand] = IsInactive(player, held.Id) ? VisibleItem.Empty(slot) : LookOf(held.Item) is { } look
+                ? look with { Slot = slot } : looks[hand];
+        }
         // A bow is held in the left hand, and its model slot is not the main hand's: BowSetup holds the record the live server
         // sends (the bow's art in slot 1, an arrow in slot 0 with the weapon type and stance, the quiver on the back in 7).
         var weapon = HandType(player, PlayerInventories.Weapon1);
@@ -301,10 +309,11 @@ public static partial class Game
         foreach (var worn in WornCosmetics(player))
         {
             if (MtxEffects.SlotOf(worn.Slot) is not { ModelSlot: byte model } slot || MtxEffects.Of(worn.MtxTypeHash) is not { } fx) continue;
+            byte tier = fx.ResolveTier(worn.Option);
             if (cosmeticSlots.ContainsKey(model))
             {
                 if (fx.Visual != 0)
-                    cosmeticSlots[model] = new VisibleItem(model, fx.Visual) { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash };
+                    cosmeticSlots[model] = new VisibleItem(model, fx.Visual) { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash, SkinTier = tier };
                 continue;
             }
             // With a bow the main hand's cosmetics dress the bow, which is the left hand's entry, and the off hand's dress
@@ -314,9 +323,9 @@ public static partial class Game
             if (at < 0 || looks[at].VisualIdentity == 0) continue;   // nothing equipped there to dress
             if (!classes.TryGetValue(model, out int itemClass) || !fx.Fits(itemClass)) continue;   // not an item it dresses
             if (slot.IsWeaponEffect && fx.WeaponEffect != 0)
-                looks[at] = looks[at] with { EffectVisual = fx.WeaponEffect, EffectHash = worn.MtxTypeHash };
+                looks[at] = looks[at] with { EffectVisual = fx.WeaponEffect, EffectHash = worn.MtxTypeHash, EffectTier = tier };
             else if (!slot.IsWeaponEffect && fx.Visual != 0)
-                looks[at] = looks[at] with { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash };
+                looks[at] = looks[at] with { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash, SkinTier = tier };
         }
         return [.. looks, .. cosmeticSlots.Values];
     }
@@ -342,20 +351,23 @@ public static partial class Game
 
     // What the player wears changed (an item went into or out of a visible equipment row): 0x2bc Inventories for the model,
     // then the Actor skill list again, since the gems socketed in the equipment grant skills.
-    public static async Task SendEquipment(Player player, PlayerInventories items)
+    public static async Task SendEquipment(Player player, PlayerInventories items, bool refreshCosmetics = true)
     {
         RefreshVaalSouls(player);
         // Refresh the canonical inactive qualification before reconciling grants: a swapped item may change another
         // worn item's requirements. Keep the same mutation lock as owned spawn commits.
+        bool bladeEnded;
         using (ProjectileMutation(player, advance: false, phase: "equipment output"))
         {
+            bladeEnded = ReconcileEnergyBlade(player);
             RecomputePoolsAndSpeed(player);
             ReconcileBeastCompanionsLocked(player);
             player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
         }
+        if (bladeEnded) await SendEnergyBladeInventories(player);
         await SendModel(player, Looks(player, items), "equipment");
         // The socketed gems may have changed: the Cosmetics tab's skill slots follow them.
-        await SendWornCosmetics(player, "equipment changed");
+        if (refreshCosmetics) await SendWornCosmetics(player, "equipment changed");
         await SendSkills(player);
         await SendPlayerStatSnapshot(player,
             () => PlayerStatsOffFrames(player),

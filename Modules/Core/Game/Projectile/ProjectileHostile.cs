@@ -31,13 +31,17 @@ public static partial class Game
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         // A shot released from an object of the monster's (its trap) leaves that object, not the monster's hand.
         var from = ProjectileSession.Vector(releasedFrom ?? m.Walk.Position(now));
-        var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && OwnedFighter(player, targetId) is { } golem
-            ? golem.Monster.Walk.Position(now) : player.Walk.Position(now)));
+        var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId
+            ? OwnedFighter(player, targetId) is { } golem ? golem.Monster.Walk.Position(now)
+                : player.Companion is { } comp && comp.EntityId == targetId && CompanionAliveInArea(player, comp)
+                    ? comp.Monster.Walk.Position(now) : player.Walk.Position(now)
+            : player.Walk.Position(now)));
         // A barrage follow-up aimed at where its target stands now turns the monster to it through the session outbox.
         if (TurnToShot && turn && orderedAim is null && releasedFrom is null && (aim - from).Length >= 1)
             session.World(id, GameServer.Core.Protocol.Instance.InstanceProtocol.Orientation(id,
                 MathF.Atan2((float)(aim.X - from.X), (float)(from.Y - aim.Y)), locked: false), null);
         var effects = m.Effects;
+        projectile = projectile with { Count = Math.Clamp(projectile.Count + effects.AdditionalProjectiles - m.Mods.Effects.AdditionalProjectiles, 1, 256) };
         int EffectStat(uint id) => effects[id];
         double speed = Math.Max(0.1, ProjectileSpeed.CellsPerSecond(projectile.Speed, EffectStat, EffectStat,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED")));
@@ -203,13 +207,13 @@ public static partial class Game
     public static void LaunchMonsterProjectile(Player player,
         uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, int action,
         (int X, int Y)? orderedAim = null, double? releaseAt = null, ushort sequence = MonsterActionSequence,
-        bool turn = false)
+        bool turn = false, (int X, int Y)? releasedFrom = null)
     {
         var session = ProjectilesFor(player);
         session.Advance();
         session.Schedule(releaseAt is { } at ? ProjectileRuntime.Time(at) : session.Runtime.Now,
             () => MonsterActionCurrent(player, id, m, action) && !InGracePeriod(player),
-            () => MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence, turn: turn));
+            () => MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence, turn: turn, releasedFrom: releasedFrom));
     }
 
     // Called under the XP -> Monsters lock by the runtime. Only the player takes a monster's projectile; a friendly monster in
@@ -225,14 +229,23 @@ public static partial class Game
             session.Enqueue(() => PublishMinionOutcomes(player));
             return landed ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }
+        if (player.Companion is { } comp && comp.EntityId == contact.Target.Id && CompanionAliveInArea(player, comp))
+        {
+            bool landed = CompanionTakeEnemyHitLocked(player, comp, shot.MonsterId, shot.Monster,
+                shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier * shot.MinionDamageFactor) },
+                Math.Max(AreaTime(player), contact.At / (double)ProjectileRuntime.QuantaPerSecond),
+                area: contact.IsArea || shot.Attack.Projectile?.Lobbed == true);
+            session.Enqueue(() => PublishMinionOutcomes(player));
+            return landed ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
+        }
         if (contact.Target.Id != player.Id)
         {
             var totems = player.Totems.All;
             for (int i = 0; i < totems.Count; i++)
-                if (totems[i].Id == contact.Target.Id && totems[i].DecoyRadius > 0)
+                if (totems[i].Id == contact.Target.Id)
                 {
                     double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
-                    return DecoyTakeHitLocked(player, totems[i], shot.Monster, shot.Attack, now, contact.Multiplier)
+                    return TotemTakeHitLocked(player, totems[i], shot.MonsterId, shot.Monster, shot.Attack, now, contact.Multiplier)
                         ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
                 }
             return ProjectileHitResult.Miss;

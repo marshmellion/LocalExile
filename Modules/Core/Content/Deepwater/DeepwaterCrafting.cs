@@ -39,11 +39,6 @@ public static class DeepwaterCrafting
         ["Metadata/Items/Currency/CurrencyAddModToRareElder"] = ItemInfluence.Elder,
     };
 
-    // 3 Foulborn Orbs (BaseItemTypes Id).
-    const string FoulbornAug = "Metadata/Items/Currency/CurrencyMutatedAddModToMagic";
-    const string FoulbornRegal = "Metadata/Items/Currency/CurrencyMutatedUpgradeMagicToRare";
-    const string FoulbornExalt = "Metadata/Items/Currency/CurrencyMutatedAddModToRare";
-
     /// <summary>One row of <c>DeepwaterCraftingCurrencies</c> joined via <c>CurrencyItems.BaseItemTypesKey</c>.</summary>
     public sealed record CurrencyRow(uint CurrencyHash, int Tier, int MinCopies, int MaxCopies, int Cost,
         int RequiredLeagueFlag, int IntangMin, int IntangMax, int HardModeCost, bool DisabledInRuthless);
@@ -203,7 +198,7 @@ public static class DeepwaterCrafting
     public static async Task QuickMove(IModuleContext module, Player player, InstanceItems.LeagueWindowMove move)
     {
         var modPlayer = PlayerOf(player);
-        if (modPlayer.AreaId != DeepwaterModule.HubId)
+        if (!DeepwaterModule.IsOnDeck(player))
         {
             module.Log($"{modPlayer.Character} <= 0x010f Allflame Crafting quick-move: refused (not on The Sovereign)");
             return;
@@ -333,7 +328,7 @@ public static class DeepwaterCrafting
     {
         var modPlayer = PlayerOf(player);
         string who = modPlayer.Character;
-        if (modPlayer.AreaId != DeepwaterModule.HubId || !isHubOwner || args.Length < 8)
+        if (!DeepwaterModule.IsOnDeck(player) || !isHubOwner || args.Length < 8)
         {
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused (area={modPlayer.AreaId}, owner={isHubOwner}, len={args.Length})");
             return;
@@ -408,6 +403,8 @@ public static class DeepwaterCrafting
         if (held < cost)
         {
             module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused ({cost} Sulphur needed, {held} held)");
+            await modPlayer.Send(InstanceChat.ChatLine($"Not enough Dead Man's Sulphur ({cost} needed, {held} held)."),
+                "0x0017 chat line: insufficient Sulphur for Allflame crafting");
             return;
         }
 
@@ -424,6 +421,8 @@ public static class DeepwaterCrafting
             if (targetInvItem is null || targetInvItem.Item.Intangibility == 0)
             {
                 module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused (Tzamoto's Ducat requires Intangibility > 0)");
+                await modPlayer.Send(InstanceChat.ChatLine("Tzamoto's Ducat requires an item with Intangibility."),
+                    "0x0017 chat line: Tzamoto's Ducat refused");
                 return;
             }
             if (DeepwaterDucats.ApplyTzamoto(targetInvItem.Item, random, out destroyed) is { } survived)
@@ -444,6 +443,8 @@ public static class DeepwaterCrafting
                     if (i == 0)
                     {
                         module.Log($"{who} <= 0x02ca DeepwaterHubRules DoCraft: refused ({currencyType.Name} cannot apply to {targetType?.Name ?? "none"} or is not implemented)");
+                        await modPlayer.Send(InstanceChat.ChatLine($"{currencyType.Name} cannot be applied to {targetType?.Name ?? "this item"}."),
+                            "0x0017 chat line: Allflame craft currency refused");
                         return;
                     }
                     break;
@@ -633,9 +634,9 @@ public static class DeepwaterCrafting
                 CurrencyEffects.EldritchExaltedOrb => CurrencyEffects.EldritchExalted(effective, rolls, random),
                 CurrencyEffects.EldritchAnnulmentOrb => CurrencyEffects.EldritchAnnulment(effective, rolls, random),
                 CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(effective, rolls, random),
-                FoulbornAug => ApplyFoulborn(catalog, rolls, effective, targetType, FoulbornKind.Augment, random),
-                FoulbornRegal => ApplyFoulborn(catalog, rolls, effective, targetType, FoulbornKind.Regal, random),
-                FoulbornExalt => ApplyFoulborn(catalog, rolls, effective, targetType, FoulbornKind.Exalt, random),
+                CurrencyEffects.FoulbornOrbOfAugmentation => CurrencyEffects.FoulbornAugmentation(effective, rolls, random),
+                CurrencyEffects.FoulbornRegalOrb => CurrencyEffects.FoulbornRegal(effective, rolls, random),
+                CurrencyEffects.FoulbornExaltedOrb => CurrencyEffects.FoulbornExalted(effective, rolls, random),
                 // Deferred niche currencies (Resonators, Veiled, Conflict/Dominance, Tempering/Tailoring, Memory): refuse cleanly.
                 _ => null,
             };
@@ -665,43 +666,6 @@ public static class DeepwaterCrafting
 
         var chosen = DeepwaterDucats.WeightedPick(eligible, random);
         return DeepwaterDucats.InsertExplicitMod(influenced, catalog.Mods, chosen, random);
-    }
-
-    enum FoulbornKind { Augment, Regal, Exalt }
-
-    // G: Foulborn orbs bias eligible affixes toward higher-level tiers via weight * (1 + mod.Level / 20).
-    static Item? ApplyFoulborn(ItemCatalog catalog, ItemRolls rolls, Item target, ItemCatalog.BaseType targetType,
-        FoulbornKind kind, Random random)
-    {
-        if (!rolls.Modifiable(target)) return null;
-        if (kind is FoulbornKind.Augment or FoulbornKind.Regal && target.Rarity != ItemRarity.Magic) return null;
-        if (kind == FoulbornKind.Exalt && target.Rarity != ItemRarity.Rare) return null;
-        if (kind is FoulbornKind.Regal or FoulbornKind.Exalt && target.Components.Contains("Flask")) return null;
-
-        var max = kind == FoulbornKind.Augment ? (1, 1) : rolls.RareMaxAffixes(target);
-        var affixes = rolls.AffixesToAdd(target, max);
-        if (affixes.Count == 0) return null;
-
-        long total = 0;
-        var weighted = new (ModCatalog.Mod Mod, long Weight)[affixes.Count];
-        for (int i = 0; i < affixes.Count; i++)
-        {
-            long w = Math.Max(1L, (long)affixes[i].Weight * (1 + affixes[i].Mod.Level / 20));
-            weighted[i] = (affixes[i].Mod, w);
-            total += w;
-        }
-        long roll = random.NextInt64(Math.Max(1, total));
-        var chosen = weighted[^1].Mod;
-        foreach (var (mod, weight) in weighted)
-        {
-            if (roll < weight) { chosen = mod; break; }
-            roll -= weight;
-        }
-
-        var result = DeepwaterDucats.InsertExplicitMod(target, catalog.Mods, chosen, random);
-        return kind == FoulbornKind.Regal
-            ? result with { Rarity = ItemRarity.Rare, Identified = true, NameWords = rolls.RareName(targetType, random) }
-            : result;
     }
 
     // ---- 4 GhostflameCraftingOutput display cases & relog reconstruction ----
@@ -737,7 +701,7 @@ public static class DeepwaterCrafting
     public static async Task SpawnVats(IModuleContext module, Player player, bool isHubOwner)
     {
         var modPlayer = PlayerOf(player);
-        if (modPlayer.AreaId != DeepwaterModule.HubId || player.Instance is not { } instance) return;
+        if (!DeepwaterModule.IsOnDeck(player) || player.Instance is not { } instance) return;
         if (VatInfo is not { } info || VatStates is null)
         {
             module.Log($"{modPlayer.Character}: {VatType} cannot be serialized ({string.Join(", ", QuestObjectTypes.Find(VatType)?.Components ?? [])})");
@@ -826,7 +790,7 @@ public static class DeepwaterCrafting
     public static async Task<bool> UseVat(IModuleContext module, Player player, InstanceTransfer.UseSkillOnObject use, double at, bool isHubOwner)
     {
         var modPlayer = PlayerOf(player);
-        if (modPlayer.AreaId != DeepwaterModule.HubId || player.Instance is not { } instance || !Vats.TryGetValue(instance, out var group))
+        if (!DeepwaterModule.IsOnDeck(player) || player.Instance is not { } instance || !Vats.TryGetValue(instance, out var group))
             return false;
 
         Vat? clicked;

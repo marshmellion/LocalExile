@@ -23,6 +23,8 @@ public static class AuraCatalog
         public object? StanceOwner { get; init; }
         public bool SelfOnly { get; init; }
         public int MoreEffectPct { get; init; }
+        public bool FixedManaReservation { get; init; }
+        public bool FixedLifeReservation { get; init; }
     }
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
@@ -83,6 +85,8 @@ public static class AuraCatalog
         ["BloodAndSand"] = FleshAndStoneBloodRow,
         ["ArcticArmour"] = 427,
         ["TempestShield"] = 112,
+        ["ManaInfusedStaff"] = 2792,
+        ["Spellslinger"] = 1527,
         ["HeraldOfAsh"] = 344,
         ["HeraldOfIce"] = 345,
         ["HeraldOfThunder"] = 346,
@@ -127,6 +131,9 @@ public static class AuraCatalog
     public static string Family(string effectId) => effectId switch
     {
         "GraceHardMode" => "Grace", "DeterminationHardMode" => "Determination",
+        "PrecisionRoyale" => "Precision", "VitalityRoyale" => "Vitality", "ClarityRoyale" => "Clarity",
+        "BloodAndSandRoyale" => StanceCatalog.BloodAndSand,
+        "ElementalWeaknessRoyale" or "VulnerabilityRoyale" or "DespairRoyale" => CurseCatalog.Family(effectId),
         "AspectOfTheCat" => "CatAspect", _ => effectId,
     };
 
@@ -214,13 +221,19 @@ public static class AuraCatalog
     {
         if (inTown) return [];
         var gems = available.Where(a => Supported(a.EffectId)).GroupBy(RestoreFamily)
-            .ToDictionary(g => g.Key, g => g.First());
+            .ToDictionary(g => g.Key, g => g.ToArray());
         var restored = new List<Aura>();
-        foreach (string effect in saved.Select(RestoreFamily).Distinct())
-            if (gems.TryGetValue(effect, out var aura))
+        foreach (string effect in saved.DistinctBy(RestoreFamily))
+        {
+            if (!gems.TryGetValue(RestoreFamily(effect), out var candidates)) continue;
+            // Several Spellslingers run side by side: each one that fits comes back.
+            Aura[] picks = effect == "Spellslinger" ? candidates
+                : [candidates.FirstOrDefault(a => a.EffectId == effect) ?? candidates[0]];
+            foreach (var aura in picks)
                 if ((!IsAspect(aura.EffectId) || !restored.Any(a => IsAspect(a.EffectId)))
                     && RequiredMana(pools, restored.Append(aura)) <= pools.Mana
                     && RequiredLife(pools, restored.Append(aura)) < pools.Life) restored.Add(aura);
+        }
         return restored;
     }
 
@@ -250,7 +263,8 @@ public static class AuraCatalog
         double flat = 0, percent = 0;
         foreach (var aura in auras)
         {
-            double efficiency = Math.Max(-99L, (long)efficiencyPct + aura.ReservationEfficiencyPct) / 100.0 + 1;
+            double efficiency = (life ? aura.FixedLifeReservation : aura.FixedManaReservation) ? 1
+                : Math.Max(-99L, (long)efficiencyPct + aura.ReservationEfficiencyPct) / 100.0 + 1;
             var (flatCost, percentCost) = life
                 ? ExplicitLife(aura) ? (aura.LifeFlat, aura.LifePercent) : (aura.ManaFlat, aura.ManaPercent)
                 : (aura.ManaFlat, aura.ManaPercent);
@@ -384,7 +398,11 @@ public static class AuraCatalog
     /// effect. Heralds' buff stats are scaled by <paramref name="heraldEffectPct"/> instead ("X% increased Effect of
     /// Herald Buffs on you"); the character's own stat value is passed by the caller.</summary>
     public static IEnumerable<(uint Key, int Value)> RawStats(IEnumerable<Aura> auras, int auraEffectPct,
-        SkillCatalog skills, StatCatalog stats, int heraldEffectPct = 0)
+        SkillCatalog skills, StatCatalog stats, int heraldEffectPct = 0) =>
+        RawStats(auras, auraEffectPct, skills, stats, heraldEffectPct, extraEffect: null);
+
+    public static IEnumerable<(uint Key, int Value)> RawStats(IEnumerable<Aura> auras, int auraEffectPct,
+        SkillCatalog skills, StatCatalog stats, int heraldEffectPct, Func<Aura, int>? extraEffect)
     {
         var result = new Dictionary<uint, int>();
         int commanderCastSpeed = 0, commanderDamage = 0;
@@ -394,12 +412,13 @@ public static class AuraCatalog
             int groupCommanderSpeed = 0;
             foreach (var aura in group)
             {
+                int addedEffect = ActorScale.Saturate((long)(aura.IsHerald ? heraldEffectPct : 0) + (extraEffect?.Invoke(aura) ?? 0));
                 if (CommanderEligible(aura, skills))
                 {
                     groupCommanderSpeed = Math.Max(groupCommanderSpeed, CommanderSpeed(aura, auraEffectPct));
                     commanderDamage = Math.Max(commanderDamage, aura.CommanderDamagePct);
                 }
-                switch (aura.EffectId)
+                switch (Family(aura.EffectId))
                 {
                     case "AvianMightShared":
                         Add(Stat.ChanceToDealDoubleDamagePct); Add(Stat.MinionChanceToDealDoubleDamagePct);
@@ -504,8 +523,7 @@ public static class AuraCatalog
                 void Add(uint name, uint? source = null)
                 {
                     if (!(name is var key)) return;
-                    int value = Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct,
-                        aura.IsHerald ? heraldEffectPct : 0);
+                    int value = Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct, addedEffect);
                     family[key] = family.TryGetValue(key, out int previous) ? Math.Max(previous, value) : value;
                 }
             }

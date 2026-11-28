@@ -96,7 +96,9 @@ public sealed class AnarchyModule : IModule
         if (Chance(S(Stat.MapSpawnExilePerAreaPct))) count++;
         // Ruckus: a chance of many at once.
         if (Chance(S(Stat.MapSpawnManyExilesChancePct))) count += S(Stat.MapSpawnManyExilesNum);
-        if (Chance(S(Stat.MapSpawn20AdditionalExilesChancePct))) count += 20;
+        // A module's own (GameEvents.AdditionalRogueExiles), with these same draws.
+        if (GameEvents.AdditionalRogueExiles.Any)
+            foreach (var run in GameEvents.AdditionalRogueExiles.For(player)) count += run(player, S, rng);
         // Jumbled Abundance: each of its additions is a strongbox, an essence, a shrine or an exile alike.
         for (int i = S(Stat.MapContainsXAdditionalStrongboxesEssencesShrinesOrRogueExiles); i > 0; i--)
             if (rng.Next(4) == 0) count++;
@@ -109,7 +111,8 @@ public sealed class AnarchyModule : IModule
         List<string> used = [];
         for (int i = 0; i < count; i++)
         {
-            if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng)
+            if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng,
+                    featureAreas: layout.Level?.FeatureAreas)
                 is not { } at) break;
             taken.Add(at);
             // The exceptional ones come last, so a capped count keeps the ones the scarab promised first; the gigantic

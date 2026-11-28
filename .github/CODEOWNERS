@@ -3,26 +3,16 @@
 
 # Instructions agents obey, at any depth
 AGENTS.md @Wrathen
-CLAUDE.md @Wrathen
-GEMINI.md @Wrathen
-.cursorrules @Wrathen
-.claude/ @Wrathen
-.cursor/ @Wrathen
 .mcp.json @Wrathen
 
 # Guides with the commands and workflows agents follow
 /README.md @Wrathen
 /CONTRIBUTING.md @Wrathen
-/Agents/GettingStarted.md @Wrathen @evrydayjunglist
-/Agents/docs/README.md @Wrathen @evrydayjunglist
 
 # The repository's own controls
 /.github/ @Wrathen
 /.gitattributes @Wrathen
 /.gitignore @Wrathen
-
-# What tells a reviewer where to look in a pull request
-/scripts/dev/pr_warnings.py @Wrathen @evrydayjunglist
 
 # What runs during a build, or adds a dependency
 Directory.Build.props @Wrathen
@@ -34,20 +24,6 @@ Directory.Packages.props @Wrathen
 nuget.config @Wrathen
 NuGet.Config @Wrathen
 global.json @Wrathen
-
-# What ships to players, starts processes, or could make the client contact the official servers
-/src/LocalExile/ @Wrathen @evrydayjunglist
-/src/GameServer.Patch/ @Wrathen @evrydayjunglist
-
-# What every player's server runs on their accounts and saves at its next start (game content updates stay open)
-/sql/base/ @Wrathen
-/sql/updates/auth/ @Wrathen @evrydayjunglist
-/sql/updates/pending_auth/ @Wrathen @evrydayjunglist
-/sql/updates/characters/ @Wrathen @evrydayjunglist
-/sql/updates/pending_characters/ @Wrathen @evrydayjunglist
-
-# What loads and runs compiled code
-/src/GameServer.Gateway/Modding/ @Wrathen @evrydayjunglist
 
 # Legal
 /LICENSE @Wrathen

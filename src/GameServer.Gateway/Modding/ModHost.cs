@@ -1,5 +1,9 @@
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+using System.Runtime.Loader;
 using System.Text.Json;
 using GameServer.Modding;
 
@@ -22,7 +26,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
 
     /// <summary>The users' values of the settings, one <c>&lt;id&gt;.json</c> each (<see cref="ModSettings"/>): <c>data/mods</c>,
     /// <c>data/modules</c> or <c>data/leagues</c>. A change to one reloads its mod.</summary>
-    public string SettingsFolder { get; } = Path.Combine("data", (leagues ? "league" : modules ? "module" : "mod") + "s");
+    public string SettingsFolder { get; init; } = Path.Combine("data", (leagues ? "league" : modules ? "module" : "mod") + "s");
 
     /// <summary>The game's values of a kind, for a setting's <c>source</c>.</summary>
     public ModSettings.Values? GameValues { get; init; }
@@ -51,33 +55,36 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
     // What its lines start with.
     string Tag => leagues ? "[leagues]" : modules ? "[modules]" : "[mods]";
     string Noun => leagues ? "league" : modules ? "module" : "mod";
-    int Rank => leagues ? GameEventOwners.LeagueRank : modules ? GameEventOwners.ModuleRank : GameEventOwners.ModRank;
+    // A mod of the leagues that list it comes before the mods of every league.
+    int RankFor(ModManifest manifest) => leagues ? GameEventOwners.LeagueRank : modules ? GameEventOwners.ModuleRank
+        : manifest.Listed ? GameEventOwners.LeagueModRank : GameEventOwners.ModRank;
 
     // Every host that loaded something, for an owner's rank (GameEventOwners.RankOf): which kind of host runs it.
     static ImmutableHashSet<ModHost> _hosts = ImmutableHashSet<ModHost>.Empty;
 
-    /// <summary>The rank of the host that runs this id: a module's when a host of modules does (a league of the same name loses), else a
-    /// league's, else a mod's; null when no host runs it.</summary>
+    /// <summary>The rank of what runs this id: a module's when a host of modules does (a league of the same name loses), else a
+    /// league's, else its mod's; null when no host runs it.</summary>
     public static int? RankOf(string id)
     {
         int? rank = null;
         foreach (var host in _hosts)
-            if (host.Runs(id) && (rank is null || host.Rank == GameEventOwners.ModuleRank || (host.Rank == GameEventOwners.LeagueRank && rank == GameEventOwners.ModRank)))
-                rank = host.Rank;
+            if (host._running.TryGetValue(id, out int own)
+                && (rank is null || own == GameEventOwners.ModuleRank || (own == GameEventOwners.LeagueRank && rank > GameEventOwners.ModuleRank)))
+                rank = own;
         return rank;
     }
-    /// <summary>A host of modules loads only these: a module lives in a league. Null: all.</summary>
+    /// <summary>What the leagues list, by id. A host of modules loads only these: a module lives in a league. A host of mods
+    /// loads a mod of the leagues that list it (<see cref="ModManifest.Listed"/>) only when it is one of these. Null: all.</summary>
     public Func<IReadOnlySet<string>>? Wanted { get; init; }
 
     /// <summary>The modules a mod may depend on beside other mods (a host of mods): a mod uses a module's assembly as a module
     /// that depends on it does, and reloads when that module does.</summary>
     public ModHost? Modules { get; init; }
 
-    /// <summary>The host of the leagues' code (a host of mods): a change in a package's Leagues/ is its, as one in its
-    /// Modules/ is <see cref="Modules"/>'.</summary>
+    /// <summary>The host of the leagues' code (a host of mods): a change in a mod's Leagues/ is its.</summary>
     public ModHost? Leagues { get; init; }
 
-    /// <summary>The packages' folders of this kind (<c>Packages.Roots</c>), read after <see cref="Folder"/>: fixed once read, as
+    /// <summary>The mods' folders of this kind (<c>ModFolders.Roots</c>), read after <see cref="Folder"/>: fixed once read, as
     /// the leagues are.</summary>
     public Func<IReadOnlyList<string>>? More { get; init; }
     IReadOnlyList<string>? _more;
@@ -89,11 +96,8 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
     /// <summary>A module of <see cref="Modules"/> reloaded, with the ids it took along: the mods that depend on one reload too.</summary>
     public event Action<IReadOnlyList<string>>? Reloaded;
 
-    // The ids loaded or loading, read without the lock on every game event (Runs).
-    ImmutableHashSet<string> _running = ImmutableHashSet.Create<string>(StringComparer.Ordinal);
-
-    /// <summary>Whether this host's mod of that id is loaded or loading. Lock-free: game events ask it for every subscriber.</summary>
-    public bool Runs(string id) => _running.Contains(id);
+    // The ids loaded or loading with their ranks, read without the lock when a game event takes a subscriber (RankOf).
+    ImmutableDictionary<string, int> _running = ImmutableDictionary.Create<string, int>(StringComparer.Ordinal);
 
     // A mod's dependency: another of this host's, or one of the modules.
     LoadedMod? Dependency(string id) => _loaded.GetValueOrDefault(id) ?? Modules?.LoadedModule(id);
@@ -123,7 +127,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         lock (_gate)
         {
             if (!modules) ReadChoices();
-            LoadMissing();
+            LoadMissing(preload: modules && !leagues && Environment.ProcessorCount > 1);
         }
         if (!watch) return;
         _watcher = new FileSystemWatcher(Path.GetFullPath(Folder))
@@ -151,6 +155,26 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         _settingsWatcher.Deleted += (_, e) => SettingsTouched(e.FullPath);
         _settingsWatcher.Renamed += (_, e) => { SettingsTouched(e.OldFullPath); SettingsTouched(e.FullPath); };
         _settingsWatcher.EnableRaisingEvents = true;
+    }
+
+    // A module that became a mod keeps its user's values: data/modules/<Id>.json moves to data/mods/<id>.json, once.
+    void MoveModuleSettings(IReadOnlySet<string> moduleIds)
+    {
+        if (!Directory.Exists(Modules!.SettingsFolder)) return;
+        foreach (string old in Directory.GetFiles(Modules.SettingsFolder, "*.json"))
+        {
+            string name = Path.GetFileNameWithoutExtension(old);
+            if (moduleIds.Contains(name) || Dirs().Where(IsMod).Select(Path.GetFileName).FirstOrDefault(d => name.Equals(d, StringComparison.OrdinalIgnoreCase)) is not { } id) continue;
+            string values = Path.Combine(SettingsFolder, id + ".json");
+            if (File.Exists(values)) continue;
+            try
+            {
+                Directory.CreateDirectory(SettingsFolder);
+                File.Move(old, values);
+                log($"{Tag} {id}: its settings moved from {old} to {values}");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { log($"{Tag} {id}: its settings stay in {old}: {ex.Message}"); }
+        }
     }
 
     // A user's values: the mod of that id (as its folder spells it) reloads.
@@ -277,14 +301,8 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
             ?? Path.GetFullPath(Folder);
         string relative = Path.GetRelativePath(root, path);
         var parts = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        // A package's leagues and modules are their hosts', not its mod's: a build of one does not reload the mod.
-        if (!modules && parts is [_, "Leagues" or "Modules", _, ..])
-        {
-            if (parts[1] == "Leagues") Leagues?.Touched(path);
-            // As the modules' own watcher: not a directory's timestamp.
-            else if (!Directory.Exists(path)) Modules?.Touched(path);
-            return;
-        }
+        // A mod's leagues are the leagues' host's, not the mod's: a change to one does not reload the mod.
+        if (!modules && parts is [_, "Leagues", _, ..]) { Leagues?.Touched(path); return; }
         // A module's folder may be at any depth: what follows it is what changed.
         if (modules && !leagues && Dirs().FirstOrDefault(d => (path + Path.DirectorySeparatorChar).StartsWith(Path.GetFullPath(d) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) is { } moduleDir)
             parts = [Path.GetFileName(moduleDir), .. Path.GetRelativePath(moduleDir, path).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)];
@@ -397,17 +415,19 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
     }
 
     // Every folder whose mod is not loaded, each after the mods it depends on; what cannot load keeps its reason.
-    void LoadMissing()
+    void LoadMissing(bool preload = false)
     {
         var waiting = new Dictionary<string, (ModManifest Manifest, string Folder)>(StringComparer.Ordinal);
         _off.Clear();
         var wanted = Wanted?.Invoke();
         var seen = new Dictionary<string, string>(StringComparer.Ordinal);
+        var moduleIds = modules ? null : Modules?.Ids();
+        if (moduleIds is not null) MoveModuleSettings(moduleIds);
         foreach (string dir in Dirs())
         {
             string id = Path.GetFileName(dir);
-            if (wanted?.Contains(id) == false) continue;   // in no league
-            // Ids are unique: the first folder of an id is it (the repository's own before a package's), and a second is said.
+            if (modules && wanted?.Contains(id) == false) continue;   // in no league
+            // Ids are unique: the first folder of an id is it (the repository's own before a mod's), and a second is said.
             if (IsMod(dir) && !seen.TryAdd(id, dir))
             {
                 log($"{Tag} {id}: {dir} is not loaded, {seen[id]} has that id");
@@ -421,10 +441,15 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
                 // Scripts need no manifest.
                 var manifest = File.Exists(manifestPath) ? ReadManifest(id, File.ReadAllText(manifestPath))
                     : new ModManifest(id, "0", ModKind.Script, [], id + ".dll");
-                // Among the mods it is a package, which carries leagues and modules.
-                if (modules && !leagues && manifest.Kind == ModKind.League) throw new FormatException("a league belongs in Leagues/, with a league.json");
-                if (modules || _choices.GetValueOrDefault(id, manifest.Enabled)) waiting[id] = (manifest, dir);
-                else { _off.Add(id); _failed.Remove(id); }
+                if (!leagues && manifest.Kind == ModKind.League) throw new FormatException("a league belongs in Leagues/, with a league.json");
+                if (modules) waiting[id] = (manifest, dir);
+                else if (!_choices.GetValueOrDefault(id, manifest.Enabled)) { _off.Add(id); _failed.Remove(id); }
+                // A module's id in any case: a league's list could not tell the two apart.
+                else if (moduleIds?.Contains(id) == true) Fail(id, "LocalExile has a module of that id");
+                // A league's folder of the very same name: events rank an owner by its id, and would take the mod for the league.
+                else if (Leagues?.DirOf(id) is not null) Fail(id, "a league's folder is named exactly that");
+                else if (manifest.Listed && wanted?.Contains(id) == false) Fail(id, "no league lists it (the leagues are read when the servers start)");
+                else waiting[id] = (manifest, dir);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Fail(id, $"busy: {ex.Message}"); }
             catch (Exception ex) when (ex is JsonException or FormatException) { Fail(id, $"{Manifest}: {ex.Message}"); }
@@ -434,11 +459,22 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         while (progress && waiting.Count > 0)
         {
             progress = false;
-            foreach (var (id, (manifest, dir)) in waiting.ToList())
+            var candidates = waiting.Values.ToArray();
+            Preparation? next = null;
+            for (int i = 0; i < candidates.Length; i++)
             {
+                var (manifest, dir) = candidates[i];
+                var current = next;
+                next = null;
                 if (!manifest.Depends.All(d => Dependency(d) is not null)) continue;
-                waiting.Remove(id);
-                progress |= Load(manifest, dir);
+                if (preload && i + 1 < candidates.Length)
+                {
+                    var following = candidates[i + 1];
+                    if (following.Manifest.Preload && following.Manifest.Depends.All(d => Dependency(d) is not null))
+                        next = PreloadBinary(following.Manifest, following.Folder);
+                }
+                waiting.Remove(manifest.Id);
+                progress |= Load(manifest, dir, pending: current, following: next);
             }
         }
         foreach (var (id, (manifest, _)) in waiting)
@@ -459,15 +495,9 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         if (leagues) return ReadLeagueImages(manifest, dir);
         string path = Path.Combine(dir, manifest.Assembly);
         string[] scripts = modules && HasProject(dir) ? [] : ModScripts.Sources(dir);
-        // A package may be its leagues and modules alone.
-        if (!File.Exists(path) && scripts.Length == 0 && !modules && manifest.Kind == ModKind.League) return new([], null);
         if (!File.Exists(path) && scripts.Length == 0) throw new FileNotFoundException($"no {manifest.Assembly} in the {Noun}'s folder (built yet?)");
         List<(byte[], byte[]?)> assemblies = [];
-        if (File.Exists(path))
-        {
-            string pdb = Path.ChangeExtension(path, ".pdb");
-            assemblies.Add((File.ReadAllBytes(path), File.Exists(pdb) ? File.ReadAllBytes(pdb) : null));
-        }
+        if (File.Exists(path)) assemblies.Add(ReadBinary(path));
         if (scripts.Length == 0) return new(assemblies, null);
         var compiled = ModScripts.Compile(manifest.Id, scripts, ScriptReferences(manifest, dir));
         assemblies.Add(compiled);
@@ -491,23 +521,88 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         return new([(File.ReadAllBytes(dll), File.Exists(pdb) ? File.ReadAllBytes(pdb) : null)], null);
     }
 
-    bool Load(ModManifest manifest, string dir, Images? images = null)
+    static (byte[] Dll, byte[]? Pdb) ReadBinary(string path)
+    {
+        string pdb = Path.ChangeExtension(path, ".pdb");
+        return (File.ReadAllBytes(path), File.Exists(pdb) ? File.ReadAllBytes(pdb) : null);
+    }
+
+    sealed record Preloaded(Images Images, List<Assembly> Assemblies, (int Methods, TimeSpan Took)? Compiled);
+
+    ModLoadContext NewContext(ModManifest manifest, string dir) => new(manifest.Id, Path.GetFullPath(dir),
+        [.. manifest.Depends.Select(d => Dependency(d)?.Context).OfType<ModLoadContext>()]);
+
+    Preparation PreloadBinary(ModManifest manifest, string dir)
+    {
+        var context = NewContext(manifest, dir);
+        var copy = Task.Run<(Images Images, string Path)?>(() =>
+        {
+            if (!HasProject(dir) && ModScripts.Sources(dir).Length != 0) return null;
+            string path = Path.Combine(dir, manifest.Assembly);
+            if (!File.Exists(path)) return null;
+            var image = ReadBinary(path);
+            using var stream = new MemoryStream(image.Dll, writable: false);
+            using var pe = new PEReader(stream);
+            // PrepareMethod can execute a module initializer. Leave global methods to the ordered loader.
+            if (pe.GetMetadataReader().GetTypeDefinition(MetadataTokens.TypeDefinitionHandle(1)).GetMethods().Count != 0) return null;
+            return (new Images([image], null), context.CopyImage(image.Dll, image.Pdb));
+        });
+        return new(context, copy);
+    }
+
+    sealed class Preparation(ModLoadContext context, Task<(Images Images, string Path)?> copy)
+    {
+        public ModLoadContext Context => context;
+        Task<Preloaded?>? warmup;
+
+        // Only the host thread starts or joins a preparation. Any failure reaches the normal Load for its owner.
+        public Task<Preloaded?> StartWarmup() => warmup ??= Warm();
+
+        async Task<Preloaded?> Warm()
+        {
+            // Keep assembly binding and resolver callbacks on the host thread, including on a slow file copy.
+            if (copy.GetAwaiter().GetResult() is not { } file) return null;
+            var assembly = context.LoadFromAssemblyPath(file.Path);
+            var binary = new Preloaded(file.Images, [assembly], null);
+            foreach (var reference in assembly.GetReferencedAssemblies())
+            {
+                try
+                {
+                    if (AssemblyLoadContext.GetLoadContext(context.LoadFromAssemblyName(reference)) == context) return binary;
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
+                {
+                    return binary; // Private and optional dependencies use the ordinary warmup at registration.
+                }
+            }
+            var compiled = await Task.Run(() => ModLoadContext.Precompile(binary.Assemblies)).ConfigureAwait(false);
+            return binary with { Compiled = compiled };
+        }
+    }
+
+    bool Load(ModManifest manifest, string dir, Images? images = null, Preparation? pending = null, Preparation? following = null)
     {
         string id = manifest.Id;
-        var context = new ModLoadContext(id, Path.GetFullPath(dir), [.. manifest.Depends.Select(d => Dependency(d)?.Context).OfType<ModLoadContext>()]);
+        var context = pending?.Context ?? NewContext(manifest, dir);
         var mod = new LoadedMod(manifest, Path.GetFullPath(dir), context);
         ImmutableInterlocked.Update(ref _hosts, h => h.Add(this));
-        ImmutableInterlocked.Update(ref _running, r => r.Add(id));
+        ImmutableInterlocked.Update(ref _running, r => r.SetItem(id, RankFor(manifest)));
         try
         {
-            mod.Images = images ?? ReadImages(manifest, mod.Folder);
+            var preloaded = pending?.StartWarmup().GetAwaiter().GetResult();
+            mod.Images = preloaded?.Images ?? images ?? ReadImages(manifest, mod.Folder);
             mod.ScriptImage = mod.Images.Scripts;
-            List<Assembly> assemblies = [.. mod.Images.Assemblies.Select(a => context.LoadImage(a.Dll, a.Pdb))];
-            var (methods, took) = ModLoadContext.Precompile(assemblies);
+            List<Assembly> assemblies = preloaded?.Assemblies ?? [.. mod.Images.Assemblies.Select(a => context.LoadImage(a.Dll, a.Pdb))];
+            var (methods, took) = preloaded?.Compiled ?? ModLoadContext.Precompile(assemblies);
             log($"{Tag} {id}: {methods} methods compiled in {took.TotalMilliseconds:0} ms");
+            _ = following?.StartWarmup();
+            // A mod's entry class may be a module's: a module that became a mod keeps its sources. Not a league's code, which is
+            // the leagues' host's.
             var entries = assemblies.SelectMany(a => a.GetExportedTypes())
-                .Where(t => (leagues ? typeof(League) : modules ? typeof(IModule) : typeof(IMod)).IsAssignableFrom(t) && t is { IsClass: true, IsAbstract: false }).ToList();
-            if (entries.Count == 0 && assemblies.Count > 0) throw new InvalidOperationException($"{(mod.Images.Scripts is not null ? "the scripts have" : manifest.Assembly + " has")} no public class that implements {(modules ? nameof(IModule) : nameof(IMod))}");
+                .Where(t => (leagues ? typeof(League).IsAssignableFrom(t) : modules ? typeof(IModule).IsAssignableFrom(t)
+                    : typeof(IMod).IsAssignableFrom(t) || (typeof(IModule).IsAssignableFrom(t) && !typeof(League).IsAssignableFrom(t)))
+                    && t is { IsClass: true, IsAbstract: false }).ToList();
+            if (entries.Count == 0) throw new InvalidOperationException($"{(mod.Images.Scripts is not null ? "the scripts have" : manifest.Assembly + " has")} no public class that implements {(modules ? nameof(IModule) : nameof(IMod))}");
             var api = new Context(this, mod);
             foreach (var type in entries)
             {
@@ -591,7 +686,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
     void Remove(LoadedMod mod)
     {
         // What it subscribed to and the server switches it set, whether or not it kept the handles.
-        GameEventOwners.Release(mod.Manifest.Id, Rank);
+        GameEventOwners.Release(mod.Manifest.Id, RankFor(mod.Manifest));
         if (mod.ProvidesRules) ServerLeagues.RemoveRules(mod.Manifest.Id);
         if (leagues) ServerLeagues.RemoveCode(mod.Manifest.Id);
         Program.ForgetCommands();
@@ -637,8 +732,8 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         return order;
     }
 
-    /// <summary>Reads a <c>mod.json</c>: <c>{"id", "version", "kind", "depends", "assembly", "enabled"}</c>, all optional; the id, when
-    /// given, must be the folder's name.</summary>
+    /// <summary>Reads a <c>mod.json</c>: <c>{"id", "version", "kind", "depends", "assembly", "enabled", "leagues"}</c>, all optional;
+    /// the id, when given, must be the folder's name.</summary>
     public static ModManifest ReadManifest(string folderName, string json)
     {
         using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
@@ -651,7 +746,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         if (!id.Equals(folderName, StringComparison.Ordinal)) throw new FormatException($"id \"{id}\" is not the folder's name \"{folderName}\"");
         string kindText = Text("kind") ?? nameof(ModKind.Feature);
         if (!Enum.TryParse<ModKind>(kindText, ignoreCase: true, out var kind) || !Enum.IsDefined(kind))
-            throw new FormatException($"kind \"{kindText}\" is not league, feature or script");
+            throw new FormatException($"kind \"{kindText}\" is not feature or script");
         var depends = new List<string>();
         if (doc.RootElement.EnumerateObject().FirstOrDefault(p => p.Name.Equals("depends", StringComparison.OrdinalIgnoreCase)) is
             { Value.ValueKind: not JsonValueKind.Undefined } d)
@@ -661,16 +756,22 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
                 depends.Add(e.ValueKind == JsonValueKind.String ? e.GetString()! : throw new FormatException("\"depends\" is not a list of ids"));
         }
         if (depends.Contains(id)) throw new FormatException("a mod cannot depend on itself");
-        bool enabled = true;
-        if (doc.RootElement.EnumerateObject().FirstOrDefault(p => p.Name.Equals("enabled", StringComparison.OrdinalIgnoreCase)) is
-            { Value.ValueKind: not JsonValueKind.Undefined } on)
-            enabled = on.Value.ValueKind switch
+        bool Flag(string name, bool fallback) => doc.RootElement.EnumerateObject()
+            .FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).Value.ValueKind switch
             {
+                JsonValueKind.Undefined => fallback,
                 JsonValueKind.True => true,
                 JsonValueKind.False => false,
-                _ => throw new FormatException("\"enabled\" is not true or false"),
+                _ => throw new FormatException($"\"{name}\" is not true or false"),
             };
-        return new ModManifest(id, Text("version") ?? "0", kind, depends, Text("assembly") ?? id + ".dll", enabled);
+        bool listed = (Text("leagues") ?? "all") switch
+        {
+            "all" => false,
+            "listed" => true,
+            var other => throw new FormatException($"\"leagues\" is \"{other}\", not \"all\" or \"listed\""),
+        };
+        return new ModManifest(id, Text("version") ?? "0", kind, depends, Text("assembly") ?? id + ".dll", Flag("enabled", true))
+            { Listed = listed, Preload = Flag("preload", false) };
     }
 
     sealed class LoadedMod(ModManifest manifest, string folder, ModLoadContext? context)
@@ -699,7 +800,8 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
 
         public void ProvideLeagueRules(Func<LeagueRules> rules)
         {
-            if (!host.IsHostOfModules) throw new InvalidOperationException("only a module gives a league rules");
+            if (!host.IsHostOfModules && !mod.Manifest.Listed)
+                throw new InvalidOperationException("only a module, or a mod of the leagues that list it (mod.json \"leagues\": \"listed\"), gives a league rules");
             lock (host._gate)
             {
                 if (mod.Unloaded) throw new InvalidOperationException($"mod {mod.Manifest.Id} is unloaded");

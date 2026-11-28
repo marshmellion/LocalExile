@@ -8,33 +8,33 @@ internal sealed class FlameTouchedState
     double at, rate, pending;
     public double TakenCarry, BypassCarry;
 
-    public void Start(WornGrantedSkills.Grant source, double now, int fireDamage, bool removeAdrenaline)
+    public void Start(WornGrantedSkills.Grant source, double now, int fireDamage, bool removeAdrenaline, DamageTakenWindow damageTime)
     {
-        Settle(now);
+        Settle(now, damageTime);
         Source = source;
         rate = Math.Max(0, fireDamage);
         RemoveAdrenaline = removeAdrenaline;
     }
 
-    public void End(double now)
+    public void End(double now, DamageTakenWindow damageTime)
     {
-        Settle(now);
+        Settle(now, damageTime);
         Source = null;
         rate = 0;
     }
 
-    public double TakeDamage(double now)
+    public double TakeDamage(double now, DamageTakenWindow damageTime)
     {
-        Settle(now);
+        Settle(now, damageTime);
         double damage = pending;
         pending = 0;
         return damage;
     }
 
-    void Settle(double now)
+    void Settle(double now, DamageTakenWindow damageTime)
     {
         if (now <= at) return;
-        pending += (now - at) * rate;
+        pending += damageTime.Seconds(at, now) * rate;
         at = now;
     }
 }
@@ -66,7 +66,7 @@ public static partial class Game
     static void EndFlameTouched(Player player, double now)
     {
         if (FlameTouchedOf(player) is not { Source: not null } flame) return;
-        flame.End(now);
+        flame.End(now, GuardDamageOverTime(player, DamageType.Fire));
         player.WardBreak.EndSustainedAdrenaline(flame.RemoveAdrenaline);
         player.Area.Buffs.Clear(player.Id, FlameTouchedBuffRow, player.Id);
         MarkPlayerStats(player, PlayerStatStep.Sources);
@@ -83,9 +83,9 @@ public static partial class Game
         owner.FlameTouched = null;
     }
 
-    static async Task<bool> ToggleApproachingFlames(Player player, ushort skillId, Func<bool> current)
+    static async Task<(bool Accepted, bool Activated)> ToggleApproachingFlames(Player player, ushort skillId, Func<bool> current)
     {
-        bool toggled = false;
+        bool toggled = false, activated = false;
         await SendWorldRecord(player, player.Id, [], "Approaching Flames toggled", atGate: () =>
         {
             if (!current() || InTown(player) || SupportedSkill(player, skillId).WornGrant is not { EffectId: ApproachingFlamesEffect } source
@@ -99,9 +99,10 @@ public static partial class Game
             if (flame.Source is not null) EndFlameTouched(player, now);
             else
             {
+                activated = true;
                 var stats = CharacterPlayerStats(player);
                 flame.Start(source, now, stats.GetValueOrDefault(Stat.FireDamageTakenPerSecondWhileFlameTouched),
-                    stats.GetValueOrDefault(Stat.LoseAdrenalineOnLosingFlameTouched) != 0);
+                    stats.GetValueOrDefault(Stat.LoseAdrenalineOnLosingFlameTouched) != 0, GuardDamageOverTime(player, DamageType.Fire));
                 if (stats.GetValueOrDefault(Stat.GainAdrenalineOnGainingFlameTouched) != 0)
                     player.WardBreak.SustainAdrenaline(now);
                 player.Area.Buffs.Set(player.Id, new(FlameTouchedBuffRow, player.Id));
@@ -113,14 +114,14 @@ public static partial class Game
             return [];
         });
         if (toggled) await SendWardBreak(player);
-        return toggled;
+        return (toggled, activated);
     }
 
     static void AdvanceFlameTouchedDamage(Player player, double now, IReadOnlyDictionary<uint, int> stats)
     {
         if (FlameTouchedOf(player) is not { } flame) return;
         ReconcileFlameTouched(player, now);
-        double raw = flame.TakeDamage(now);
+        double raw = flame.TakeDamage(now, GuardDamageOverTime(player, DamageType.Fire));
         if (raw <= 0 || player.Closed || player.LeavingArea || player.Immune || InGracePeriod(player) || InTown(player)
             || HardcoreProgressBlocked(player)) return;
         int Get(uint stat) => stats.GetValueOrDefault(stat);
@@ -130,8 +131,7 @@ public static partial class Game
             IncomingResourceDefences.LessTakenPct(player.Pools, Get),
             typedIncreasedPct: ActorScale.Saturate((long)Get(Stat.FireDamageTakenPlusPct) + Get(Stat.ElementalDamageTakenPlusPct)),
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
-        int life = IncomingResourceDefences.DamageOverTime(player.EnergyShield, damage,
-            Get(IncomingResourceDefences.BypassStat), now, ref flame.BypassCarry);
+        int life = DamagePlayerNonChaosOverTime(player, DamageType.Fire, damage, now, Get, ref flame.BypassCarry);
         player.PlayerLife = VaalImmortalCallLife(player, (uint)Math.Max(0, (long)player.PlayerLife - life), now);
         if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); RecordHardcoreDeath(player); }
     }

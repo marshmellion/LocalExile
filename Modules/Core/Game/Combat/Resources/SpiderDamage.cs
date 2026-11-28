@@ -16,24 +16,34 @@ public static partial class Game
         => CaptureSpiderDamage(player, inputs, effectiveness, context, local, bow, offHand: false);
 
     static SpiderDamageSource? CaptureSpiderDamage(Player player, SupportedHitInputs inputs, double effectiveness,
-        bool context, IReadOnlyDictionary<uint, int>? local, bool bow, bool offHand, bool required = false)
+        bool context, IReadOnlyDictionary<uint, int>? local, bool bow, bool offHand, bool required = false,
+        long extraIncreased = 0, bool forMarkedTarget = false)
     {
-        if (!required && !HasSpiderDamage(inputs.Get) && !HasTypedTargetDamage(inputs.Get)
-            && !HasConditionalHitDamage(inputs) && !HasLocalTargetDamage(local))
-            return null;
+        bool hasTargetConditions = required || HasSpiderDamage(inputs.Get) || HasTypedTargetDamage(inputs.Get)
+            || HasConditionalHitDamage(inputs) || HasLocalTargetDamage(local);
+        if (!hasTargetConditions && !forMarkedTarget) return null;
         int per = inputs.Get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinal);
         int cap = inputs.Get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum);
         double igniteFactor = per > 0 ? Math.Max(0, 1 + Math.Min((long)per * RecentlyIgnitedCount(player,
             ProjectileWorldTime(player)), cap > 0 ? cap : long.MaxValue) / 100d) : 1;
-        return new(inputs.Raw, inputs.Conversion, new Dictionary<uint, int>(inputs.FrozenStats),
-            new Dictionary<uint, int>(inputs.Caster), inputs.Attack, inputs.Melee, inputs.Area, inputs.Projectile,
-            inputs.Modifiers.ToArray(), new HashSet<int>(inputs.Types), effectiveness, inputs.WieldingWand,
-            Context: context, Secondary: inputs.Secondary, Local: local is null ? null : new Dictionary<uint, int>(local),
+        return new(inputs.Raw, inputs.Conversion,
+            hasTargetConditions ? new Dictionary<uint, int>(inputs.FrozenStats) : inputs.FrozenStats,
+            hasTargetConditions ? new Dictionary<uint, int>(inputs.Caster) : inputs.Caster,
+            inputs.Attack, inputs.Melee, inputs.Area, inputs.Projectile,
+            hasTargetConditions ? inputs.Modifiers.ToArray() : inputs.Modifiers,
+            hasTargetConditions ? new HashSet<int>(inputs.Types) : inputs.Types, effectiveness, inputs.WieldingWand,
+            Context: context, Secondary: inputs.Secondary,
+            Local: hasTargetConditions && local is not null ? new Dictionary<uint, int>(local) : local,
             Bow: bow || inputs.WieldingBow, IgniteFactor: igniteFactor, WeaponIncreased: inputs.WeaponIncreased,
             WeaponTypedIncreases: inputs.WeaponTypedIncreases)
         {
             Armed = inputs.Armed, Claw = inputs.Claw, OffHand = offHand, HitIntensityMore = SupportedHitIntensityMore(inputs),
             ReleaseAilmentMore = inputs.ReleaseAilmentMore,
+            ProjectileAttackHitIncrease = inputs.Attack && inputs.Projectile
+                ? (long)inputs.Get(Stat.ProjectileDamagePlusPct) - inputs.FrozenStats.GetValueOrDefault(Stat.ProjectileDamagePlusPct) : 0,
+            ExtraIncreased = extraIncreased,
+            HasTargetConditions = hasTargetConditions,
+            AddedDamageEffectiveness = inputs.AddedDamageEffectiveness,
         };
     }
 
@@ -50,12 +60,18 @@ public static partial class Game
         int Get(uint name) => TypedTargetDamageStat(RawStat, name, ignited, bleeding, lowLife, attack);
         var target = TargetModifiers(RawStat, lowLife, maimed && attack, close && source.Melee && !source.Secondary,
             claw: attack && source.Claw, contact: contact);
-        long increased = SpiderDamageIncrease(Get, webs) + (blinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0);
+        long increased = SpiderDamageIncrease(Get, webs) + (blinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0) + source.ExtraIncreased;
         var raw = SpiderRawDamage(source.Raw, Get, webs, source.Effectiveness);
-        int HitStat(uint name) => TargetHitStat(name, Get(name), contact);
+        var hitRaw = contact.AddedPhysical.IsZero ? raw
+            : raw.Add(DamageType.Physical, contact.AddedPhysical.Scale(source.AddedDamageEffectiveness));
+        int HitStat(uint name)
+        {
+            int value = TargetHitStat(name, Get(name), contact);
+            return name == Stat.ProjectileDamagePlusPct ? ActorScale.Saturate(value + source.ProjectileAttackHitIncrease) : value;
+        }
         var hitGet = WeaponAttributeDamage.Read(source.Armed ?? (attack && WeaponAttributeDamage.Armed(
             Get(source.OffHand ? Stat.OffHandWeaponType : Stat.MainHandWeaponType))), HitStat);
-        var hit = PlayerHitDamage.Resolve(raw, hitGet, source.Conversion, spell: !source.Attack && !source.Secondary,
+        var hit = PlayerHitDamage.Resolve(hitRaw, hitGet, source.Conversion, spell: !source.Attack && !source.Secondary,
             melee: source.Melee, area: source.Area, projectile: source.Projectile, supportModifiers: source.Modifiers,
             skillTypes: source.Types, secondary: source.Secondary, wieldingWand: source.WieldingWand,
             retaliation: source.Attack && source.Types.Contains(120),
@@ -69,20 +85,22 @@ public static partial class Game
             if (source.Volatile) hit = Volatility.Apply(hit, Get);
             hit = GameEvents.WithAttackHit(hit, Get);
         }
+        if (!contact.AddedPhysical.IsZero && source.Melee && !source.Secondary)
+            hit = WithVaalWarchiefBuff(hit, Get);
         if (source.HitIntensityMore != 1) hit = hit.Scale(source.HitIntensityMore);
+        if (!contact.AddedPhysical.IsZero) hit = ApplyRoilingTempest(hit, Get);
         if (source.Context)
             hit = new SkillDamageContext(source.Secondary ? SkillHitKind.Secondary
                 : source.Attack ? SkillHitKind.Attack : SkillHitKind.Spell, source.Caster).Hit(hit);
         if (target.HitMore != 1) hit = hit.Scale(target.HitMore);
         if (hitOnly) return new(hit, default, default, default);
         string hand = source.Secondary ? "secondary" : !source.Attack ? "spell" : source.OffHand ? "off_hand" : "main_hand";
-        var rows = AilmentPanelStats.Compute(new(hand, Spell: !source.Attack && !source.Secondary, source.Melee) { WeaponStats = source.Local },
-            raw, source.Conversion, Get, increased + target.AilmentIncrease);
-        var ignite = WithIgniteSpread(MonsterIgnites.Settings.From(rows, hand, Get), source.Stats, null,
-            !source.Attack && !source.Secondary, hand);
-        ignite = ignite with { Min = ignite.Min * source.IgniteFactor, Max = ignite.Max * source.IgniteFactor,
-            CriticalMin = ignite.CriticalMin * source.IgniteFactor, CriticalMax = ignite.CriticalMax * source.IgniteFactor };
-        var poison = MonsterPoisons.Settings.From(rows, hand, Get, source.Local, projectileAttack: source.Attack && source.Projectile);
+        var context = new AilmentPanelStats.Context(hand, Spell: !source.Attack && !source.Secondary, source.Melee) { WeaponStats = source.Local };
+        long ailmentIncreased = increased + target.AilmentIncrease;
+        var rows = AilmentPanelStats.Compute(context, raw, source.Conversion, Get, ailmentIncreased);
+        var ignite = WithIgniteSpread(IgniteWithTargetCondition(rows, context, raw, source.Conversion, Get, Get,
+            ailmentIncreased), source.Stats, null, context.Spell, hand).ScaleDamage(source.IgniteFactor);
+        var poison = PoisonSettingsFrom(rows, hand, Get, source.Local, projectileAttack: source.Attack && source.Projectile);
         poison = poison with { Min = poison.Min * source.PoisonFactor, Max = poison.Max * source.PoisonFactor,
             CriticalMin = poison.CriticalMin * source.PoisonFactor, CriticalMax = poison.CriticalMax * source.PoisonFactor };
         var bleed = source.Attack ? BleedSettings(rows, hand, Get, source.Local, source.Melee, source.Bow,

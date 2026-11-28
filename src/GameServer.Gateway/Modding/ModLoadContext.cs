@@ -99,7 +99,9 @@ public sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLo
 
     /// <summary>Loads what a mod's files or its compiled scripts were read into, by the same private disk copy as
     /// <see cref="LoadCopy"/>: never from a stream.</summary>
-    public Assembly LoadImage(byte[] image, byte[]? symbols)
+    public Assembly LoadImage(byte[] image, byte[]? symbols) => LoadFromAssemblyPath(CopyImage(image, symbols));
+
+    internal string CopyImage(byte[] image, byte[]? symbols)
     {
         lock (copyGate)
         {
@@ -108,7 +110,7 @@ public sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLo
             string copy = Path.Combine(CopyDirectory, Guid.NewGuid().ToString("N") + ".dll");
             File.WriteAllBytes(copy, image);
             if (symbols is not null) File.WriteAllBytes(Path.ChangeExtension(copy, ".pdb"), symbols);
-            return LoadFromAssemblyPath(copy);
+            return copy;
         }
     }
 

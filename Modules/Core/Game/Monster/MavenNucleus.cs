@@ -63,7 +63,10 @@ public static partial class Game
                 // Nor is a trigger on damage taken (the damage sets it off: BossKits.IsDamageTakenTrigger) or an aura (it stands on
                 // the monster: MonsterSkills.Auras).
                 if (skills.IsMovement(effect) || skills.CastsOnDeath(effect) || MonsterSkills.IsCorpseSkill(effect)
-                    || BossKits.IsDamageTakenTrigger(skills, effect) || skills.IsAura(effect)) continue;
+                    || BossKits.IsDamageTakenTrigger(skills, effect) || skills.IsAura(effect)
+                    // A mercenary's way out is no attack: a variety with nothing else has no combat effect here (-1), so the
+                    // duel opponent's kit has to supply the swing (MercenaryEncounter.KitOf); nothing here falls back to a plain hit.
+                    || BossKits.IsLeavePortal(skills, effect)) continue;
                 string? id = skills.EffectId(effect);
                 if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
                     || id.Contains("Daemon", StringComparison.Ordinal)
@@ -91,7 +94,7 @@ public static partial class Game
                 foreach (int effect in effects)
                     if (skills.EffectId(effect)?.StartsWith("MeleeAtAnimationSpeed", StringComparison.Ordinal) == true)
                         return effect;
-            return fallback ?? effects.FirstOrDefault(e => !skills.CastsOnDeath(e), -1);
+            return fallback ?? effects.FirstOrDefault(e => !skills.CastsOnDeath(e) && !BossKits.IsLeavePortal(skills, e), -1);
         }
 
         public static bool AttackIsRanged(SkillCatalog skills, int effect) =>
@@ -108,6 +111,24 @@ public static partial class Game
                 "MavenBrainProjectileBlastMPS" => Named("MavenBrainProjectileBlast", 750),
                 "MavenBrainLargeProjectileBarrageMPS" => Named("MavenBrainLargeProjectileBarrage", 300),
                 "MavenBrainSmallProjectileBarrage" => Named("MavenBrainSmallProjectileBarrage", 750),
+                // Shaper Guardians (Hydra, Phoenix).
+                "HydraDoomArrow" or "HydraForkArrow" or "HydraTeleportShot" or "HydraTeleportShotStandalone" => Named("HydraSnipeArrow", 2200),
+                "HydraBarrage" => Named("HydraBarrage", 3260) with { Count = 5, SpreadRadians = 0.6 },
+                "PhoenixFirebomb" => Named("PhoenixFireball", 1040) with { Count = 8, SpreadRadians = Math.Tau },
+                // Elder Guardians (Enslaver, Eradicator, Constrictor, Purifier).
+                "ElderGuardianCurveProjectile1" or "ElderGuardianCurveProjectile2" => Named("ElderGuardianObsidianCurvingProjectile", 1200) with { Count = 3, SpreadRadians = 0.5 },
+                "ElderSparkTriggered" or "LightningElderBouncingOrb" => Named("ElderGuardianLightningSpark", 400) with { Count = 5, SpreadRadians = 0.9 },
+                "MonsterSnipeElder1" => Named("ElderGuardianChaosSnipe", 4000),
+                "ElderGuardianStrafe" or "ElderGuardianStrafeCombo" => Named("ElderGuardianChaosStrafe", 750) with { Count = 4, SpreadRadians = 0.5 },
+                "ElderGuardianCurveProjectileChaos1" or "ElderGuardianCurveProjectileChaos2" => Named("ElderGuardianChaosBarrage", 750) with { Count = 4, SpreadRadians = 0.6 },
+                "HolyElderSwordSpray" => Named("ElderGuardianHolySpray", 650) with { Count = 5, SpreadRadians = 0.7 },
+                "HolyElderWeaponThrow" => Named("ElderGuardianGoldWeaponThrow", 750),
+                // Conquerors (Veritania, Al-Hezmin).
+                "AtlasExilesEyrieIceShardProjectile" => Named("AtlasExileEyrieIceShards", 3000) with { Count = 4, SpreadRadians = 0.5 },
+                "AtlasExilesEyrieIceShardProjectileBarrage" => Named("AtlasExileEyrieIceShardBarrage", 2500) with { Count = 7, SpreadRadians = 0.8 },
+                "AtlasBossEyrieTornadoes" => Named("AtlasExileEyrieSparkTornado", 250) with { Count = 4, SpreadRadians = 1.2 },
+                "AtlasBasiliskDualProjectile" => Named("AtlasExileBasiliskDualProjectile", 2500) with { Count = 3, SpreadRadians = 0.45 },
+                "AtlasBasiliskDualProjectile2" => Named("AtlasExileBasiliskDualProjectile2", 2000) with { Count = 5, SpreadRadians = 0.7 },
                 _ => null,
             };
         }

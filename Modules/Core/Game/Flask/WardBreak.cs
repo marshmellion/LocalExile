@@ -2,10 +2,58 @@ using System.Collections.Concurrent;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 
 public static partial class Game
 {
+    static void TryRestoreBrokenWard(Player player, double now, int chance, Random random)
+    {
+        AdvanceWardLocked(player, now);
+        if (!player.Ward.Broken || !RandomRolls.Chance(chance, 100, random)) return;
+        player.Ward.Restore();
+        WardRestoredLocked(player, now);
+    }
+
+    static void AdvanceWardLocked(Player player, double now)
+    {
+        double restoredAt = player.Ward.RestoresAt;
+        if (player.Ward.Advance(now))
+            WardRestoredLocked(player, restoredAt);
+    }
+
+    static void WardRestoredLocked(Player player, double now)
+    {
+        if (player.PlayerLife == 0 || player.Ward.Current == 0
+            || StatSourceValues(player).GetValueOrDefault(Stat.RemoveRandomDamagingAilmentWhenWardRestores) == 0) return;
+        int incoming = player.IncomingAilments.ActiveDamagingAilments(now);
+        int total = incoming + player.ElementalAilments.ActiveIgnites(now);
+        if (total == 0) return;
+        int index = total == 1 ? 0 : AreaRng(player).Next(total);
+        if (index < incoming) player.IncomingAilments.EndDamagingAilment(now, index);
+        else player.ElementalAilments.EndIgnite(now, index - incoming);
+    }
+
+    static void GrantWardBreakResourcesLocked(Player player, IReadOnlyDictionary<uint, int> stats)
+    {
+        void Grant(ChargeType type, uint key)
+        {
+            if (stats.GetValueOrDefault(key) is > 0 and var amount)
+                ChargesOf(player).Enqueue(new ChargeEvent.Grant(type, amount, "Ward break"));
+        }
+
+        Grant(ChargeType.Endurance, Stat.GainXEnduranceChargeWhenWardBreaks);
+        Grant(ChargeType.Power, Stat.GainXPowerChargeWhenWardBreaks);
+        Grant(ChargeType.Frenzy, Stat.GainXFrenzyChargeWhenWardBreaks);
+        if (stats.GetValueOrDefault(Stat.IronFlasksGainXChargeWhenWardBreaks) is not (> 0 and var charges)) return;
+        int epoch = player.ProjectileEpoch;
+        // A self-hit can break Ward inside a paid flask use. Reuse the normal bar transaction after that use releases it.
+        _ = AreaFrames.Start(() => CurrentGameWork && player.ProjectileActive(epoch) && player.PlayerLife > 0
+            ? GainFlaskCharges(player, (flask, _) =>
+                ItemsFor(player).ByHash(flask.Item.TypeHash)?.Id == "Metadata/Items/Flasks/FlaskUtility18" ? charges : 0, "Ward break")
+            : Task.CompletedTask);
+    }
+
     public static bool PlayerAlwaysHits(Player player) => Stat.GlobalAlwaysHit is var key
         && CharacterPlayerStats(player).GetValueOrDefault(key) != 0;
 
@@ -16,7 +64,7 @@ public static partial class Game
         if (flameTouched) sources[Stat.AffectedByTouchOfFire] = 1;
         var state = player.WardBreak;
         double now = AreaTime(player);
-        bool timedAdrenaline = sources.GetValueOrDefault(WardBreakEffects.AdrenalineSource) > 0
+        bool timedAdrenaline = sources.GetValueOrDefault(AdrenalineSource(state)) > 0
             && now < state.TimedAdrenalineUntil && StatsChangeInAnd(state.TimedAdrenalineUntil - now);
         if (player.PlayerLife > 0 && (timedAdrenaline || flameTouched && state.SustainedAdrenaline))
             foreach (var (key, value) in WardBreakEffects.AdrenalineStats)
@@ -24,11 +72,14 @@ public static partial class Game
         return sources;
     }
 
+    static uint AdrenalineSource(WardBreakState state) => state.TimedAdrenalineSource is > 0 and var source
+        ? source : WardBreakEffects.AdrenalineSource;
+
     // The sources as the stats give them (PlayerStatsUpdated): a lost source or death ends its effect.
     static void ObserveWardBreak(Player player, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
-        player.WardBreak.Observe(AreaTime(player), Get(WardBreakEffects.AdrenalineSource) > 0,
+        player.WardBreak.Observe(AreaTime(player), Get(AdrenalineSource(player.WardBreak)) > 0,
             Get(WardBreakEffects.StunRecoverySource) > 0, player.PlayerLife > 0 && !player.RageRetired);
     }
 
@@ -53,29 +104,27 @@ public static partial class Game
     {
         if (player.PlayerLife != 0) return;
         if (player.ResourceEffectsState is ResourceEffectsState resources) RetireFlameTouched(player, resources);
-        player.WardBreak.Clear(); player.EnduringCryRecovery.Clear(); player.Ward.SetMaximum(0);
+        player.WardBreak.Clear(); player.Ward.SetMaximum(0);
     }
 
     public static byte[]? WardBreakPresentation(Player player)
     {
         if (player.Closed || player.LeavingArea || player.RageRetired) return null;
         EnsureWardBreakPools(player);
-        player.Ward.Advance(AreaTime(player));
+        AdvanceWardLocked(player, ResourceEffectsTime(player));
         var ward = (player.Ward.Maximum, player.Ward.Broken);
         double adrenaline = player.PlayerLife > 0 && player.WardBreak.Adrenaline(AreaTime(player))
             ? player.WardBreak.AdrenalineUntil : double.NegativeInfinity;
         double recovery = player.WardBreak.RecoveryUntil(AreaTime(player));
-        double cry = player.EnduringCryRecovery.Rate(AreaTime(player)) > 0
-            ? player.EnduringCryRecovery.Until : double.NegativeInfinity;
         if (player.SentWard == ward && player.SentAdrenalineUntil == adrenaline
-            && player.SentStunRecoveryUntil == recovery && player.SentEnduringCryUntil == cry)
+            && player.SentStunRecoveryUntil == recovery)
             return null;
-        // First area tick with no Ward, Adrenaline, Stun Recovery or Enduring Cry active: baseline already sent at area entry.
+        // The first area tick can reuse the entry baseline when Ward, Adrenaline and Stun Recovery are inactive.
         if (player.SentWard is null && ward == (0u, false)
-            && double.IsNegativeInfinity(adrenaline) && double.IsNegativeInfinity(recovery) && double.IsNegativeInfinity(cry))
+            && double.IsNegativeInfinity(adrenaline) && double.IsNegativeInfinity(recovery))
         {
             player.SentWard = ward; player.SentAdrenalineUntil = adrenaline;
-            player.SentStunRecoveryUntil = recovery; player.SentEnduringCryUntil = cry;
+            player.SentStunRecoveryUntil = recovery;
             return null;
         }
         var bytes = new List<byte>();
@@ -86,8 +135,6 @@ public static partial class Game
             buffs.Set(player.Id, new(WardBreakEffects.AdrenalineDefinition, player.Id,
                 U68: double.IsFinite(adrenaline) ? Buff.Seconds(adrenaline - AreaTime(player)) : null));
         else buffs.Clear(player.Id, WardBreakEffects.AdrenalineDefinition, player.Id);
-        if (double.IsFinite(cry)) buffs.Set(player.Id, new(1541, player.Id, U68: Buff.Seconds(cry - AreaTime(player))));
-        else buffs.Clear(player.Id, 1541, player.Id);
         bytes.AddRange(PlayerStatsOffFrames(player));
         // The native client predicts regeneration between corrections. Removing the rate alone leaves
         // its predicted overshoot in place when the server has no further recovery tick to publish.
@@ -95,7 +142,6 @@ public static partial class Game
         bytes.AddRange(PlayerSkillsIfChanged(player, PlayerSkills(player)));
         player.SentWard = ward; player.SentAdrenalineUntil = adrenaline;
         player.SentStunRecoveryUntil = recovery;
-        player.SentEnduringCryUntil = cry;
         Console.WriteLine($"[gateway] Ward {player.Ward.Current}/{player.Ward.Maximum}, "
             + $"broken={player.Ward.Broken}, Adrenaline={adrenaline > double.NegativeInfinity}");
         return [.. bytes];
@@ -105,7 +151,7 @@ public static partial class Game
         Send(player, [], null, atGate: () => WardBreakPresentation(player));
 
     public sealed record WardBreakTransfer(string Character, DateTime At, WardBreakState.Carried Buffs,
-        bool Broken, double WardSeconds, TimedLifeRecovery.Carried Cry);
+        bool Broken, double WardSeconds, (double Remaining, int Regeneration) Cry);
     public static readonly ConcurrentDictionary<uint, WardBreakTransfer> CarriedWardBreak = new();
 
     public static void CarryWardBreak(Player player, uint ticket)
@@ -113,12 +159,12 @@ public static partial class Game
         if (player.Closed || player.RageRetired) return;
         if (player.PlayerLife == 0) ClearWardBreakOnDeath(player);
         double now = AreaTime(player);
-        player.Ward.Advance(now);
+        AdvanceWardLocked(player, now);
         foreach (var (old, entry) in CarriedWardBreak)
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedWardBreak.TryRemove(old, out _);
         CarriedWardBreak.TryAdd(ticket, new(CharacterName(player), DateTime.UtcNow,
             player.WardBreak.Carry(now), player.Ward.Broken, Math.Max(0, player.Ward.RestoresAt - now),
-            player.EnduringCryRecovery.Carry(now)));
+            CarryEnduringCry(player, now)));
     }
 
     public static void RestoreWardBreak(Player player)
@@ -129,7 +175,7 @@ public static partial class Game
         if (player.PlayerLife == 0 || DateTime.UtcNow - carry.At > TimeSpan.FromMinutes(5)) return;
         double now = AreaTime(player);
         player.WardBreak.Restore(carry.Buffs, now);
-        player.EnduringCryRecovery.Restore(carry.Cry, now);
+        RestoreEnduringCry(player, now, carry.Cry);
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.Ward.RestoreCarried(carry.Broken, carry.WardSeconds, now);
         player.ApplyMovementSpeed();

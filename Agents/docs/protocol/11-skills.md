@@ -640,6 +640,7 @@ client key 3907, permyriad; the Behemoth position's Final Blow, graph id 10135, 
 melee attack that has no weapon base. Each is a base, not a fixed final chance: the generic
 `critical_strike_chance_+%` increases still apply on top. A weapon hand keeps the unarmed base out, an unarmed
 context keeps the weapon override out, and `SpellCriticalStrike`'s spell route reads neither.
+Righteous Providence adds the lower of the player's final Strength and Intelligence to increased critical strike chance.
 The active weapon set determines the attack base and weapon-specific increases; an inactive weapon grants neither.
 `global_cannot_crit`, `virtual_global_cannot_crit` and `cannot_critical_strike_with_attacks` suppress attack crits.
 The pool builds the base once in `AttackBaseCriticalStrike`.
@@ -1031,9 +1032,12 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   native straight attack rotates the lateral offset too, then rounds the launch point to grid cells. The offset scales
   with the model when `use_scaled_contact_offset` says so (MonsterVarieties `ModelSizeMultiplier`), and the flight
   still runs from the monster toward the aim (`maintain_projectile_direction_when_using_contact_position`). Data:
-  `data/monster-contacts.json` (`scripts/re/monster_contacts.py`: per variety the ACT pools of `Melee` and the
-  projectile tables' animation keys, each clip's index, length, contact and position, rig events merged with the .ao
-  chain's as `ot_components.rig_clips`). Whether the client seeds a monster action's clip choice from the 0xffff
+  `data/monster-contacts.json` (`scripts/re/monster_contacts.py`, v9 profile-normalized into `monster_contacts`,
+  `monster_contact_clips`, `monster_contact_clip_frames`, `monster_contact_clip_events`, and `monster_melee_clocks`:
+  all `Animation.dat` pools, `.act` modifiers `effect_locked` / `effect_detached` / `item_animation using` /
+  `with_main_hand` / `@alias` / `:weight=` / `:attack_time=`, `.ao` `view_of` views, every named clip event, and
+  `GE.Animation` lookup priority; reduces missing projectile clips from 811/2,342 to 185/2,342 and raises
+  `EmptyAction*` parent clip coverage from 896/2,050 to 1,993/2,050). Whether the client seeds a monster action's clip choice from the 0xffff
   sequence is assumed from the wand's selector and still needs a live check (the two clips differ by 75 ms and 1.3
   cells). `MonsterMortar` names the action table, not an arc: `0x141b6c630` → `0x141baf9f0` selects
   straight `0x141e37560` without a ballistic-angle stat, as for the Sand Spitter.
@@ -1064,8 +1068,15 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   trackers refuse an earlier time than their last read, and the pump once closed a connection over it (live
   2026-10-29). A melee contact commits at the same rule: the runtime's time, read at the send gate without advancing
   it, lagged the life tick's clock read, and the tracker's refusal faulted the swing's task unobserved (review
-  2026-10-30; such faults are logged now). Weapon projectile skills (`monster_projectile_weapon`, SkillID 0) take their projectile from the
-  monster's weapon art, not resolved yet.
+  2026-10-30; such faults are logged now). Weapon projectile skills (`monster_projectile_weapon`,
+  `monster_projectile_weapon_cast_triggerable`, and sibling `MonsterProjectileSpell` / fading-projectile `ActionType`s)
+  take their projectile from `monster_projectile_variation`: its `MonsterProjectileAttack` / `MonsterProjectileSpell` row
+  names the `Projectiles` row (including variation 0 `ScavengerThrow`; Roc Sentinel 76 `LegionMarakethRangedDash`,
+  Lioneye 78 `LegionLioneyeSnipeMedium`); the server publishes the object itself. `SkillArtProjectile` defaults `variant < 0`
+  to `GrantedEffects.__col23` and falls back to variant 0 when `ProjectilesArtVariations` lacks that index (preserving
+  boss/unique `vaal_thrown_weapon` and `creeping_frost` rows; RE 012's `0x1419417c0 -> 0x141f67770` and `0x14222a250`
+  citations are 3.29.3b addresses). The variation row goes before `SharedProjectile`, which still borrows another
+  `GrantedEffects` row's projectile on the same `ActiveSkills` row when nothing else names one.
   A pending swing reserves its generation through contact, so a blocked send gate cannot reserve duplicate attacks.
   Contact checks the original monster, action generation, life, range, pause and area lifetime at the send gate.
   Boss stages and emergence retain their own timing; the next ordinary action waits for stage completion's final
@@ -1118,6 +1129,32 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
 - **Player life** (`Player.PlayerLife`, from the level/class/passive pools). At 0 the client plays the death
   animation and blocks moving. `/heal` sends full life: 0x1b1 from 0 runs the client's revive. The overhead life bar is
   hidden at 0 (`hide_mini_life_bar`, as for monsters) and shown again on revive.
+- **Monster combos (`EmptyAction*`) & `.ot` `StateMachine` flags (3.29.3c, build 327984).**
+  - *`EmptyAction*` combos (`MonsterCombos.cs`):* `EmptyActionAttack` (vtable `0x1434bbf28`) and `EmptyActionSpell`
+    (vtable `0x1434b64b0`) are client animation shells — their event hooks do not spawn child skills client-side
+    (`EmptyActionSpell` stores `GrantedEffect->Id` at `+0x320` and only runs `<Id>_start`/`<Id>_end` `StateMachine`
+    transitions via `0x1419cfcf0`). The server starts the parent clip (`0x1ab`), advances on `AreaTime` through
+    facing/motion control events (`StartFaceEventType`, `EndFaceEventType`, `face`, `move`, `move_stop`), and fires
+    matched child `GrantedEffects` on named clip events via `S→C 0x1ce` (`flags |= 0x80` triggered action and `0x2000`
+    origin overload, executor `0x14219c1f0` → `0x141e9a160` / `0x141db7cb0`) or direct `0x2bb` spawns.
+  - *`StateMachine` shared states (`MonsterStateMachine.cs`, `MonsterStates.cs`, `object_type_state_meta`):* Networked
+    shared states belong exclusively to `StateMachine` (typeId `209`, pool `0x1445c64a0`, vtable `0x1435ab870`; live
+    subclass `ClientInternalStateMachine` typeId `125`, pool `0x1445cdf90`, ctor `0x142198750`, vtable `0x1435e5358`)
+    and travel only in `S→C 0x2bb` (`0x142198880` → `0x141e42430` → `StateMachine::OnCreate` `0x141e41dd0`) and
+    `S→C 0x2bc` (`0x141e42a90` → `StateMachine::SetState` `0x141e419a0`, full shared-state snapshot; `S→C 0x7b`, reader
+    `0x1421a6dc0`, is UI Window Open, not StateMachine). Per-state wire `u8 flags`: bit `0x02` overrides per-player
+    quest/league flag gating (`0x142198970`); bit `0x01` locks out client-side GEAL/C++ `SetStateByName` (`0x141e439d8`,
+    `0x141663ea7`) and must never be set on client-mutated states (`arrow_visible`, etc.). The `.ot` parser
+    (`0x141e3e820` → `0x141e40700` → `;`-splitter `0x141e4d930`) does not strip `/* ... */` inside `define_shared_state`
+    strings, so `heistmonsterbase.ot`'s trailing comment is genuinely a 9th shared state (`ot_components.py` preserves
+    this). `object-types` v14 adds `object_type_state_meta` (`flags`: `1` client listener, `2` client GEAL self-writer,
+    `4` unconditional `DisableRendering()` at default; `enable_value`) so ordinary varieties hidden at their `.ot`
+    default (`visible=0→1`, `render=1→2`, `norendering=1→0`) start visible unless owned by a bespoke boss controller,
+    scripted spawn, or custom `shape`.
+  - *Ordinary multi-skill kits & hooks (`MonsterKits.cs`, `MonsterKitHooks.cs`):* Ordinary monster kits allow up to
+    `MaxOrdinaryKitSkills = 16` skills, enforce `MinRange` and `CooldownGroup`, reuse cached `GrantedSkill` arrays on
+    unmodified Normal spawns, and expose module-agnostic `MonsterKitHooks` (`AddEffectFilter`, `AddComboBindings`,
+    `AddClipEventObserver`, `AddActionLifecycleObserver`, `AddStateTransitions`).
 
 ## 7. The death screen
 
@@ -1592,6 +1629,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   native use refresh briefly restores the recovery rate, but the held remaining stays full so the ring does not move;
   `StartTriggeredGuard`'s held entry behind the 0x1ce freezes the rate again. Without the pre-entry the prediction swept
   ~109 ms (3.00 → 2.89) on a slow first press before the held entry froze it (#1127).
+  The order of the two is not what the sends say: a 0x1ce world record waits for the area frame while the held send
+  goes out at once, so the action can run after that entry and consume it, leaving the prediction with nothing to
+  freeze it (live 2026-11-25: the ring swept through a whole buff and restarted when it ended). `UseInstantSkill`
+  therefore publishes the held entry again about 150 ms after the action (`4 * FrameMs + 16`), in the area frame
+  (`HeldGuardCooldownRefresh`), which freezes the running prediction without restarting its animation.
   A skill-list refresh (Actor 0x20, `SendSkills`) replaces every skill record, and that replacement refreshes an existing
   zero-rate entry (the `0x141ef1573` case above): a movement or conditional-item-stat refresh during the buff therefore
   started the held entry counting again at the recovery rate (Frida: `[3,3,0]` → `[3,3,1]` → counting, live 2026-11-19).
@@ -1866,7 +1908,8 @@ session client; every integer draw replayed with `AnimationVariantSelector.Nativ
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
 2026-10-23). A channelled spell that stands still sends the same 10 bytes as **C→S 0x198** instead (Winter Orb, live
 2026-11-09: same class and handler, and unregistered it was dropped as an unknown message, so the silence below ended
-the channel one second in); both forms refresh the channel's liveness. The updates do not identify the network mode:
+the channel one second in). A stationary Predictive channel can hold the same aim until release. Its 0x198 is
+sent when the aim changes. The updates do not identify the network mode:
 a native Predictive Cyclone sends 0x25 followed by 0x197 (3.29.3c). The 0x197 cell is where the channel is aimed now
 (the cursor), not the player's cell: the first one, ~90 ms
 after the start, is already at the 0x1ab target 45–60 cells away, then it drifts as the cursor and camera move
@@ -1876,7 +1919,7 @@ it, an order re-aimed on each update, at the movement speed with the gem's `cycl
 The hits run on the server's own timer (`RunChannel`, started with the channel): the first sweep lands as the channel
 starts, then one sweep around the player's current cell every `SupportedAttackSeconds` (the skill's own speed, its
 supports and the player's attack speed, as the tooltip shows), paying the cost each time, until 0x199, any other action,
-running out of mana, death or travel, or when the client's 0x197 updates stop for a second
+running out of mana, death or travel. A moving Predictive channel also ends if its 0x197 updates stop for a second
 (`LastChannelUpdateAt`, `Player.ChannelSkill`, `NextChannelHitAt`). One sweep resolves its damage
 and multiplier once and rolls them per monster; every monster gets its hit, life update and death packet before the
 sweep's deaths run their loot, experience and quest work (`AreaSkillHit`). Before, a sweep recalculated the whole skill
@@ -1890,7 +1933,7 @@ The sweep centre is sampled from the current walk after queued sends, rather tha
 Pause still rejects contacts, and each timer revalidates that its gem remains available before charging the next sweep.
 A freeze or a stun's hit recovery (`PlayerActionBlocked`) suspends the timer: no stage is paid or swept until it ends.
 A stage already paid when one lands is refused at its hit commit.
-The 0x197 updates are dropped while the player is blocked, so an interruption longer than a second ends the channel.
+Blocked 0x197 updates are dropped. A moving Predictive channel can then reach its one-second silence limit.
 
 **Storm Call** (`StormCall.cs`, `StormCallMarkers.cs`): each landing (the aim, a Spell Cascade area, a Spell Echo
 repeat) sets a marker that strikes its area when the skill duration ends, and that strike also calls down every other
@@ -1932,7 +1975,7 @@ the contact (`HeldMove`) would align them.
 **Winter Orb** fires `Metadata/Projectiles/FrostFuryMortar` (the effect's own name has no Projectiles row). While
 channelling, a volley every `frost_fury_base_fire_interval_ms` (1200), with the 80% more while channelling and cast
 speed added (`display_frost_fury_additive_cast_speed_modifiers_apply_to_fire_speed`), lands
-`base_number_of_projectiles` area hits along a line across the nearest enemy. Stages build at the channel cast tick
+its volley along a line across the nearest enemy: the count goes through the general projectile path, so the row's base count plus additional projectiles, with its gates and caps, decides how many area hits land. Stages build at the channel cast tick
 (`hundred_times_casts_per_second` 400 with cast speed, the client's own rate) up to
 `frost_fury_max_number_of_stages` (8) plus quality's `frost_fury_additional_max_number_of_stages`, each adding
 `frost_fury_fire_speed_+%_per_stage` (20; the first none).
@@ -2461,9 +2504,14 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   These observations establish projectile and impact behavior; the later captures above verify variant selection.
 - **Rows the name rules miss** (`SkillCatalog.ProjectileFallbacks`): Tornado Shot fires `TornadoShotArrow`, Split
   Arrow `SplitArrowDefault`, Kinetic Bolt `ZigZagWandProjectile` and Ice Shot `IceArrow`; before, every use was
-  refused and the server walked on while the client stopped. Ice Shot's cone splash is not modelled.
+  refused and the server walked on while the client stopped.
+- **Ice Shot**: the cone originates at the struck actor and excludes it. Penetration creates two cones perpendicular to
+  the incoming arrow. The 3.29.3c impact handlers at `0x1414ffdd0` and `0x141332e40` select art by angle modifier and scale
+  it by radius. The server estimates the base damage angle at 90 degrees before applying the gem's angle modifier.
 - **Lightning Arrow**: each hit calls secondary strikes on up to 3 nearby enemies within 18 cells (`ContactTargets`,
   `lightning_arrow_maximum_number_of_extra_targets`), scaled by area of effect.
+- **Lightning Arrow of Electrocution**: a completed enemy hit attaches an arrow. Its additional strikes use the
+  original flight's attack inputs and the target's current state. The gem's attachment cap is shared per enemy.
 - **Rolling Magma**: its base radius 14 and the 16 cells between impacts are estimates, not read from the client; its
   slower bounces (375 ms each) make a bounce's hits land about 0.1 s early.
 - **Tornado Shot's secondaries**: each primary arrow pierces its contacts and emits three `TornadoShotSecondaryArrow`
@@ -2727,7 +2775,7 @@ Only templates whose stats have a consumer are applied, through three views:
   increased damage taken ([20](20-damage.md) §4).
 - **Player-and-ally auras** (`AllyAurasFor`, targets `[1, 2]`): Elemental Valiance's and Unwavering Crusade's relic
   trigger (546, `GuardianAlliesSpawnRelicsForYouOnKill`; §12, Passive-granted skills).
-- **Self buffs** (`SelfBuffsFor`, radius 0): a module's own (`PassiveBuffAuras.Apply`: the Phrecia module's 671 →
+- **Self buffs** (`SelfBuffsFor`, radius 0): a module's own (`PassiveBuffAuras.Apply`: the phreciaascendancies mod's 671 →
   Torment Touched 2550); §12, Passive self buffs.
 
 ## 10f. Skills that passives grant or trigger
@@ -2754,8 +2802,12 @@ buff's `ancestral_buff_cooldown_does_not_tick`.
 
 A totem skill's ActiveSkills row names its totem (`SkillTotemId`); SkillTotemVariations maps that id and a skin to a
 MonsterVarieties row, and skin 0 is the default (Rejuvenation Totem: 4 → `Metadata/Monsters/Totems/LifeRegenTotem`).
+A support-made totem (`SkillTotemId` 22) picks its id as the client's 0x141b0e3f0 does: Earthbreaker 20; a ballista 12
+for a channelled skill, 18 for a projectile one and 19 for a rain; a spell totem 1, 2 or 3 by GrantedEffects
+`Attribute`. `totem_art_variation` picks the skin, falling back to 0.
 The totem base type (`Metadata/Monsters/Totems/Totem`) reads only components the monster blob writer already has.
-Its .ot files make it immobile with `set_is_totem_object`, play `Emerge` as its basic action, block movement and give
+Its .ot files make it immobile with `set_is_totem_object`, play `Emerge` as its basic action, block movement (not the
+players': it is sent with the minion bit, [10](10-chat-and-commands.md) Team) and give
 it `monster_inherent_damage_taken_+%_final` -80.
 
 The server (`Totems.Rules.cs`) keeps the player's totems in `Player.Totems`, never in `Monsters`: area hits,
@@ -2869,7 +2921,7 @@ The Spirit chieftains are the first (section 10f).
   charges skip it; an area change or logout drops it with the connection.
 - AI (`StartMonsterAi`): the monster AI walks a friendly monster with the player and never lets an owned one give up.
   A fighting one goes for the nearest living hostile monster within its aggro range of both itself and the player,
-  not one lurking unrisen.
+  one a minion may target: a lurking one is, one a script holds is not.
   In reach (its `MaximumAttackDistance` plus the target's body) it stops and swings; otherwise it walks to the
   target's edge, re-ordered when the target moves 3 cells or, once there, every 0.5 s.
 - Swing (`MinionSwing`): S→C 0x1ab with its first skill aimed at the target (flags 0x0408 | 0x80), the contact at half
@@ -2880,8 +2932,10 @@ The Spirit chieftains are the first (section 10f).
   and a kill gives the player experience and loot through `MonsterKilled` (no on-kill charges: the player did not
   kill it).
   A minion's hit does not count as the player hitting.
-- End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
-  removed a second later (0x2bd).
+- End: when it ends in play (its time is up, it is killed, its owner dies, or a new one replaces it past the
+  limit) it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is removed 21 frames later (0x2bd).
+  The 21 frames are the Gateway's implemented value (SummonBodySeconds); no live or capture source for the 21 frames
+  is cited yet.
 
 The timed chieftain controller still uses only its first skill. Golems have a separate controller and saved source
 intent (`GolemState`), rather than persisting their area objects. Minion commands and party buff sharing remain partial.
@@ -2924,6 +2978,10 @@ It aims at the nearest enemy within 60 cells, or with none any way (seen on the 
 A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down around that enemy, or on the object.
 An attack thrown as a trap or mine is paced by the throw, not by the weapon's attack time.
 A trap goes off when its duration ends (a Conversion Trap that was never set off only leaves); a mine is removed.
+Stormblast Mine's aura applies from arming to retirement. Its base range is 35 grid cells, and the increased
+damage taken from overlapping mines caps at 150% before combining with other damage-taken modifiers.
+[GGG mine aura range](https://www.pathofexile.com/forum/view-thread/3324396/page/2#p24823327) ·
+[GGG Stormblast Mine behaviour](https://www.pathofexile.com/forum/view-thread/2627574).
 A trap or mine removed in the packet that starts its action vanishes without showing it, and one removed in the packet
 that creates another was shown moving to the new one's place (live 2026-11-17), so both removals are sent apart.
 One Detonate Mines use queues every mine: the first goes off at once, each later one `base_mine_detonation_time_ms`
@@ -2985,7 +3043,8 @@ node is refunded. This is the same LocalExile policy, not proven GGG behaviour.
 A Righteous Fire already burning keeps burning: it deals the enemies no damage (`spell_skills_deal_no_damage`, 20-damage
 §2g) and still burns the player, as the wiki describes for spells cast before Gruthkul's Pelt was equipped. Real-game
 handling of an aura that is running when the restriction starts is unverified.
-Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
+Coverage: `PhreciaFourClassesTests`, kept with the `phreciaascendancies` mod in `tests/` and not run yet (Polytheist's
+admission).
 
 ## 10k. Shield Charge: the charge action
 
@@ -3068,6 +3127,8 @@ It creates/configures an action, registers derived byte one, then invokes synthe
 See [RE 012's execution contract](../re/projectiles/synthetic-start-and-server-commands.md)
 for flags, actual final predicates, identity, cleanup and the separate Actor finalization receiver.
 This is bounded static evidence for client 3.29.3b; it does not establish official route choice for every skill.
+In 3.29.3c, `MonsterCombos` also uses `0x1ce` (`flags |= 0x80` triggered action, `0x2000` origin overload) to fire
+child skills on `EmptyAction*` clip events (§6).
 
 The event-bearing `0x1cf` factory is `0x1421ccac0`, selected branch `0x1421cce19`.
 Table `0x1435ccac0` binds writer `0x141fe4b90`, reader `0x141fe4d50` and copy `0x141fe3ec0`.
@@ -3179,7 +3240,12 @@ BuffDefinitions row 1873 is `trauma`, with a countdown and stack count. The nati
   Guard backends also require additional-data element 0: the remaining absorption capacity (or Immortal Call's
   consumed charge count). Getter `0x141f84000` dereferences Buff `+0x80` without a null check; an empty list
   crashes the HUD. Guard definitions are not `IsRecovery`, so no inline stat values precede that list.
-  Hand-cast guards start that same buff (`SelfBuffSkills.cs`). Phase Run and Blood Rage send their rows
+  Hand-cast guards start that same buff (`SelfBuffSkills.cs`). An instant skill's S→C 0x1ce runs its action without
+  an animation, so the client plays no cast art of its own and Immortal Call's activation sound (the SoundEvents of
+  that art) is missing until the server sends it: an `EffectObject` of MiscAnimated `ImmortalCallCast`
+  (`Metadata/Effects/Spells/immortal_call/rig.ao`), Animated bit3 so the `.ao`'s default animation plays, attached to
+  the player's root bone and removed at 2 s (`TriggeredGuards.PresentImmortalCallCast`; the silence reported live
+  2026-11-25). Phase Run and Blood Rage send their rows
   (`new_phase_run` 467 and `new_phase_run_damage` 468, not the older `phase_run` 65; `blood_rage` 11) as Flicker
   Strike's buff is sent, with no additional-data list; whether their backends read one is not known (unchecked live).
   The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and
@@ -3457,6 +3523,26 @@ BuffDefinitions row 1873 is `trauma`, with a countdown and stack count. The nati
   the allocated nodes at each step, `taunted_enemies_damage_taken_+%` from the stats last sent
   (`PlayerStatsWithCleared`). Each monster keeps the increased damage taken they give ([20](20-damage.md) §4).
 
+### Blade Flurry
+
+The 3.29.3c `ChargedAttackChannelled` action (0xaf62) places its acquisition centre 22 cells along
+the aim from the actor (`0x141d07390`). While held, `0x141d07340` adds one stage before the scan up to
+the skill's virtual maximum. The hit circle is 14 cells around the chosen opponent (`0x141d075b0`).
+Release copies the last acquisition centre. Its scans widen from 22 to 28 cells (`0x141d06d50`).
+All three radii use the skill's radius scale. The release copy runs one scan for each stage reached
+(`0x141d06d10`), spaced by 25 ms after a 10 ms initial delay. The client's chosen contacts have a
+70 ms visual lead. The seeded selection weights nearby enemies and lowers the weight of repeated targets.
+
+The player's ordinary and Incision channels use the gained stage for each hit. Their release strikes
+use the completed stage's damage or critical modifiers throughout. The area publishes the count on
+the current charged attack stat and buff row 640 while held.
+
+### Charged Dash projection and release
+
+The 3.29.3c client uses action `0x2d76` for both gems. The plan at `0x141d093a0` applies separate 60-cell radial and 90-cell path limits using `skill_travel_distance_+%`. The path update at `0x141d09a40` records wave centres every 10 cells. A release before the projection stops copies those recorded centres. A stopped projection also records its endpoint. The contact radius at `0x141d09f80` grows with travel distance and can add a separate final-contact bonus. Native wave copies start at `0x141d09110` and their sampled contacts advance about one area frame apart.
+
+The predictive client turns the active projection when the server sends `0x01ad` for the changed aim. The shared release action locally tries to teleport either gem. The server sends its authoritative landing (`0x01b7`) immediately after the finish (`0x01ae`). The normal gem can step back from the projection endpoint to a legal standing cell; the Projection gem's authoritative landing is its current cell.
+
 ### Cyclone area updates (2026-10-25)
 
 `/set_aoe` sends the increased-area input, but Cyclone's visual also needs the final
@@ -3474,7 +3560,11 @@ Other area skills' effects read 0x4876 as well: every skill whose record has a b
 radius, the one its hit uses (`SkillRadius`). Without it Ice Nova's nova drew nothing (live 2026-10-30).
 Increased area is not increased radius: +300% area changes radius 16 → 32, +0% restores 16 without
 other modifiers. Tests cover this calculation, spell-area exclusion, explicit bases and the fallback.
-Additional melee-range/stage modifiers specific to Cyclone remain outside this initial area model.
+Ordinary Cyclone and Tumult add the granted skill's increased area per cell of extra melee strike
+range to the same area calculation. Tumult's action at `0x141d47fd0` reads the entity's current stage
+stat (0x24de) and applies the skill's radius per stage (0x24df) before the radius scale. The area publishes
+the entity stat as the stages gain or decay. The supported client places each stage's radius before the
+area multiplier, so the granted skill record projects the un-staged base.
 Live visual verification after restarting Gateway is pending.
 
 **Follow-up after live failure:** sending only 0x4875/0x4876 did not change the rendered channel.
@@ -3584,7 +3674,7 @@ The client reads these two to know the player's minion (the link-target filter 0
 `Player.Minions` keeps each one's skill, kind, end time, aura on the owner and death explosion, under the Monsters
 lock. `StartPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
 
-- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bd) a second later.
+- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bd) 1 second later (`PlayerMinions.cs` adds `now + 1`). Only `Summons.cs` uses `SummonBodySeconds` (21 * `Program.TickSeconds`, for golem bodies).
 - The owner's death or the loss of the granting passive kills it without an explosion; with the passive lost, the
   living owner's links to it end without killing him.
 - The queued summons are made, with the owner's `minion_maximum_life_+%` as the monster's `maximum_life_+%` and his
@@ -3720,7 +3810,7 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
 The panel's 387 rows depend on 357 virtual stats and 134 nonvirtual ones. A matching source name or a historical
 native run does not make a virtual stat complete; each needs its sources, consumers and lifecycle traced.
 
-Whaletooth Bangle's owner duration is projected by the Phrecia module (`GameEvents.DerivedStats`) in `CharacterPlayerStats`:
+Whaletooth Bangle's owner duration is projected by the phreciaascendancies mod (`GameEvents.DerivedStats`) in `CharacterPlayerStats`:
 `skill_effect_duration_+%` gains the signed per-ten-Strength value (key 2817) for each complete group of ten final Strength.
 It adds to ordinary raw duration once per rebuild, after attribute resolution; explicit final-stat overrides win.
 The resulting stat reaches the normal player/GrantedSkill stat publication without changing message layouts.
@@ -4398,6 +4488,10 @@ to the same packet writer. Native icon was confirmed; corrected countdown awaits
 - **Flame Dash segment (`S→C 0x2c8`)**: `InstanceClientActionUpdate` (`0x141fe54d0`, Actor dispatch `0x14219be04`)
   carries `(u16 actionTypeHash, u16 skillId, u16 actionSequence, u8 detachId, blob16)`. Flame Dash's slot `+0x300`
   reader (`0x141478930` → `0x1414786c0` → `0x142196f20`) takes 20 LE bytes `(i32 x1, i32 y1, i32 x2, i32 y2, f32 duration)`.
+- **Volcanic Fissure continuation (`S→C 0x2c8`)**: the first path starts at contact in the client. The continuation
+  addresses the detached `VolcanicSlam` action (`0x5eea`, detach ID 2). Its reader `0x141bf05a0` takes a byte count,
+  that many `(f32 x, f32 y)` world-unit points and an `f32` total world-unit length, all LE. At least two points
+  start a new leg, and a count of zero by itself finishes the action.
 - **Component updates (`S→C 0x2bc`)**: Shrine slot 20 (`0x1415e49f0`, index `7`) reads the creation layout
   (`0x141e3e0c0`, bit 7 claimed flag + `Shrines.dat` row) plus `u32 LE` taker object id; `GroundEffect` slot 20
   (`0x141e1ea90` → `0x141e1ead0`, index `2`) reads `(u8 state, f32 LE remainingSeconds)` (`<= 0` triggers `EndEffect`);

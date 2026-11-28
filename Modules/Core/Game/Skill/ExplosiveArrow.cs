@@ -11,7 +11,10 @@ public static partial class Game
         effect is "ExplosiveArrow" or "ExplosiveArrowAltX" or "ExplosiveArrowAltY" or "ExplosiveArrowRoyale";
 
     public sealed record ExplosiveFuseSpec(long Duration, int Limit, int BaseRadius, int RadiusPerFuse, int RadiusCap,
-        double RadiusScale, int HitPerFuse, int AilmentPerFuse, string Art, ProjectileOffenseAlternate Damage);
+        double RadiusScale, int HitPerFuse, int AilmentPerFuse, string Art, ProjectileOffenseAlternate Damage)
+    {
+        internal SupportedHitInputs? HitInputs { get; init; }
+    }
 
     static ExplosiveFuseSpec CaptureExplosiveFuse(ProjectileReleaseContext context, SupportedHitInputs inputs,
         IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int> own,
@@ -31,9 +34,9 @@ public static partial class Game
         int baseRadius = Math.Max(0, 15 + stats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus));
         var damage = new ProjectileOffenseAlternate(SupportedHitFrom(explosion, suppress: false), null,
             WithOverheat(player, skill, NotedIgnite(player, skill, WithIgniteSpread(
-                MonsterIgnites.Settings.From(rows, hand, context.Get), playerStats, own, spell: false, hand))),
+                IgniteSettingsFrom(rows, hand, context.Get), playerStats, own, spell: false, hand))),
             WithOverheat(player, skill, BleedSettings(rows, hand, context.Get, local, melee: false, bow: true, projectileAttack: true)),
-            WithOverheat(player, skill, MonsterPoisons.Settings.From(rows, hand, context.Get, local, projectileAttack: true)));
+            WithOverheat(player, skill, PoisonSettingsFrom(rows, hand, context.Get, local, projectileAttack: true)));
         double seconds = SkillDurationModifiers.Seconds(context.Own(Stat.BaseSkillEffectDuration), context.PlayerStat,
             key => context.Own(key) + (key == Stat.SkillEffectDurationPlusPct ? context.Get(Stat.ExplosiveArrowDurationPlusPct) : 0));
         return new(Math.Max(1, ProjectileRuntime.Time(seconds)), Math.Clamp(context.Get(Stat.ExplosiveArrowStackLimit), 1, 256),
@@ -42,7 +45,7 @@ public static partial class Game
             1 + SkillArea.RadiusPercent(Area, spell: false) / 100d,
             context.Get(Stat.ExplosiveArrowHitDamagePlusPctFinalPerStack),
             context.Get(Stat.ExplosiveArrowAilmentDamagePlusPctFinalPerStack),
-            Art.AnimatedInPlaceOf(ExplosiveArrowExplosion, context.Variation), damage);
+            Art.AnimatedInPlaceOf(ExplosiveArrowExplosion, context.Variation), damage) { HitInputs = explosion };
     }
 
     internal sealed class ExplosiveFuses(ProjectileSession session, ProjectileUse first, ExplosiveFuseSpec spec,
@@ -55,6 +58,7 @@ public static partial class Game
         public SpawnedMonster? Target { get; } = target;
         public uint TargetId { get; } = targetId;
         public DamagePacket Hit { get; private set; } = DamagePacket.Empty;
+        readonly List<(ExplosiveFuseSpec Spec, double More)> hitSources = [];
         public double IgniteMin, IgniteMax, IgniteCritMin, IgniteCritMax;
         public double BleedMin, BleedMax, BleedCritMin, BleedCritMax;
         public double PoisonMin, PoisonMax, PoisonCritMin, PoisonCritMax;
@@ -68,6 +72,7 @@ public static partial class Game
             Count++;
             var damage = fuse.Damage;
             Hit = Hit.Add(damage.Hit.Scale(shot.HitProfileMore));
+            hitSources.Add((fuse, shot.HitProfileMore));
             double more = shot.AilmentProfileMore;
             IgniteMin += damage.Ignite.Min * more;
             IgniteMax += damage.Ignite.Max * more;
@@ -81,6 +86,22 @@ public static partial class Game
             PoisonMax += damage.Poison.Max * more;
             PoisonCritMin += damage.Poison.CriticalMin * more;
             PoisonCritMax += damage.Poison.CriticalMax * more;
+        }
+
+        public DamagePacket ExplosionHit(DamageRange addedPhysical = default)
+        {
+            var hit = Hit;
+            if (!addedPhysical.IsZero)
+            {
+                hit = DamagePacket.Empty;
+                foreach (var (fuse, more) in hitSources)
+                {
+                    var fuseHit = fuse.HitInputs is { } inputs
+                        ? SupportedHitFrom(inputs, suppress: false, addedPhysical) : fuse.Damage.Hit;
+                    hit = hit.Add(fuseHit.Scale(more));
+                }
+            }
+            return hit.Scale(Math.Max(0, 1 + Count * Spec.HitPerFuse / 100d));
         }
     }
 
@@ -237,14 +258,15 @@ public static partial class Game
             double ailments = Math.Max(0, 1 + group.Count * spec.AilmentPerFuse / 100d);
             var blast = first with
             {
-                AreaHit = group.Hit.Scale(Math.Max(0, 1 + group.Count * spec.HitPerFuse / 100d)),
+                AreaHit = group.ExplosionHit(),
+                ExplosiveBlast = group,
                 Ignite = spec.Damage.Ignite with { Min = group.IgniteMin * ailments, Max = group.IgniteMax * ailments,
                     CriticalMin = group.IgniteCritMin * ailments, CriticalMax = group.IgniteCritMax * ailments },
                 Bleed = spec.Damage.Bleed with { Min = group.BleedMin * ailments, Max = group.BleedMax * ailments,
                     CriticalMin = group.BleedCritMin * ailments, CriticalMax = group.BleedCritMax * ailments },
                 Poison = spec.Damage.Poison with { Min = group.PoisonMin * ailments, Max = group.PoisonMax * ailments,
                     CriticalMin = group.PoisonCritMin * ailments, CriticalMax = group.PoisonCritMax * ailments },
-                AlwaysHits = true, AccuracyProfile = null, ProjectileAttack = false,
+                AlwaysHits = true, AccuracyProfile = null, ProjectileAttack = false, DirectAttackContact = false,
                 ExplosiveFuse = null, Spider = null, SpiderArea = null, VsBlinded = null,
                 HitPacket = false, MirageSource = null
             };

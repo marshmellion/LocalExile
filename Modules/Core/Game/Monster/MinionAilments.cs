@@ -6,8 +6,22 @@ public static partial class Game
 {
     sealed record MinionHitProfile(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed,
         MonsterPoisons.Settings Poison, int PoisonChance, int AdditionalPoisons, Penetration.PerType Penetration,
-        DamagePacket LifeLeech, DamagePacket ShieldLeech, GolemState.Ability? AgainstIgnited = null);
+        DamagePacket LifeLeech, DamagePacket ShieldLeech, GolemState.Ability? AgainstIgnited = null)
+    {
+        public Func<DamageRange, DamagePacket>? HitWithAddedPhysical { get; init; }
+    }
     static readonly RuleTable<GolemState.Ability, MinionHitProfile> MinionHitProfiles = new();
+
+    static DamagePacket MinionHitAgainst(GolemState.Ability ability, MinionHitProfile? profile,
+        SpawnedMonster target, double now)
+    {
+        if (profile?.HitWithAddedPhysical is not { } resolve) return ability.Attack.Damage;
+        var added = PoachersAddedPhysical(target, now);
+        if (added.IsZero) return ability.Attack.Damage;
+        var hit = resolve(added);
+        return MinionDamageScalings.TryGetValue(ability, out var scaling) && scaling.HitMore != 1
+            ? hit.Scale(scaling.HitMore) : hit;
+    }
 
     static void MinionExposureOnHitLocked(IReadOnlyDictionary<uint, int> skillStats, SpawnedMonster target,
         DamagePacket mitigated, double now, Random random)
@@ -57,6 +71,7 @@ public static partial class Game
             GolemStat(own, Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum), recentIgnites) : 1;
         var ignite = profile.Ignite with
         {
+            Chance = ActorScale.Saturate((long)profile.Ignite.Chance + target.Effects[Stat.ChanceToBeIgnitedPct]),
             Seconds = profile.Ignite.Seconds * MonsterIgnites.SelfDuration(n => target.Effects[n]),
             Min = profile.Ignite.Min * igniteMore, Max = profile.Ignite.Max * igniteMore,
             CriticalMin = profile.Ignite.CriticalMin * igniteMore, CriticalMax = profile.Ignite.CriticalMax * igniteMore,
@@ -75,7 +90,8 @@ public static partial class Game
             ApplyIgniteFirePenaltyLocked(target, ignite, now);
             ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
         }
-        if (BleedOnHitLocked(player, id, target, profile.Bleed, critical, now) is { } bleeding) packets.AddRange(bleeding);
+        if (BleedOnHitLocked(player, id, target, profile.Bleed, critical, now, reflect: false, playerOwned: false)
+            is { } bleeding) packets.AddRange(bleeding);
         if (profile.Poison.Seconds > 0 && profile.PoisonChance > 0 && RandomRolls.Chance(profile.PoisonChance, 100, AreaRng(player))
             && target.Effects[Stat.CannotBePoisoned] == 0 && !RandomRolls.Chance(target.Effects[Stat.AvoidPoisonPct], 100, AreaRng(player)))
         {

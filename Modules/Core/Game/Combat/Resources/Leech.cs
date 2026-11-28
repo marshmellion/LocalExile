@@ -67,10 +67,10 @@ public static partial class Game
         bool redirects = false;
         foreach (var link in player.Links.All)
         {
-            if (VampiricMinionAt(player, link, now) is null) continue;
+            if (VampiricPlayerAt(player, link, now) is null && VampiricMinionAt(player, link, now) is null) continue;
             redirects = true;
             lifeLeechCap += ScaledLinkStat(link, Stat.RemoraLinkGrantsMaximumLifeLeechRatePctPerMinute,
-                Math.Max(0, 100L + get(Stat.LinkSkillBuffEffectPlusPct)));
+                LinkBuffEffectPercentForLink(player, link, get));
         }
         int WithVampiricCap(uint key) => key != Stat.MaximumLifeLeechRatePctPerMinute
             ? get(key) : ActorScale.Saturate(get(key) + lifeLeechCap);
@@ -90,7 +90,7 @@ public static partial class Game
         else
         {
             var session = LeechOf(player);
-            session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
+            session.SetLifeRecoveryRedirected(now, HasVampiricRecipient(player, now));
             session.ClearFull(now, player.PlayerLife >= LifeCap(player),
                 player.PlayerMana >= UnreservedMana(player), player.EnergyShield.Current >= player.EnergyShield.Maximum);
             SettleFullManaLocked(player, ResourceEffectsTime(player));
@@ -121,6 +121,9 @@ public static partial class Game
                 GainOnHit = (sources.GainOnHit.Life + target.Curses[Stat.LifeGrantedWhenHitByAttacks],
                     sources.GainOnHit.Mana + target.Curses[Stat.ManaGrantedWhenHitByAttacks], sources.GainOnHit.EnergyShield) };
         }
+        double now = ProjectileWorldTime(player);
+        if (sources.LifeLeechVsBleeding is > 0 and var leechVsBleeding && target.Bleeds.IgnitedAt(now))
+            sources = sources with { Life = sources.Life.Add(DamagePacket.Empty.Select((_, _) => new(leechVsBleeding, leechVsBleeding))) };
         var amounts = sources.Amounts(taken, directDamage);
         // Called before the hit's damage is applied, so the target's Life is what the hit has to overkill.
         amounts.Life += sources.OverkillLife(directDamage, target.Life);
@@ -129,21 +132,32 @@ public static partial class Game
         else
         {
             if (target.Effects[Stat.CannotHaveLifeLeechedFrom] != 0) amounts.Life = 0;
+            if (target.Effects[Stat.CannotHaveManaLeechedFrom] != 0) amounts.Mana = 0;
             if (target.Effects[Stat.CannotHaveEnergyShieldLeechedFrom] != 0)
             {
                 amounts.EnergyShield = 0;
                 if (session.ConvertsLifeToEnergyShield) amounts.Life = 0;
             }
         }
-        double now = ProjectileWorldTime(player);
-        session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
+        session.SetLifeRecoveryRedirected(now, HasVampiricRecipient(player, now));
         double powerInstant = sources.InstantLeechPerEnemyPower == 0 ? 0
             : (double)sources.InstantLeechPerEnemyPower * WarcryPower(target.Rarity);
         var instant = session.HitWithWeapon(now, amounts, player.PlayerLife >= LifeCap(player),
             player.PlayerMana >= UnreservedMana(player), player.EnergyShield.Current >= player.EnergyShield.Maximum,
             sources.Attack, sources.Melee, sources.WeaponLifeLeechInstant, powerInstant);
-        if (instant.Life > 0 && RecoverVampiricMinions(player, instant.Life, now)) instant.Life = 0;
+        if (instant.Life > 0 && RecoverVampiricRecipients(player, instant.Life, now)) instant.Life = 0;
         var gain = sources.GainOnHit;
+        var cursedGain = sources.GainOnCursedAttackHit;
+        if (sources.Attack && (cursedGain.Life > 0 || cursedGain.Mana > 0) && target.HasCurses
+            && target.Curses.All.Values.Any(curse => curse.Until > now))
+        {
+            gain.Life = ActorScale.Saturate((long)gain.Life + cursedGain.Life);
+            gain.Mana = ActorScale.Saturate((long)gain.Mana + cursedGain.Mana);
+        }
+        if (sources.LifeOnBleedingHit > 0 && target.Bleeds.IgnitedAt(now))
+            gain.Life = ActorScale.Saturate((long)gain.Life + sources.LifeOnBleedingHit);
+        if (sources.LifeOnIgnitedHit > 0 && target.Ignites.IgnitedAt(now))
+            gain.Life = ActorScale.Saturate((long)gain.Life + sources.LifeOnIgnitedHit);
         if (sources.LifeOnBlindedHit > 0)
         {
             if (targetId == 0) targetId = player.Area.Monsters.FirstOrDefault(entry => ReferenceEquals(entry.Value, target)).Key;
@@ -169,10 +183,10 @@ public static partial class Game
         bool lifeFull, bool manaFull, bool shieldFull)
     {
         var session = LeechOf(player);
-        session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
+        session.SetLifeRecoveryRedirected(now, HasVampiricRecipient(player, now));
         session.ClearFull(now, lifeFull, manaFull, shieldFull);
         var recovery = session.TakeRecovery(now);
-        if (recovery.Life > 0 && RecoverVampiricMinions(player, recovery.Life, now, overTime: true)) recovery.Life = 0;
+        if (recovery.Life > 0 && RecoverVampiricRecipients(player, recovery.Life, now, overTime: true)) recovery.Life = 0;
         return recovery;
     }
 
@@ -183,18 +197,46 @@ public static partial class Game
             || target.Effects[Stat.MapMonstersCannotBeLeechedFrom] != 0) return;
         ownerStats ??= CharacterPlayerStats(player);
         int rate = ownerStats.GetValueOrDefault(Stat.LifeLeechFromMinionDamagePct);
-        if (rate <= 0) return;
+        LeechFromOwnedDamageLocked(player, target, damage * (rate / 100d), now);
+    }
+
+    static void LeechFromTotemHitLocked(Player player, SpawnedMonster target, int damage, double now,
+        IReadOnlyDictionary<uint, int> ownerStats)
+    {
+        int rate = ownerStats.GetValueOrDefault(Stat.TotemDamageLeechedAsLifeToYouPermyriad);
+        if (rate <= 0 || damage <= 0 || !target.Hostile || target.Invulnerable || player.PlayerLife == 0
+            || target.Effects[Stat.CannotHaveLifeLeechedFrom] != 0 || target.Effects[Stat.MapMonstersCannotBeLeechedFrom] != 0)
+            return;
+        LeechFromOwnedDamageLocked(player, target, damage * (rate / 10000d), now);
+    }
+
+    static void LeechFromOwnedDamageLocked(Player player, SpawnedMonster target, double amount, double now)
+    {
+        if (amount <= 0) return;
         var session = LeechOf(player);
         if (session.ConvertsLifeToEnergyShield && target.Effects[Stat.CannotHaveEnergyShieldLeechedFrom] != 0) return;
-        session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
-        var instant = session.Hit(now, (damage * (rate / 100d), 0, 0),
-            player.PlayerLife >= LifeCap(player), player.PlayerMana >= UnreservedMana(player),
+        ApplyOwnedLeechLocked(player, session, amount, 0, now);
+    }
+
+    // Applies amounts already resolved by a minion hit or a corpse meal. The leech session handles conversion and limits.
+    static void ApplyOwnedLeechLocked(Player player, LeechSession session, double life, double mana, double now)
+    {
+        uint manaCap = (uint)UnreservedMana(player);
+        session.SetLifeRecoveryRedirected(now, HasVampiricRecipient(player, now));
+        var instant = session.Hit(now, (life, mana, 0),
+            player.PlayerLife >= LifeCap(player), player.PlayerMana >= manaCap,
             player.EnergyShield.Current >= player.EnergyShield.Maximum);
-        if (instant.Life > 0 && !RecoverVampiricMinions(player, instant.Life, now))
+        if (instant.Life > 0 && !RecoverVampiricRecipients(player, instant.Life, now))
         {
             uint before = player.PlayerLife;
             player.PlayerLife = PetrifiedBlood.RecoverLife(player, before, instant.Life, ref session.LifeInstantCarry, minimum: 1);
             session.InstantLifeChanged |= player.PlayerLife != before;
+        }
+        if (instant.Mana > 0)
+        {
+            uint before = player.PlayerMana;
+            player.PlayerMana = RecoveryPool.Advance(before, manaCap, instant.Mana, ref session.ManaInstantCarry);
+            session.InstantManaChanged |= player.PlayerMana != before;
         }
         player.EnergyShield.Gain(instant.EnergyShield);
         TrimLeechLocked(player);

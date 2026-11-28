@@ -33,36 +33,35 @@ bench.
 
 - **Known:** the 3.29 rules and the 20 generic map bases (`MapKeyTier1` … `MapKeyTier16` and four special ones) are in
   [game/maps.md](../docs/game/maps.md).
-  Generic `MapKeyTierN` items, `MapKeys.dat` tiers, the MapKey component, the default Atlas layout and basic map drops
-  are implemented; see Status. The native Atlas panel/progress and the map stash are not.
-- **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards);
-  Voidstones; the map stash tab's layout (18 A5); the official drop pools.
-- **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress.
+  Generic `MapKeyTierN` items, `MapKeys.dat` tiers, Atlas saved progress (`0x01a3`/`0x01a4`), 4-slot Voidstones, Maven
+  witnessing/Crucible, Eldritch influence/Altars/28-map trackers, Zana/Eagon Memory Tears, Astrolabes/Shaped Regions,
+  Memory Vaults, 3.29 Atlas Anomalies, and all nine Atlas Books of Skill are implemented (offline verified); see Status.
+- **Start:** live client verification of Act 11 Atlas endgame storylines;
+  the map stash tab's layout (18 A5); unique map client acceptance; official drop pools.
+- **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress live.
 
 ### Idols: what the side panel leaves out
 
-- **Known:** the `Idols` module works with the map device's storage grid as the Idol inventory ([Idols](../docs/game/idols.md)).
+- **Known:** the `idols` mod works with the map device's storage grid as the Idol inventory ([Idols](../docs/game/idols.md)).
   The client's own Idol inventories (three loadouts of up to 32 cells) have no panel in the 3.29.3 clients.
 - **Start:** the slots unlocked by Atlas objectives (`MapRelicInventoryLayout`, league quest flags `AtlasIdolSlotsUnlocked1` to `6`);
   the Ruthless versions of two unique Idols;
   refusing Atlas passive allocations on the server while the tree is hidden; drop rates from recorded play.
 - **Done when:** a later client build with an Idol panel shows the three loadouts, or the items above work in the side panel.
 
-### Legion: rewards, the Domain and the Atlas
+### Legion: live-client tuning and Enshrouding Crystals
 
-- **Known:** the monolith, timer, frozen armies, break-out, release and the rewards (symbols, drops, splinters,
-  chests) work ([Legion](../docs/game/legion.md); #1391).
-- **Start:** phase 3: the Domain of Timeless Conflict, generals and timeless jewel drops; phase 4: the Legion scarabs
-  (the #505 route) and the Atlas `map_legion_*` stats. The count, chest, rank and reward numbers are guesses to settle
-  against the real game.
-- **Done when:** a Legion encounter pays what the real one does and the Atlas passives and scarabs change it.
+- **Known:** the monolith, rewards, scarabs, Atlas passives and the Domain of Timeless Conflict are built
+  ([Legion](../docs/game/legion.md)); only scarab inputs, breakouts and reward drops have native verification.
+- **Start:** the Crystals of Permutation (Enshrouded items, the `LegionCocoonCrystal` window); faction-vs-faction fighting;
+  tuning of the GUESS numbers (count, chest, rank, reward, Domain); live checks in the client.
+- **Done when:** the monoliths, scarabs, Domain and crystals match the real client.
 
 ### Hideouts: decorations, editing and the map device
 
 - **Known:** the Lush Hideout works: travel, waypoint, stash, Nessa, the Edit button and the map device: slots,
   Activate and six portals into the map ([21](../docs/protocol/21-hideouts.md) §5).
   Its decoration (`data/hideouts.json`) lists every doodad with its type and model.
-  The Heist Locker is placed and opens its native storage window; contract/blueprint transfers need separate work.
   Moving/rotating installed furniture and NPCs now saves per character/template through C→S 0x5b.
   The map device, Nessa and stash were checked live, including restored positions after reconnect.
   Other installed objects use the same handler; their individual editor interactions need manual verification.
@@ -76,7 +75,11 @@ bench.
   statues play their idle and are recreated on entry. See [21](../docs/protocol/21-hideouts.md), Monster Statue.
 - **Start:** live-verify custom decoration placement/reclaim/reset (`0x59`/`0x5a`/`0x5d`/`0x5e`), `/save_hideout`,
   music box (`0x255`), Item Display Case (`0x67`/`0x68`) and Horticrafting `0xf9`, plus default non-station doodads;
-  maps: remaining scarab engines, Essence skills/enhancement scaling and Evolution/Apparitions (#505);
+  maps: remaining scarab engines outside Bestiary/Sulphite, Delirium, Influence, Legion, Abyss, Mercenaries,
+  Expedition, Incursion, Betrayal and Pandemonium; retail temple door-bit mapping and the existing temple/board engines,
+  and Essence enhancement scaling (#505);
+  Bestiary follow-up: native captured-beast book/itemisation and Blood Altar, exact red-beast weights and
+  party capture rules;
   Torment spirits' and Grips' skills (#1129);
   Harbinger follow-up: The Beachhead unique map (`HarbingerPortal` boss encounter, Harbinger unique piece drops,
   puzzle-grid assembly and Harbinger Scroll upgrades);

@@ -22,8 +22,19 @@ public sealed record Buff(ushort Row, uint Source = 0, ushort SourceSkill = 0, I
     /// <summary>The client's u68: a countdown of this many seconds from the instance's creation.</summary>
     public static uint Seconds(double seconds) => BitConverter.SingleToUInt32Bits((float)Math.Max(0, seconds));
 
-    public byte[] Add(uint entity, ushort instance) => InstanceEntities.AddBuff(entity, instance, Row, Source, SourceSkill,
-        Values, U68, F6c, Visual, ActiveSkill, AuraSource, DisplayState, Stacks, U82, List);
+    /// <summary>The bytes of this buff for <paramref name="entity"/> on <paramref name="instance"/>. Shapes every
+    /// definition-driven tail field to the exact layout the <c>0x01c1</c> reader expects: <c>IsRecovery</c> rows always
+    /// carry exactly <c>GrantedStats.Count</c> u32 values (<see cref="BuffRows.WireValues"/>), <c>__col44</c> rows
+    /// always carry u82 (<see cref="BuffRows.WireU82"/>), and rows whose native client behaviour dereferences
+    /// <c>Buff+0x80</c> unchecked always receive at least their minimum list words (<see cref="BuffRows.WireList"/>).
+    /// Callers can supply or omit any of these safely, as <see cref="BuffRows.Spec"/> does.</summary>
+    public byte[] Add(uint entity, ushort instance)
+    {
+        var info = BuffRows.Of(Row);
+        return InstanceEntities.AddBuff(entity, instance, Row, Source, SourceSkill,
+            BuffRows.WireValues(info, Values), U68, F6c, Visual, ActiveSkill, AuraSource, DisplayState, Stacks,
+            BuffRows.WireU82(info, U82), BuffRows.WireList(info, List));
+    }
 }
 
 /// <summary>
@@ -83,9 +94,13 @@ public sealed class AreaBuffs(GameArea area)
     }
 
     /// <summary>Whether the entity has that buff now (as set this frame, or written and not run out).</summary>
-    public bool Has(uint entity, ushort row, uint source = 0, bool auraSource = false, ushort tag = 0)
+    public bool Has(uint entity, ushort row, uint source = 0, bool auraSource = false, ushort tag = 0) =>
+        Get(entity, row, source, auraSource, tag) is not null;
+
+    /// <summary>The active buff under the same key used by <see cref="Set"/> and <see cref="Clear"/>.</summary>
+    public Buff? Get(uint entity, ushort row, uint source = 0, bool auraSource = false, ushort tag = 0)
     {
-        lock (gate) return Current(new(entity, row, source, auraSource, tag)) is not null;
+        lock (gate) return Current(new(entity, row, source, auraSource, tag));
     }
 
     /// <summary>Whether the entity has a buff of that row now, from any source.</summary>

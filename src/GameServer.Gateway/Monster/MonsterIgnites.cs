@@ -9,6 +9,11 @@ using GameServer.Core.World;
 /// </summary>
 public sealed class MonsterIgnites
 {
+    public readonly record struct DamageRanges(double Min, double Max, double CriticalMin, double CriticalMax)
+    {
+        public DamageRanges Scale(double factor) => new(Min * factor, Max * factor, CriticalMin * factor, CriticalMax * factor);
+    }
+
     /// <summary>What a hit can ignite with, captured at release: the chance, the ignite's fire damage per second for a
     /// non-critical and a critical hit (the panel's ignite rows, <see cref="AilmentPanelStats"/>, already scaled by the
     /// damage-over-time buckets), and the duration in seconds.</summary>
@@ -42,12 +47,27 @@ public sealed class MonsterIgnites
 
         public bool FireCannotIgnite { get; init; }
         public bool ColdCanIgnite { get; init; }
+        public bool CriticalNeedsIgniteChance { get; init; }
+        public DamageRanges? ChilledTarget { get; init; }
+        public DamageRanges Ranges => new(Min, Max, CriticalMin, CriticalMax);
+
+        public Settings WithRanges(DamageRanges range) => this with
+        {
+            Min = range.Min, Max = range.Max, CriticalMin = range.CriticalMin, CriticalMax = range.CriticalMax,
+        };
+
+        public Settings ScaleDamage(double factor) =>
+            WithRanges(Ranges.Scale(factor)) with { ChilledTarget = ChilledTarget?.Scale(factor) };
 
         /// <summary><paramref name="rows"/>: a context's ailment rows (per minute); <paramref name="get"/>: the merged
         /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); the ignite
         /// prohibitions (<see cref="MonsterElementalAilments.CannotInflict"/>) and never_damaging_ailments stop it. faster_burn_% and damaging_ailments_deal_damage_+%_faster multiply the damage
         /// per second and divide the duration (wiki Ignite; PoB IgniteBurnFaster).</summary>
-        public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get)
+        public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get) =>
+            From(rows, hand, get, 0);
+
+        public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get,
+            int additionalDurationPct)
         {
             if (MonsterElementalAilments.CannotInflict("ignite", get) || get(Stat.NeverDamagingAilments) != 0) return None;
             var r = rows.ToDictionary(x => x.Stat, x => x.Value);
@@ -63,7 +83,7 @@ public sealed class MonsterIgnites
                 + (tinctureWeapon ? get(Stat.ChanceToIgnitePctWithTincturedWeapons) : 0)
                 + (get(Stat.AlwaysIgnite) != 0 ? 100 : 0);
             double seconds = Ailments.IgniteDurationSeconds
-                * Math.Max(0, 1 + ((double)get(Stat.IgniteDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)
+                * Math.Max(0, 1 + ((double)get(Stat.IgniteDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct) + additionalDurationPct
                     + (tinctureWeapon ? get(Stat.ElementalAilmentDurationPlusPctWithTincturedWeapons) : 0)) / 100) / faster
                 * DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
@@ -76,6 +96,7 @@ public sealed class MonsterIgnites
             {
                 FireCannotIgnite = get(Stat.UniqueFireDamageShocks) != 0,
                 ColdCanIgnite = get(Stat.UniqueColdDamageIgnites) != 0,
+                CriticalNeedsIgniteChance = get(Stat.CriticalStrikesDoNotAlwaysIgnite) != 0,
             };
         }
     }
@@ -151,11 +172,15 @@ public sealed class MonsterIgnites
     double last, carry;
     int accrued;
 
+    public double AccruedThrough => last;
+
     /// <summary>Settle damage before an effect changes, retaining it for the normal damage-commit tick.</summary>
     public void Accrue(double until, double factor, double aggravatedExtra = 0) =>
         accrued = Advance(until, factor, aggravatedExtra);
 
     double expiryRate = 1;
+    public double ExpiryRate => expiryRate;
+
     public void SetExpiryRate(double now, double rate)
     {
         rate = Math.Max(.25, rate);
@@ -201,6 +226,7 @@ public sealed class MonsterIgnites
     }
 
     public bool Burning => active.Count > 0;
+    public bool BurningAt(double now) => active.Any(ignite => ignite.From <= now && now < ignite.Until);
 
     /// <summary>Nothing burns and no buff is shown.</summary>
     public bool Idle => active.Count == 0 && Buff is null && accrued == 0;
@@ -230,6 +256,14 @@ public sealed class MonsterIgnites
     /// <see cref="Stacks"/> strongest together).</summary>
     public double PerSecond(double now) => Dealing(active.Where(i => i.From <= now && now < i.Until).ToList(), 0);
 
+    public double StrongestDamagePerSecond(double now)
+    {
+        double strongest = 0;
+        foreach (var ignite in active)
+            if (ignite.From <= now && now < ignite.Until) strongest = Math.Max(strongest, ignite.DamagePerSecond);
+        return strongest;
+    }
+
     /// <summary>A hit that dealt fire damage tries to ignite. Critical hits always do; otherwise the chance rolls, then the
     /// target's avoidance. The damage per second is an independent roll in the context's range, as the incoming
     /// ailments roll theirs (<c>ApplyPlayerAilmentsLocked</c>). True when an ignite was added.</summary>
@@ -248,7 +282,8 @@ public sealed class MonsterIgnites
         perSecond = 0;
         if (settings.NeverFromCrit) critical = false;
         if (settings.OnlyFromCrit && !critical) return false;
-        if (immune || settings.Seconds <= 0 || !critical && !RandomRolls.Chance(settings.Chance, 100, random)
+        if (immune || settings.Seconds <= 0
+            || (!critical || settings.CriticalNeedsIgniteChance) && !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
         perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();

@@ -12,6 +12,7 @@ public readonly record struct StunHit(double Damage, int ThresholdReductionPct =
 {
     public int DoubleDurationChance { get; init; }
     public int FinalDurationPct { get; init; }
+    public int LifeGainedOnStun { get; init; }
     public Action? OnStun { get; init; }
     public Action<double>? OnStunDuration { get; init; }
 }
@@ -48,23 +49,25 @@ public static class HitReaction
     }
 
     // Character.ot's object_inherent_melee_hit_stun_duration_+%_final is 50.
-    static double Seconds(StunHit hit, SpawnedMonster m) => (hit.BaseSeconds > 0 ? hit.BaseSeconds : BaseSeconds) * Math.Max(0, 1 + hit.DurationPct / 100.0)
+    static double Seconds(StunHit hit, SpawnedMonster m, double now) => (hit.BaseSeconds > 0 ? hit.BaseSeconds : BaseSeconds)
+        * Math.Max(0, 1 + (hit.DurationPct + (long)Game.IntimidateStunDuration(m, now)) / 100.0)
         * Math.Max(0, 1 + hit.FinalDurationPct / 100.0)
         * (hit.Melee ? 1.5 : 1) / Math.Max(.01, 1 + m.Mods.Effects[Stat.BaseStunRecoveryPlusPct] / 100.0);
 
     /// <summary>Rolls the stun; true when a new recovery started (<c>FlinchUntil</c>), to present. Call in the area's frame.</summary>
     public static bool TryFlinch(SpawnedMonster m, StunHit hit, double now, Random random)
     {
-        if (m.Life == 0 || m.Dead || m.Invulnerable || m.HitAnimations is not { Count: > 0 }) return false;
-        if (m.CannotBeStunned || m.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;
+        if (m.Invulnerable || m.CannotBeStunned || m.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;
         double threshold = m.MaxLife * Math.Max(.01, 1 + m.Effects[Stat.StunThresholdPlusPct] / 100d);
         if (random.NextDouble() * 100 >= Chance(hit, threshold)) return false;
-        hit.OnStun?.Invoke();
         hit.OnStun?.Invoke();
         if (hit.Owner is { } owner)
         {
             Func<uint, int>? own = hit.Skill is { } skill ? key => skill.GetValueOrDefault(key) : null;
             Game.ChargesOf(owner).Enqueue(new ChargeEvent.Stun(hit.Melee, own));
+            if (hit.LifeGainedOnStun > 0) Game.GainLifeOnStunLocked(owner, hit.LifeGainedOnStun);
+            if (m.Effects[Stat.EnemyGrantXRageOnStun] is > 0 and var rage)
+                Game.RageOnMarkedStunLocked(owner, rage, now);
         }
         // "Melee Hits which Stun have X% chance to Fortify" (wiki Fortification): a stun from a melee hit that did not
         // already Fortify it rolls the chance once and grants the hit's damage-based stacks. A stun during a running
@@ -76,9 +79,12 @@ public static class HitReaction
             if (Game.FortificationOf(fortifier).Revision != revBefore)
                 Game.AfterFortificationGainLocked(fortifier);
         }
-        double seconds = Seconds(hit, m);
-        if (RandomRolls.Chance(hit.DoubleDurationChance, 100, random)) seconds *= 2;
+        double seconds = Seconds(hit, m, now);
+        int doubleChance = ActorScale.Saturate((long)hit.DoubleDurationChance + m.Effects[Stat.EnemyChanceToDoubleStunDurationPctVsSelf]);
+        if (RandomRolls.Chance(doubleChance, 100, random)) seconds *= 2;
         hit.OnStunDuration?.Invoke(seconds);
+        // Lethal hits or monsters without TakeHit clips skip flinch recovery and 0x01d1 presentation.
+        if (m.Life == 0 || m.Dead || m.HitAnimations is not { Count: > 0 }) return false;
         double nextUntil = now + seconds;
         // A new qualifying stun whose recovery extends beyond an active recovery refreshes/extends the flinch,
         // rather than silently dropping consecutive hit reactions while the monster is still recovering.
@@ -101,6 +107,16 @@ public static class HitReaction
 
 public static partial class Game
 {
+    internal static void GainLifeOnStunLocked(Player player, int amount)
+    {
+        uint before = player.PlayerLife;
+        if (before == 0 || before >= LifeCap(player) || LifeRecovery.NonLeechBlocked(PlayerStatValues(player).GetValueOrDefault))
+            return;
+        var leech = LeechOf(player);
+        player.PlayerLife = PetrifiedBlood.RecoverLife(player, before, amount, ref leech.LifeInstantCarry, minimum: 1);
+        if (player.PlayerLife != before) player.Frames.Area?.Life.Changed(player);
+    }
+
     /// <summary>The stun of the player's own hit that dealt <paramref name="damage"/>. A critical strike with cold damage
     /// taken cannot stun (wiki Stun). shortcut: not the wiki's exception for attackers whose critical strikes cannot
     /// inherently freeze, and only the main hand's local reduction, until those sources are in play. Call under the
@@ -129,6 +145,11 @@ public static partial class Game
             + (tinctureWeapon ? Get(Stat.StunDurationPlusPctWithTincturedWeapons) : 0)
             + (fullLife ? Get(Stat.StunDurationPlusPctVsEnemiesThatAreOnFullLife) : 0)
             + (critical ? Get(Stat.StunDurationOnCriticalStrikePlusPct) : 0);
+        if (own?.GetValueOrDefault(Stat.SupportTraumaStunDurationPlusPctPerTrauma) is int traumaStun and not 0)
+        {
+            int traumaStacks = CurrentTraumaCount(player, ProjectileWorldTime(player));
+            if (traumaStacks > 0) duration += (long)traumaStun * traumaStacks;
+        }
         long thresholdReduction = (long)Get(Stat.BaseStunThresholdReductionPlusPct) + local
             + (tinctureWeapon ? Get(Stat.StunThresholdReductionPlusPctWithTincturedWeapons) : 0);
         int lightningReduction = Get(Stat.LightningSkillStunThresholdPlusPct);
@@ -161,6 +182,7 @@ public static partial class Game
         {
             DoubleDurationChance = Get(Stat.ChanceToDoubleStunDurationPct),
             FinalDurationPct = finalDuration,
+            LifeGainedOnStun = Get(Stat.GainXLifeOnStun),
         };
     }
 }

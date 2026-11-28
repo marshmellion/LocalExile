@@ -10,7 +10,8 @@ using GameServer.Core;
 /// packs named "&lt;area&gt;-…" (weight 0) stand at the room points of the layout that name them ("%area%-cannibalfire"
 /// → "1_1_2-cannibalfire"); the room point "mapboss" takes the area's boss with the pack "&lt;area&gt;-bosspack". A map's
 /// area (Maps.dat Regular_WorldAreasKey) also gets the map's own packs (Maps.dat MonsterPacksKeys: Beach → atlas-crab1),
-/// which no MonsterPacks row lists by area. Agents/docs/protocol/14-monster-packs.md.
+/// which no MonsterPacks row lists by area, and the shared map pool (<see cref="AreaPacks.Pool"/>).
+/// Agents/docs/protocol/14-monster-packs.md.
 /// </summary>
 public sealed class PackCatalog
 {
@@ -21,6 +22,7 @@ public sealed class PackCatalog
         this.folder = folder;
         _data = Load(folder);
         VarietyRows = LoadVarietyRows();
+        tagRows = LoadTagRows();
     }
 
     public sealed record Pack(int Row, string Id, int MinCount, int MaxCount, int BossChance, int BossCount,
@@ -38,6 +40,8 @@ public sealed class PackCatalog
         public IReadOnlyList<string> RequiredGrounds { get; init; } = [];
         /// <summary>MonsterPacks.__col19: excluded tile ground names.</summary>
         public IReadOnlyList<string> ExcludedGrounds { get; init; } = [];
+        /// <summary>MonsterPacks.Tags (Tags rows): the terrain a shared-pool pack suits; empty = anywhere.</summary>
+        public IReadOnlyList<int> Tags { get; init; } = [];
 
         public int PickVariety(Random rng)
         {
@@ -53,6 +57,14 @@ public sealed class PackCatalog
     public sealed record AreaPacks(string AreaId, int AreaLevel, IReadOnlyList<(Pack Pack, int Weight)> Scattered,
         IReadOnlyDictionary<string, Pack> Named, IReadOnlyList<int> Bosses)
     {
+        /// <summary>The shared map pool this map area may draw from, with each pack's own weight: the chaos-* packs
+        /// registered to the pool area, which no map lists by area, already cut to the ones whose terrain suits this
+        /// map. Empty for every area that is not a map. An instance takes only <see cref="AreaPopulation.MapPoolPacks"/>
+        /// of them (<see cref="AreaPopulation.ForInstance"/>), so a map has a handful of pack types as the official
+        /// instances do: not one (a map whose Maps.dat list is one single-entry pack had one variety all over) and not
+        /// all 338. The drawn packs stand in <see cref="Scattered"/> of the instance's own answer, whose Pool is empty.</summary>
+        public IReadOnlyList<(Pack Pack, int Weight)> Pool { get; init; } = [];
+
         /// <summary>Places in <see cref="Bosses"/> (0-based) this instance does not place with the area: the later forms a
         /// fight brings (<see cref="AreaPopulation.LaterForms"/>) and the bosses a map boss override leaves out
         /// (<see cref="MapBossOverride"/>).</summary>
@@ -72,7 +84,21 @@ public sealed class PackCatalog
     /// <summary>The weight of a map's own packs (Maps.dat MonsterPacksKeys), which have none for the area.</summary>
     public const int MapPackWeight = 100;
 
-    private readonly (List<Pack> Packs, List<(string Id, int Level, int Act, int[] Bosses)> Areas, Dictionary<int, List<int>> MapPacks, HashSet<int> AllWorldBosses)? _data;
+    /// <summary>Tag rows an area's AreaTypeTags names that no pack carries, and the pack tag they stand for. The pool's
+    /// whole tag vocabulary is eight terrain tags (beach, dungeon, cave, forest, swamp, mountain, urban, temple) and
+    /// all but three map areas name one of them in AreaTypeTags directly. Forbidden Woods names "forestdark", and every
+    /// pool pack its captured official instances used carries "forest". The Carcass ("sewers") and Dry Sea ("desert_area", "desert_map_area") are left out: no capture shows which pack tag
+    /// they stand for, so those two take the pool unfiltered rather than a guessed tag.</summary>
+    static readonly IReadOnlyDictionary<string, string> TagAliases = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["forestdark"] = "forest",
+    };
+
+    private readonly (List<Pack> Packs, List<(string Id, int Level, int Act, int[] Bosses, int[] TypeTags, bool Unique)> Areas, Dictionary<int, List<int>> MapPacks, HashSet<int> AllWorldBosses, int PoolArea)? _data;
+
+    /// <summary>A map area's pool by WorldAreas row. It depends on the tables only, so the pack scan and the terrain
+    /// cut behind it run once per area rather than on every <see cref="For"/> call.</summary>
+    readonly System.Collections.Concurrent.ConcurrentDictionary<int, IReadOnlyList<(Pack, int)>> _pools = new();
 
     public AreaPacks? For(string areaId)
     {
@@ -111,7 +137,58 @@ public sealed class PackCatalog
             Density = density,
             Act = d.Areas[row].Act,
             AllWorldBosses = d.AllWorldBosses,
+            // Only an ordinary map area draws from the shared pool: one with a Maps.dat row that WorldAreas does not
+            // mark IsUniqueMapArea (The Shaper's Realm, Tower of Ordeals and The Beachhead have an empty signature list
+            // and stay as they were).
+            Pool = d.MapPacks.ContainsKey(row) && !d.Areas[row].Unique ? _pools.GetOrAdd(row, r => PoolFor(d, r, [.. scattered.Select(s => s.Item1.Row)])) : [],
         };
+    }
+
+    /// <summary>The shared map pool for a map area: the packs with a weight for the pool area (the chaos-* ones, which
+    /// no map lists by area), without the ones the area already has, cut to the packs whose terrain suits this map: a
+    /// pack whose Tags is empty stands anywhere, else one of its Tags must be an AreaTypeTags of the area (through
+    /// <see cref="TagAliases"/>). The cut is dropped when the area's own tags name nothing the pool uses, so an area
+    /// whose terrain tag is not in the pool's vocabulary gets the whole pool rather than only the untagged packs.
+    /// The capture figures behind the rule are in 14-monster-packs.md.</summary>
+    List<(Pack, int)> PoolFor((List<Pack> Packs, List<(string Id, int Level, int Act, int[] Bosses, int[] TypeTags, bool Unique)> Areas,
+        Dictionary<int, List<int>> MapPacks, HashSet<int> AllWorldBosses, int PoolArea) d, int row, HashSet<int> already)
+    {
+        var pool = new List<(Pack, int)>();
+        if (d.PoolArea < 0) return pool;
+        var candidates = d.Packs.Where(p => p.Entries.Count > 0 && !already.Contains(p.Row)
+            && p.AreaWeights.GetValueOrDefault(d.PoolArea) is int w && w > 0).ToList();
+        var vocabulary = new HashSet<int>(candidates.SelectMany(p => p.Tags));
+        var keys = new HashSet<int>();
+        foreach (int tag in d.Areas[row].TypeTags)
+            foreach (int resolved in ResolveTag(tag)) keys.Add(resolved);
+        bool cut = keys.Overlaps(vocabulary);
+        foreach (var p in candidates)
+            if (!cut || p.Tags is not { Count: > 0 } tags || tags.Any(keys.Contains))
+                pool.Add((p, p.AreaWeights[d.PoolArea]));
+        return pool;
+    }
+
+    /// <summary>A Tags row as the pool reads it: itself, plus what <see cref="TagAliases"/> says it stands for.</summary>
+    IEnumerable<int> ResolveTag(int row)
+    {
+        yield return row;
+        if (tagRows is not { } rows) yield break;
+        foreach (var (from, to) in TagAliases)
+            if (rows.GetValueOrDefault(from, -1) == row && rows.GetValueOrDefault(to, -1) is int t && t >= 0)
+                yield return t;
+    }
+
+    /// <summary>Tags rows by Id, for <see cref="TagAliases"/>; null where the table is missing. Read when the catalog is
+    /// built, with the rest of its data.</summary>
+    readonly Dictionary<string, int>? tagRows;
+
+    static Dictionary<string, int>? LoadTagRows()
+    {
+        if (!ClientTables.Has("Tags")) return null;
+        var rows = new Dictionary<string, int>(StringComparer.Ordinal);
+        int row = 0;
+        foreach (var t in ClientTables.Table("Tags")) { if (t.TextOrNull("Id") is { } id) rows.TryAdd(id, row); row++; }
+        return rows;
     }
 
     public Pack? Find(string id) => _data?.Packs.FirstOrDefault(p => p.Id == id);
@@ -129,7 +206,7 @@ public sealed class PackCatalog
         return rows;
     }
 
-    private static (List<Pack>, List<(string, int, int, int[])>, Dictionary<int, List<int>>, HashSet<int>)? Load(string folder)
+    private static (List<Pack>, List<(string, int, int, int[], int[], bool)>, Dictionary<int, List<int>>, HashSet<int>, int)? Load(string folder)
     {
         if (!ClientTables.Has("MonsterPacks") || !ClientTables.Has("MonsterPackEntries") || !ClientTables.Has("WorldAreas")) return null;
         var byPack = new Dictionary<int, List<(int, int)>>();
@@ -177,15 +254,16 @@ public sealed class PackCatalog
                 UniqueBossPack = p.BoolOrNull("__col8") == true,
                 RequiredGrounds = CleanGrounds(p.Texts("Grounds")),
                 ExcludedGrounds = CleanGrounds(p.Texts("__col19")),
+                Tags = [.. p.Ints("Tags")],
             });
         }
-        var areaRows = new List<(string, int, int, int[])>();
+        var areaRows = new List<(string, int, int, int[], int[], bool)>();
         var allWorldBosses = new HashSet<int>();
         foreach (var a in ClientTables.Table("WorldAreas"))
         {
             int[] bosses = [.. a.Ints("Bosses_MonsterVarietiesKeys")];
             foreach (int b in bosses) allWorldBosses.Add(b);
-            areaRows.Add((a.Text("Id") ?? "", a.Int("AreaLevel"), a.IntOrNull("Act") ?? 0, bosses));
+            areaRows.Add((a.Text("Id") ?? "", a.Int("AreaLevel"), a.IntOrNull("Act") ?? 0, bosses, [.. a.Ints("AreaTypeTags")], a.BoolOrNull("IsUniqueMapArea") == true));
         }
         // Maps.dat: a map's area → its packs (optional table: without it maps have no packs of their own).
         var mapPacks = new Dictionary<int, List<int>>();
@@ -196,7 +274,17 @@ public sealed class PackCatalog
                     if (!mapPacks.TryGetValue(area, out var list)) mapPacks[area] = list = [];
                     list.AddRange([.. m.Ints("MonsterPacksKeys").Where(k => !list.Contains(k)).Distinct()]);
                 }
-        return (result, areaRows, mapPacks, allWorldBosses);
+        // The shared map pool's area: the WorldAreas row the maps' own signature packs name most often in their
+        // WorldAreasKeys (row 168 in this copy: 873 of the 1316 signature references, and the 338 packs with a weight
+        // for it are every chaos-* pack there is). Derived rather than written down so a table that moves rows keeps
+        // working; -1 where Maps.dat is missing, and then a map has no pool.
+        var poolVotes = new Dictionary<int, int>();
+        foreach (int pack in mapPacks.Values.SelectMany(l => l))
+            if (pack >= 0 && pack < result.Count)
+                foreach (var (area, weight) in result[pack].AreaWeights)
+                    if (weight > 0) poolVotes[area] = poolVotes.GetValueOrDefault(area) + 1;
+        int poolArea = poolVotes.Count == 0 ? -1 : poolVotes.MaxBy(v => v.Value).Key;
+        return (result, areaRows, mapPacks, allWorldBosses, poolArea);
     }
 }
 
@@ -216,6 +304,47 @@ public static class AreaPopulation
     // Local population seed derivation. HashCode.Combine has a process-random salt and cannot reproduce instances.
     public static int PopulationSeed(ushort areaHash, uint areaSeed) => unchecked((int)InstanceEntities.ObjectTypeHash(
         FormattableString.Invariant($"population:{areaHash:x4}:{areaSeed:x8}")));
+
+    /// <summary>How many of the shared map pool's packs (<see cref="PackCatalog.AreaPacks.Pool"/>) one map instance
+    /// draws. How many pack types an instance has is decided by the official server and is not in the client, so this
+    /// is our own number like <see cref="CellsPerPack"/>, chosen from the captured official instances' counts (see
+    /// 14-monster-packs.md). Without a cap the pool would be
+    /// re-rolled at every pack centre and a map would show nearly 300 varieties.</summary>
+    public const int MapPoolPacks = 7;
+
+    /// <summary>The seed the shared map pool is drawn with, from the instance's <see cref="PopulationSeed"/>: a stream
+    /// of its own, so the draw does not depend on how many numbers the rest of <see cref="Plan"/> has taken and every
+    /// caller of <see cref="ForInstance"/> gets the same packs.</summary>
+    public static int PoolSeed(int populationSeed) => unchecked((int)InstanceEntities.ObjectTypeHash(
+        FormattableString.Invariant($"mappool:{populationSeed:x8}")));
+
+    /// <summary>This instance's packs: the area's own scattered packs (a map's Maps.dat signature packs) plus this
+    /// instance's draw of <see cref="MapPoolPacks"/> packs from the shared map pool
+    /// (<see cref="PackCatalog.AreaPacks.Pool"/>), by their weights, off <see cref="PoolSeed"/>. Everything that picks
+    /// a monster out of "the area's packs" picks from this one set: the scattered population (<see cref="Plan"/>), a
+    /// strongbox's guards and summons, an Essence's imprisoned monster and the like. Reading
+    /// <see cref="PackCatalog.AreaPacks.Scattered"/> of the catalog's answer alone gives one variety on a map whose
+    /// signature list is one single-entry pack. <paramref name="spawnable"/> leaves out a pool pack with no variety
+    /// this server can write; pass the same predicate everywhere or the draws differ. The answer's Pool is empty, so
+    /// calling this on an answer changes nothing. A pure function of (area, populationSeed).</summary>
+    public static PackCatalog.AreaPacks ForInstance(PackCatalog.AreaPacks area, int populationSeed,
+        Func<int, bool>? spawnable = null, List<string>? notes = null)
+    {
+        if (area.Pool.Count == 0) return area;
+        var rng = new Random(PoolSeed(populationSeed));
+        var pool = area.Pool.Where(s => spawnable is null || s.Pack.Entries.Any(e => spawnable(e.Variety))).ToList();
+        var drawn = new List<(PackCatalog.Pack Pack, int Weight)>();
+        while (drawn.Count < MapPoolPacks && pool.Count > 0)
+        {
+            var pick = PickPack(pool, rng);
+            int at = pool.FindIndex(s => s.Pack.Row == pick.Row);
+            drawn.Add(pool[at]);
+            pool.RemoveAt(at);
+        }
+        notes?.Add($"map pool: {area.Pool.Count} pack(s) suit {area.AreaId}, this instance drew "
+            + string.Join(", ", drawn.Select(p => p.Pack.Id)));
+        return area with { Scattered = [.. area.Scattered, .. drawn], Pool = [] };
+    }
 
     public sealed record Spawn(int Variety, int X, int Y, MonsterRarity Rarity, string Pack)
     {
@@ -283,7 +412,11 @@ public static class AreaPopulation
         return rooms;
     }
 
-    static bool IsMonsterPoint(string name) => BossPoint(name) is not null || name.StartsWith("%area%-", StringComparison.Ordinal);
+    static bool IsMonsterPoint(string name) => BossPoint(name) is not null || IsWarbandBossPoint(name) || name.StartsWith("%area%-", StringComparison.Ordinal);
+
+    static bool IsWarbandBossPoint(string name) => name.StartsWith("mapbosswarband", StringComparison.OrdinalIgnoreCase);
+
+    static bool IsRitualBossOverridePoint(string name) => string.Equals(name, "ritual_boss_spawn_override", StringComparison.Ordinal);
 
     /// <summary>The bosses a fight brings rather than the area: a later Bosses row with the name of an earlier one whose
     /// Id is that row's Id + "2" (Prisoner's Gate's Abberath2, The Oasis's Shakari2, The Harvest's MalachaiBoss2: the
@@ -381,7 +514,7 @@ public static class AreaPopulation
         return (monsterPoints, direct);
     }
 
-    static readonly System.Text.RegularExpressions.Regex BossPointName =new("^(?:force:)?mapboss(?:([1-9][0-9]*(?:&[1-9][0-9]*)*)|pack)?(?:WG)?$");
+    static readonly System.Text.RegularExpressions.Regex BossPointName = new("^(?:(?:force:)?mapboss(?:([1-9][0-9]*(?:&[1-9][0-9]*)*)|pack)?(?:WG)?|ritual_boss_spawn_override)$");
 
     // One scattered pack per this many walkable cells (The Coast seed 1: 404 620 cells → 45 packs).
     public const int CellsPerPack = 9000;
@@ -450,6 +583,9 @@ public static class AreaPopulation
         IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions,
         GameServer.Data.Terrain.Generation.TileGrounds? grounds)
     {
+        // A map area's own draw from the shared pool, when the caller has not drawn it already (then Pool is empty and
+        // this changes nothing).
+        area = ForInstance(area, seed, spawnable, notes);
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
         var taken = new HashSet<(int, int)>();
@@ -538,11 +674,34 @@ public static class AreaPopulation
         var any = bossPoints.Where(b => b.Rows!.Count == 0).Select(b => b.Point).ToList();
         if (any.Count > 0 && rest.Count > 0)
         {
-            // Prefer dedicated boss rooms over treasure alcoves (golden_chest.arm carries a generic mapboss point).
+            // Prefer dedicated boss rooms over treasure alcoves (golden_chest.arm carries a generic mapboss point),
+            // and explicit mapboss* points over ritual_boss_spawn_override when both are present.
             var dedicated = any.Where(pt => pt.Room is null || !pt.Room.EndsWith("/golden_chest.arm", StringComparison.OrdinalIgnoreCase)).ToList();
-            var pool = dedicated.Count > 0 ? dedicated : any;
+            var explicitBoss = dedicated.Where(pt => !IsRitualBossOverridePoint(pt.Name)).ToList();
+            var pool = explicitBoss.Count > 0 ? explicitBoss : dedicated.Count > 0 ? dedicated : any;
             var p = pool[rng.Next(pool.Count)];
             Bosses((p.X, p.Y), p.Name, rest);
+        }
+        else if (rest.Count > 0 && bossPoints.Count > 0)
+        {
+            // Numbered boss points (e.g. MapWorldsPort boss.arm's mapboss1) placed some bosses while leaving others
+            // without their own point: keep them at the existing boss room point rather than dumping them at arrival.
+            var dedicated = bossPoints.Select(b => b.Point)
+                .Where(pt => pt.Room is null || !pt.Room.EndsWith("/golden_chest.arm", StringComparison.OrdinalIgnoreCase)).ToList();
+            var pool = dedicated.Count > 0 ? dedicated : [.. bossPoints.Select(b => b.Point)];
+            var p = pool[rng.Next(pool.Count)];
+            notes.Add($"no dedicated room point for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}: standing at {p.Name} ({p.X}, {p.Y})");
+            Bosses((p.X, p.Y), p.Name, rest);
+        }
+        else if (rest.Count > 0 && points.Where(p => IsWarbandBossPoint(p.Name)).ToList() is { Count: > 0 } warbandPoints)
+        {
+            // Fallback for Warbands boss rooms (Lighthouse / Iceberg / Acid Lakes) when no mapboss* point exists.
+            notes.Add($"using warband boss point(s) for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}");
+            for (int i = 0; i < rest.Count; i++)
+            {
+                var p = warbandPoints[i % warbandPoints.Count];
+                Bosses((p.X, p.Y), p.Name, [rest[i]]);
+            }
         }
         else if (rest.Count > 0 && unassignedAtArrival)
         {
@@ -558,12 +717,10 @@ public static class AreaPopulation
         {
             // The layout gave no free boss point at all (a sparse boss room the doodad fit misses on a seed nobody
             // recorded, or points whose boss already stands elsewhere): the area's unique boss still stands, deep in the
-            // area. Before, it stood nowhere and the area had no boss, which is why a new area needed a walk map visit for
-            // its boss.
-            var deep = Farthest(w, h, walkable, arrival, transitions);
+            // area (or inside its disconnected internal boss arena when localTransitions reach one).
+            var deep = Farthest(w, h, walkable, arrival, transitions, localTransitions, scatterable);
             notes.Add($"no room point for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}: standing at ({deep.X}, {deep.Y})");
-            for (int i = 0; i < rest.Count; i++)
-                Bosses((deep.X + (i + 1) * 4, deep.Y), "mapboss", [rest[i]]);
+            Bosses(deep, "mapboss", rest);
         }
 
         // The scattered packs: random deep cells away from the arrival, the area transitions and other packs.
@@ -943,23 +1100,56 @@ public static class AreaPopulation
         return null;
     }
 
-    /// <summary>The walkable cell farthest (in steps) from the arrival, clear of the area transitions: where the layout
-    /// placed no boss room, its unique boss stands deep in the area rather than nowhere.</summary>
+    /// <summary>The walkable cell farthest (in steps) from the arrival, clear of the area transitions (or inside a
+    /// disconnected internal boss arena reached via <paramref name="localTransitions"/>).</summary>
     static (int X, int Y) Farthest(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
-        IReadOnlyList<(int X, int Y)> transitions)
+        IReadOnlyList<(int X, int Y)> transitions,
+        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions = null,
+        Func<int, int, bool>? allowed = null)
+    {
+        var mainBest = FarthestInComponent(w, h, walkable, arrival, transitions, out var mainDist);
+        if (localTransitions is { Count: > 0 })
+        {
+            bool ValidArenaEntry((int X, int Y) to) =>
+                (uint)to.X < (uint)w && (uint)to.Y < (uint)h && walkable(to.X, to.Y)
+                && (allowed is null || allowed(to.X, to.Y))
+                && !mainDist.ContainsKey(to);
+            (int X, int Y)? arenaEntry = null;
+            foreach (var (from, to) in localTransitions)
+                if (ValidArenaEntry(to) && mainDist.ContainsKey(from))
+                {
+                    arenaEntry = to;
+                    break;
+                }
+            if (arenaEntry is null)
+                foreach (var (_, to) in localTransitions)
+                    if (ValidArenaEntry(to))
+                    {
+                        arenaEntry = to;
+                        break;
+                    }
+            if (arenaEntry is { } entry)
+                return FarthestInComponent(w, h, walkable, entry, transitions, out _);
+        }
+        return mainBest;
+    }
+
+    static (int X, int Y) FarthestInComponent(int w, int h, Func<int, int, bool> walkable, (int X, int Y) origin,
+        IReadOnlyList<(int X, int Y)> transitions, out Dictionary<(int X, int Y), int> dist)
     {
         bool Clear((int X, int Y) at) =>
             !transitions.Any(t => Math.Abs(t.X - at.X) < TransitionClearance && Math.Abs(t.Y - at.Y) < TransitionClearance);
-        var dist = new Dictionary<(int X, int Y), int>(w * h / 4 + 16) { [arrival] = 0 };
-        var queue = new Queue<(int X, int Y)>([arrival]);
-        (int X, int Y) best = arrival;
-        int bestDistance = -1;
+        dist = new Dictionary<(int X, int Y), int>(Math.Max(16, w * h / 4)) { [origin] = 0 };
+        var queue = new Queue<(int X, int Y)>([origin]);
+        (int X, int Y) bestClear = origin, bestAny = origin;
+        int bestClearDist = -1, bestAnyDist = -1;
         (int X, int Y)[] steps = [(1, 0), (-1, 0), (0, 1), (0, -1)];
         while (queue.Count > 0)
         {
             var at = queue.Dequeue();
             int d = dist[at];
-            if (d > bestDistance && Clear(at)) { bestDistance = d; best = at; }
+            if (d > bestClearDist && Clear(at)) { bestClearDist = d; bestClear = at; }
+            if (d > bestAnyDist) { bestAnyDist = d; bestAny = at; }
             foreach (var step in steps)
             {
                 var next = (at.X + step.X, at.Y + step.Y);
@@ -969,7 +1159,7 @@ public static class AreaPopulation
                 queue.Enqueue(next);
             }
         }
-        return best;
+        return bestClearDist >= 0 ? bestClear : bestAny;
     }
 
     static MonsterRarity RollRarity(int roll)
@@ -996,7 +1186,8 @@ public static class AreaPopulation
         {
             var layout = population.Player.Layout;
             return FindEncounterSites(layout.GridW, layout.GridH, layout.Walkable!, (layout.SpawnX, layout.SpawnY),
-                [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))]);
+                [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))],
+                layout.Level?.FeatureAreas);
         });
         return PickEncounterSpot(sites, taken, rng, 20);
     }
@@ -1005,17 +1196,29 @@ public static class AreaPopulation
 
     /// <summary>Where a league encounter stands: a cell as deep in the walk map as a pack centre, as far from the
     /// arrival and the area transitions as the packs keep, and <paramref name="spacing"/> from every taken cell (the
-    /// placed monsters, other encounters). With no such cell the taken cells are ignored; null when the area has no
-    /// cell at all.</summary>
+    /// placed monsters, other encounters), and never inside a sub-area an ExtraTerrainFeatures row adds (the Sacred
+    /// Grove beside a map, a Harvest grove's room): that room holds its own mechanic, not another league's content.
+    /// With no such cell the taken cells are ignored; null when the area has no cell at all.</summary>
     public static (int X, int Y)? EncounterSpot(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
-        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<(int X, int Y)> taken, Random rng, int spacing = 20)
+        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<(int X, int Y)> taken, Random rng, int spacing = 20,
+        IReadOnlyList<(int X0, int Y0, int X1, int Y1)>? featureAreas = null)
     {
-        return PickEncounterSpot(FindEncounterSites(w, h, walkable, arrival, transitions), taken, rng, spacing);
+        return PickEncounterSpot(FindEncounterSites(w, h, walkable, arrival, transitions, featureAreas), taken, rng, spacing);
     }
 
     static EncounterSites FindEncounterSites(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
-        IReadOnlyList<(int X, int Y)> transitions)
+        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<(int X0, int Y0, int X1, int Y1)>? featureAreas = null)
     {
+        bool InFeatureArea(int x, int y)
+        {
+            if (featureAreas is null) return false;
+            for (int i = 0; i < featureAreas.Count; i++)
+            {
+                var a = featureAreas[i];
+                if (x >= a.X0 && y >= a.Y0 && x < a.X1 && y < a.Y1) return true;
+            }
+            return false;
+        }
         var cells = new bool[w * h];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -1026,7 +1229,7 @@ public static class AreaPopulation
         {
             for (int y = Math.Max(0, arrival.Y - 40); y < Math.Min(h, arrival.Y + 40); y++)
                 for (int x = Math.Max(0, arrival.X - 40); x < Math.Min(w, arrival.X + 40); x++)
-                    if (depth[y * w + x] >= 2) nearArrival.Add((x, y));
+                    if (depth[y * w + x] >= 2 && !InFeatureArea(x, y)) nearArrival.Add((x, y));
             nearArrival = [.. nearArrival.OrderBy(cell =>
             {
                 long dx = cell.X - (arrival.X + 12), dy = cell.Y - arrival.Y;
@@ -1037,7 +1240,8 @@ public static class AreaPopulation
         for (int y = 0; y < h; y += 3)
             for (int x = 0; x < w; x += 3)
                 if (depth[y * w + x] >= CentreDepth && !Near((x, y), arrival, SpawnClearance)
-                    && !transitions.Any(t => Near((x, y), t, TransitionClearance)))
+                    && !transitions.Any(t => Near((x, y), t, TransitionClearance))
+                    && !InFeatureArea(x, y))
                     candidates.Add((x, y));
         return new(candidates, nearArrival);
     }

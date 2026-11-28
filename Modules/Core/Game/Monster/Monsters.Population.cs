@@ -8,6 +8,46 @@ public static partial class Game
     sealed record PopulationPlan(AreaLayout Layout, HashSet<string> QuestFlags, PackCatalog.AreaPacks Area,
         List<AreaPopulation.Spawn> Spawns, List<string> Notes, Dictionary<int, (int X, int Y)> LaterForms, double Milliseconds);
 
+    /// <summary>The packs of the instance this player plays: the area's own packs (<see cref="PackCatalog.For"/>) with
+    /// this instance's draw from the shared map pool joined to their scattered ones
+    /// (<see cref="AreaPopulation.ForInstance"/>). Everything that picks a monster out of "the area's packs" asks here
+    /// rather than reading <c>Packs.For(...).Scattered</c>, so the scattered monsters, a strongbox's guards and summons,
+    /// an Essence's monster and the like draw from the one set: on a map whose signature list is one single-entry pack
+    /// (Forbidden Woods: Vendigo) they were otherwise all that one variety. A pure function of (area, area hash, seed),
+    /// so no two callers can disagree; kept for the instance, as the pool is walked once per draw.
+    /// Null for an area the pack catalog does not know.</summary>
+    public static PackCatalog.AreaPacks? InstancePacks(Player player)
+    {
+        var layout = player.Layout;
+        if (player.Instance is null) return InstancePacks(layout.Id, layout.Hash, player.Seed);
+        var cached = InstancePackCache.TryGetValue(player.Instance, out var hit) ? hit : null;
+        if (cached is not null && cached.AreaId == layout.Id && cached.Hash == layout.Hash && cached.Seed == player.Seed)
+            return cached.Packs;
+        var packs = InstancePacks(layout.Id, layout.Hash, player.Seed);
+        InstancePackCache.AddOrUpdate(player.Instance, new InstancePackEntry(layout.Id, layout.Hash, player.Seed, packs));
+        return packs;
+    }
+
+    /// <summary>The packs of an instance by its area, hash and seed (<see cref="InstancePacks(Player)"/>, uncached).</summary>
+    public static PackCatalog.AreaPacks? InstancePacks(string areaId, ushort areaHash, uint areaSeed) =>
+        Packs.For(areaId) is not { } area ? null
+            : AreaPopulation.ForInstance(area, AreaPopulation.PopulationSeed(areaHash, areaSeed), PoolSpawnable);
+
+    sealed record InstancePackEntry(string AreaId, ushort Hash, uint Seed, PackCatalog.AreaPacks? Packs);
+
+    static readonly ConditionalWeakTable<InstanceState, InstancePackEntry> InstancePackCache = new();
+
+    internal static void ClearInstancePackCache()
+    {
+        InstancePackCache.Clear();
+        PopulationsAhead.Clear();
+    }
+
+    /// <summary>Whether a pool pack has one variety this server can write. The draw asks no more than that, so every
+    /// caller of <see cref="InstancePacks(Player)"/> draws the same packs; a pack's members are filtered again where
+    /// they are placed.</summary>
+    static bool PoolSpawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true };
+
     // Plans begun when the area's 0x1d went out (PlanPopulationAhead), one per connection until its 0x7d takes it. A
     // reloaded module starts with none, and its 0x7d plans there.
     static readonly ConditionalWeakTable<Player, Task<PopulationPlan?>> PopulationsAhead = new();
@@ -20,8 +60,8 @@ public static partial class Game
             || CaptureTour.Active(CharacterName(player)) || Monsters.Error is not null) return;
         var layout = ArrivalLayout(player).Layout;
         if (layout.Walkable is null || layout.Id == Sirus.Area
-            || Packs.For(layout.Id) is not { } area || (area.Scattered.Count == 0 && area.Bosses.Count == 0)) return;
-        if (layout.Id == "AzmeriLeagueBoss") area = area with { Scattered = [] };
+            || Packs.For(layout.Id) is not { } area || (area.Scattered.Count == 0 && area.Pool.Count == 0 && area.Bosses.Count == 0)) return;
+        if (layout.Id == "AzmeriLeagueBoss") area = area with { Scattered = [], Pool = [] };
         PopulationsAhead.AddOrUpdate(player, Task.Run(() =>
         {
             try { return PlanPopulation(player, layout, area); }
@@ -65,6 +105,9 @@ public static partial class Game
         // The Ashen Fields' boss depends on the character's Act 2 bandit choice (MapBossOverride).
         area = MapBossOverride.Apply(area, Quests.Names(PlayerQuestFlags(player)), row => Monsters.Find(row.ToString())?.Id);
         var notes = new List<string>();
+        // This instance's draw from the shared map pool, before anything reads the area's packs (a no-op where the
+        // area has no pool, or where the override above emptied it).
+        area = AreaPopulation.ForInstance(area, AreaPopulation.PopulationSeed(layout.Hash, player.Seed), PoolSpawnable, notes);
         var placedRooms = new List<AreaPopulation.PlacedRoom>();
         var (points, objects, capturedRooms) = AreaPopulation.FitRooms(layout.Id, player.Seed, notes, "data", placedRooms: placedRooms);
         // A boss whose room or tile has a spawner object for it (The Quay's Tolman, The Marketplace's Marceus) stands at the spawner.
@@ -79,11 +122,10 @@ public static partial class Game
         if (layout.Waypoint is { } wp) safePoints.Add((wp.GridX, wp.GridY));
         var earlyMapMods = MapModsOf(player);
         bool isMapArea = MapDevices.IsMapArea(layout.Hash);
-        int greedChancePct = earlyMapMods?.Get(Stat.MapShrinesChanceToBeGreedShrinePct) ?? 0;
         bool magicShrineGuards = earlyMapMods?.Get(Stat.MapShrinesHaveGuaranteedMagicPack) > 0;
         int extraShrinePackChance = earlyMapMods?.Get(Stat.MapShrinesAdditionalPackChancePct) ?? 0;
         var shrineGuards = ServerLevels.For(layout.Id, player.Seed) is { } shrineLevel
-            ? ShrinePlacement.Plan(shrineLevel.RoomObjects, walkable, player.Seed, greedChancePct: greedChancePct)
+            ? MapShrines.Plan(shrineLevel.RoomObjects, walkable, player.Seed, earlyMapMods)
                 .Where(p => !ShrineGuards.TooNearEntrance((p.X, p.Y), (layout.SpawnX, layout.SpawnY),
                     safePoints, AreaPopulation.TransitionClearance))
                 .SelectMany(p =>
@@ -164,24 +206,43 @@ public static partial class Game
         var scale = mapMods?.Packs ?? default;
         Func<int, int, bool>? scatterable = trapClear.Count == 0 && featureAreas.Count == 0 ? null
             : (x, y) => !trapClear.Contains((x, y)) && !InFeatureArea(x, y);
+        var localTransitions = layout.AreaTransitions
+            .Where(t => t.Transition.DestinationHash16 == layout.Hash
+                && t.Transition.TeleportTo is { } target
+                && t.Transition.Feature is null
+                && !InFeatureArea(target.X, target.Y))
+            .Select(t => (From: layout.Near((t.Transition.GridX, t.Transition.GridY)),
+                To: layout.Near(t.Transition.TeleportTo!.Value)))
+            .Where(t => !InFeatureArea(t.To.X, t.To.Y))
+            .ToList();
+        bool isSingleRoomRecipeArena = MapDevices.IsRecipeArea(layout.Hash)
+            && !MultiRoomRecipeAreas.Contains(layout.Id)
+            && localTransitions.Count == 0;
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             safePoints, points,
             AreaPopulation.PopulationSeed(layout.Hash, player.Seed), Spawnable, notes, scale,
-            unassignedAtArrival: MapDevices.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
+            unassignedAtArrival: isSingleRoomRecipeArena, roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
             scatterable: scatterable,
-            localTransitions: [.. layout.AreaTransitions.Where(t => t.Transition.DestinationHash16 == layout.Hash
-                    && t.Transition.TeleportTo.HasValue)
-                .Select(t => (layout.Near((t.Transition.GridX, t.Transition.GridY)), layout.Near(t.Transition.TeleportTo!.Value)))],
-            additionalPacks: MapScarabPacks.Requests(mapMods),
+            localTransitions: localTransitions,
+            additionalPacks: [.. MapScarabPacks.Requests(mapMods), .. MapInfluence.Requests(mapMods), .. MapStatMonsters.Requests(mapMods)],
             ordinaryPacks: mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0,
             grounds: layout.Level?.Grounds);
+        if (isMapArea) spawns = MapAllflame.ReplacePacks(spawns, mapMods, player.Seed,
+            (x, y) => x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH && layout.WalkableFor(x, y, 0), notes);
+        // "Area is inhabited by …" and "Area contains …" map stats (MapInhabitants, AdditionalMonstersFromMapStats).
+        if (isMapArea) spawns = MapStatMonsters.Apply(spawns, mapMods, player.Seed, (layout.SpawnX, layout.SpawnY),
+            (x, y) => x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH && layout.WalkableFor(x, y, 0), notes);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
         spawns = WithTwinBosses(spawns, mapMods).ToList();
+        if (isMapArea)
+            spawns = MapScarabBosses.ReplacePacks(spawns, mapMods, player.Seed,
+                (x, y, clearance) => layout.WalkableFor(x, y, clearance), notes);
+        spawns.AddRange(MapInfluence.Accompany(player, layout, spawns));
         if (mapMods?.Get(Stat.MapShrinesHaveStandaloneMapBoss) > 0 && ServerLevels.For(layout.Id, player.Seed) is { } shrineRooms)
             spawns.AddRange(MapScarabBosses.Guards(player,
-                [.. ShrinePlacement.Plan(shrineRooms.RoomObjects, walkable, player.Seed).Select(p => (p.X, p.Y))], spawns, layout));
+                [.. MapShrines.Plan(shrineRooms.RoomObjects, walkable, player.Seed, mapMods).Select(p => (p.X, p.Y))], spawns, layout));
         spawns.AddRange(nests);
         var directPlaced = new HashSet<(int Variety, int X, int Y)>();
         foreach (var chest in QuestsOf(player).Chests(layout.Id).Where(r => r.Guards is not null))
@@ -256,4 +317,12 @@ public static partial class Game
     static bool IsAllowedCampaignPreplacedMonster(string id, bool banditCampHeld) =>
         AllowedCampaignRoomGuards.Contains(id)
         || (!banditCampHeld && AllowedBanditCampGuards.Contains(id));
+
+    // Multi-room recipe dungeons without same-area TeleportTo transitions: keep unassigned bosses deep, never at arrival.
+    static readonly HashSet<string> MultiRoomRecipeAreas = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Incursion_Temple1",
+        "MapAtziri1",
+        "MapAtziri2",
+    };
 }
