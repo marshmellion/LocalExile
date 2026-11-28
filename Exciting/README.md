@@ -42,25 +42,26 @@ The rest of this page is the same thing by hand, and what to do when something g
 
 | | Why | How to check |
 |---|---|---|
-| Windows 10 or 11, about 130 GB free | the client is copied once | |
+| Windows 10 or 11, about 60 GB free | the client is about 45 GB | |
 | [Git](https://git-scm.com/download/win) | gets this build and its updates | `git --version` |
 | [.NET 10 SDK](https://dotnet.microsoft.com/download) | builds and runs the servers | `dotnet --list-sdks` shows `10.x` |
 | [Node.js](https://nodejs.org) (LTS) | unpacks the game's files | `node --version` |
-| Path of Exile **3.29.3d** (Steam layout) | the game you play | `PathOfExileSteam.exe` and a `Bundles2` folder |
+| Path of Exile in your Steam library (free) | `get-client.cmd` downloads version 3.29.3d from it | |
 | [Python 3](https://www.python.org/downloads/windows/) (optional, tick "Add python.exe to PATH") and Pillow (`py -m pip install pillow`) | makes Body Auras' effects and the new orbs' art from your client | `py --version` |
 
 Install the three programs with their installers (defaults are fine), then open a new PowerShell window.
 
 ### Getting the 3.29.3d client
 
-LocalExile runs only the client versions it knows (3.29.3c and 3.29.3d); NativeMods needs **3.29.3d**. If your Steam
-install is already 3.29.3d, use it. Otherwise download that exact version with
-[DepotDownloader](https://github.com/SteamRE/DepotDownloader/releases) (you sign in with your own Steam account, which
-must own the game):
+LocalExile runs only the client versions it knows (3.29.3c and 3.29.3d); your normal Steam install is newer.
+**`Exciting\get-client.cmd`** (after step 1 of Install below; the guided install runs it for you) gets the right one:
 
-1. Download DepotDownloader and unzip it anywhere.
-2. Run `Exciting\get-client.cmd` (after step 1 of Install below), give it the path of `DepotDownloader.exe` and an empty
-   folder. It downloads about 40-50 GB and checks that the result is exactly 3.29.3d.
+1. If Path of Exile is not in your Steam library yet, click **Play Game** on its
+   [Steam page](https://store.steampowered.com/app/238960/Path_of_Exile/) (it is free).
+2. Double-click `Exciting\get-client.cmd` and press Enter to download into the install's `Client\` folder. It fetches
+   [DepotDownloader](https://github.com/SteamRE/DepotDownloader) by itself, asks your Steam account name, and
+   DepotDownloader asks your password and Steam Guard code (they go to Steam only).
+3. Wait for about 45 GB. It checks that the result is exactly 3.29.3d. If it stops, run it again: it carries on.
 
 ## Install
 
