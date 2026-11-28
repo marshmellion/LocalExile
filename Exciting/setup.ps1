@@ -20,6 +20,10 @@ function Ok([string]$text) { Write-Host "   $text" -ForegroundColor Green }
 function Note([string]$text) { Write-Host "   $text" }
 function Fail([string]$text) { Write-Host ''; Write-Host $text -ForegroundColor Red; exit 1 }
 function Has([string]$command) { return [bool](Get-Command $command -ErrorAction SilentlyContinue) }
+# Windows PowerShell 5.1 turns a program's error output into a script-stopping error when it is redirected and
+# $ErrorActionPreference is Stop: these run a program with its error output dropped (Quiet) or kept as text (WithErrors).
+function Quiet([scriptblock]$Command) { $ErrorActionPreference = 'Continue'; & $Command 2>$null }
+function WithErrors([scriptblock]$Command) { $ErrorActionPreference = 'Continue'; & $Command 2>&1 | ForEach-Object { "$_" } }
 
 # The 3.29.3d client NativeMods is made for (PathOfExileSteam.exe and PathOfExile.exe are the same file).
 $build3293d = 'E9BA3D31C4D922E1826EF01D02FD22178A001B29E17264B68FC2446EFD41F53D'
@@ -32,7 +36,7 @@ Ok 'closed'
 Step 'Checking the programs you need'
 if (-not (Has 'git')) { Fail 'Git is missing: install it from https://git-scm.com/download/win, then run this again.' }
 if (-not (Has 'dotnet')) { Fail '.NET is missing: install the .NET 10 SDK from https://dotnet.microsoft.com/download, then run this again.' }
-$sdks = @(& dotnet --list-sdks 2>$null | Where-Object { $_ -match '^10\.' })
+$sdks = @(Quiet { dotnet --list-sdks } | Where-Object { $_ -match '^10\.' })
 if ($sdks.Count -eq 0) { Fail 'The .NET 10 SDK is missing (dotnet --list-sdks shows no 10.x): install it from https://dotnet.microsoft.com/download.' }
 if (-not (Has 'node')) { Fail 'Node.js is missing: install it from https://nodejs.org (the LTS version), then run this again.' }
 Ok "git, .NET $(($sdks[-1] -split ' ')[0]), Node $(& node --version)"
@@ -54,7 +58,7 @@ if ($Update) {
         if (-not $remote) { $remote = 'origin' }
         & git fetch $remote $Branch
         if ($LASTEXITCODE -ne 0) { Fail "Getting the branch $Branch failed: read what git printed above." }
-        & git switch $Branch 2>$null
+        Quiet { git switch $Branch }
         if ($LASTEXITCODE -ne 0) { & git switch -c $Branch --track "$remote/$Branch" }
         if ($LASTEXITCODE -ne 0) { Fail "Switching to $Branch failed: read what git printed above. Your checkout is unchanged." }
         Ok "now on $(if ($Branch -eq 'exciting') { 'the released build' } else { 'the testing build' }) ($Branch)"
@@ -108,9 +112,7 @@ $patch = -not (Test-Path 'Client\Game.patched.exe')
 if (-not $patch) { $patch = (Get-Item 'Client\Game.exe').LastWriteTimeUtc -gt (Get-Item 'Client\Game.patched.exe').LastWriteTimeUtc }
 # A patched copy made with other keys (a client copied from another install, or keys made again) cannot log in: check it.
 if (-not $patch) {
-    $ErrorActionPreference = 'Continue'   # its complaint on stderr is expected here, not a failure of setup
-    & dotnet run --project src\GameServer.Auth -c Release -- verify-patch Client\Game.patched.exe data\login-keys.json 2>&1 | Out-Null
-    $ErrorActionPreference = 'Stop'
+    Quiet { dotnet run --project src\GameServer.Auth -c Release -- verify-patch Client\Game.patched.exe data\login-keys.json } | Out-Null   # its complaint is expected here
     if ($LASTEXITCODE -ne 0) { Note 'Client\Game.patched.exe was made with other login keys (from another install?): making it again with yours'; $patch = $true }
 }
 if ($patch) {

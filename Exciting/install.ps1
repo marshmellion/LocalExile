@@ -17,17 +17,21 @@ function Wait([string]$text = 'Press Enter when you have done that') { Write-Hos
 function Ask([string]$question) { $a = Read-Host "  >> $question (y/n)"; return $a -match '^\s*y' }
 function Open([string]$url) { Say "Opening $url"; Start-Process $url }
 function Has([string]$command) { return [bool](Get-Command $command -ErrorAction SilentlyContinue) }
+# Windows PowerShell 5.1 turns a program's error output into a script-stopping error when it is redirected and
+# $ErrorActionPreference is Stop: these run a program with its error output dropped (Quiet) or kept as text (WithErrors).
+function Quiet([scriptblock]$Command) { $ErrorActionPreference = 'Continue'; & $Command 2>$null }
+function WithErrors([scriptblock]$Command) { $ErrorActionPreference = 'Continue'; & $Command 2>&1 | ForEach-Object { "$_" } }
 # A program installed while this window is open is not on its PATH yet: read PATH again from Windows.
 function RefreshPath {
     $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     $user = [Environment]::GetEnvironmentVariable('Path', 'User')
     $env:Path = "$machine;$user"
 }
-function HasDotnet10 { return (Has 'dotnet') -and @(& dotnet --list-sdks 2>$null | Where-Object { $_ -match '^10\.' }).Count -gt 0 }
+function HasDotnet10 { return (Has 'dotnet') -and @(Quiet { dotnet --list-sdks } | Where-Object { $_ -match '^10\.' }).Count -gt 0 }
 function FindPython {
     foreach ($try in @(@('py', '-3'), @('python'))) {
         if (-not (Has $try[0])) { continue }
-        $v = & $try[0] @($try | Select-Object -Skip 1) --version 2>&1
+        $v = WithErrors { & $try[0] @($try | Select-Object -Skip 1) --version }
         if ("$v" -match '^Python 3\.(\d+)' -and [int]$Matches[1] -ge 9) { return ,$try }
     }
     return $null
@@ -142,7 +146,7 @@ if ($start -le 1) { $hasPython = Need 'Python 3 (optional, for Body Auras and th
 if ($hasPython) {
     $python = FindPython
     $py = $python[0]; $pyArgs = @($python | Select-Object -Skip 1)
-    & $py @pyArgs -c 'import PIL' 2>$null
+    Quiet { & $py @pyArgs -c 'import PIL' }
     if ($LASTEXITCODE -ne 0) {
         Say 'The new orbs'' pictures also need Pillow, a small Python add-on.'
         if (Ask 'Install Pillow now (py -m pip install pillow)?') { & $py @pyArgs -m pip install --user pillow }
@@ -163,7 +167,7 @@ if ($start -le 2) {
     if (Test-Path (Join-Path $Folder 'Exciting\setup.ps1')) {
         Good "already downloaded in $Folder"
         Push-Location $Folder
-        $current = (& git rev-parse --abbrev-ref HEAD 2>$null)
+        $current = (Quiet { git rev-parse --abbrev-ref HEAD })
         if ($current -notin 'exciting', 'exciting-testing') { Warn "That folder is on the branch '$current': update.cmd follows '$current'." }
         Pop-Location
     }
@@ -177,7 +181,7 @@ if ($start -le 2) {
             if (@(& git status --porcelain --untracked-files=no).Count -gt 0) { Warn 'It has changed files (git status lists them): put them back first, then run this again.'; Wait 'Press Enter to close'; exit 1 }
             if (-not (& git remote | Where-Object { $_ -eq 'exciting' })) { & git remote add exciting $repoUrl }
             & git fetch exciting $branch
-            if ($LASTEXITCODE -eq 0) { & git switch -c $branch --track "exciting/$branch" 2>$null; if ($LASTEXITCODE -ne 0) { & git switch $branch } }
+            if ($LASTEXITCODE -eq 0) { Quiet { git switch -c $branch --track "exciting/$branch" }; if ($LASTEXITCODE -ne 0) { & git switch $branch } }
             if ($LASTEXITCODE -ne 0) { Warn 'Switching failed: read what git printed above.'; Wait 'Press Enter to close'; exit 1 }
         }
         finally { Pop-Location }
