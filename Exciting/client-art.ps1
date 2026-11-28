@@ -8,6 +8,10 @@ $repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $repo
 function Note([string]$text) { Write-Host "   $text" }
 function Ok([string]$text) { Write-Host "   $text" -ForegroundColor Green }
+# Windows PowerShell 5.1 turns a program's error output into a script-stopping error when it is redirected and
+# $ErrorActionPreference is Stop: these run a program with its error output dropped (Quiet) or kept as text (WithErrors).
+function Quiet([scriptblock]$Command) { $ErrorActionPreference = 'Continue'; & $Command 2>$null }
+function WithErrors([scriptblock]$Command) { $ErrorActionPreference = 'Continue'; & $Command 2>&1 | ForEach-Object { "$_" } }
 
 $orbs = 'Mods\Binaries\excitingitems\tools\make_orb_art.py'
 $auras = 'Mods\Binaries\bodyauras\tools\make_auras.py'
@@ -18,7 +22,7 @@ if ($IfMissing -and ((-not (Test-Path $auras)) -or $aurasDone -or -not (Test-Pat
 $python = $null
 foreach ($try in @(@('py', '-3'), @('python'))) {
     if (-not (Get-Command $try[0] -ErrorAction SilentlyContinue)) { continue }
-    $v = & $try[0] @($try | Select-Object -Skip 1) --version 2>&1
+    $v = WithErrors { & $try[0] @($try | Select-Object -Skip 1) --version }
     if ("$v" -match '^Python 3\.(\d+)' -and [int]$Matches[1] -ge 9) { $python = $try; break }
 }
 
@@ -32,7 +36,7 @@ if (-not $python) {
 $py = $python[0]; $pyArgs = @($python | Select-Object -Skip 1)
 
 if (-not $IfMissing -and (Test-Path $orbs)) {
-    & $py @pyArgs -c 'import PIL' 2>$null
+    Quiet { & $py @pyArgs -c 'import PIL' }
     if ($LASTEXITCODE -ne 0) { Note 'the orbs keep simple art: Python''s Pillow is missing (get it with: py -m pip install pillow, then run setup.cmd again)' }
     else {
         & $py @pyArgs $orbs --client .
