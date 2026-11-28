@@ -173,7 +173,7 @@ The branch `exciting` of https://github.com/marshmellion/LocalExile is LocalExil
 | `jewel-allocates` | jewels that "Allocate" a passive grant it while socketed |
 | `piety-crash-fix` | fixes for two client crashes (Tempest Shield, Piety's retreat) |
 | `le-trade-patch` | what the LE.trade bridge needs (abyssal sockets in item specs, the trade panel) |
-| `phase-through-minions` | you walk through your own minions (a moment of phasing while one is in your way); they still block monsters (system setting `phase_through_own_minions`) |
+| (picked from LocalExile main) | you walk through your own minions and totems, as in the game; monsters still bump into them (the minion bit of the client's team field) |
 | `exciting-kit` | this folder: the setup scripts, the mods, NativeMods (the in-game buttons) and these docs |
 
 Licenses: LocalExile is GNU GPL v2; NativeMods is GNU GPL v2 (`Exciting\nativemods\SOURCE.md` says where its source
