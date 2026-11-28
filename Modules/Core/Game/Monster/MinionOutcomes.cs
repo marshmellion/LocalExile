@@ -14,7 +14,7 @@ public static partial class Game
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(Player player, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
         double now, string by, StunHit? stun = null, SpawnedMonster? source = null, IReadOnlyDictionary<uint, int>? skill = null,
-        GolemState.Golem? fighter = null, bool damageOverTime = false)
+        GolemState.Golem? fighter = null, bool damageOverTime = false, bool secondary = false)
     {
         OwnedKillLocked(monster, hit.Life);
         if (monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
@@ -33,6 +33,9 @@ public static partial class Game
         CommitAcceptedHitLocked(player, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
         if (!damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
             ReleaseIntuitiveLinkLocked(player, fighter, monster.Walk.Position(now), now);
+        if (hit.Life == 0 && !damageOverTime && !secondary && monster.Hostile && fighter is { Definition.Kind: "Zombie" }
+            && ReferenceEquals(source, fighter.Monster))
+            ResolveZombieKillExplosionLocked(player, id, monster, fighter, now);
         if (hit.Life == 0 && source is not null) ResolveCursedMinionKillLocked(player, id, monster, source, skill, now);
         if (hit.Life == 0 && !damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster)
             && skill is not null)
@@ -89,10 +92,12 @@ public static partial class Game
 
     public static void CommitAcceptedKillLocked(Player player, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
+        if (monster.ShockedAtDeath is null) CaptureLootAilmentsAtDeath(monster, now);
         SpreadPestilentStrike(player, victimId, monster, now);
         RememberCursedCorpse(player, victimId, monster);
         QueueInfernalBlowDeath(monster, now);
         QueueInfernalCryDeath(victimId, monster, now);
+        QueueVoltaxicBurstDeath(victimId, monster, now);
         TransferMarksOnDeathLocked(player, monster, now);
         HitSummonsOnDeathLocked(player, victimId, monster, now);
         QueueEssenceDeathSpawnLocked(player, victimId, monster);
@@ -100,6 +105,7 @@ public static partial class Game
         QueueVaalSoulPresentationLocked(player, "Vaal souls after minion kill");
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(player) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
+        if (!playerKill && GravebindCreditsKill(player, at, now)) playerKill = true;
         var partyShares = PartyExperienceShares(player, at);
         ShareKill(player, victimId, monster, variety, at, partyShares);
         SoulEaterSoul(player, victimId, at);
@@ -115,7 +121,7 @@ public static partial class Game
             SpiritChargeOnKill(player, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
-                Frozen: monster.Ailments.FrozenAtDeath(now));
+                Frozen: monster.Ailments.FrozenAtDeath(now), Poisons: monster.Poisons.StacksAtDeath(now));
             if (chargeBatch is not null) chargeBatch.Add(charge);
             else CommitAcceptedChargeBatchLocked(player, [charge], CharacterPlayerStats(player));
             if (OnslaughtOnKill(player, now, monster.TauntedAtDeath))
@@ -123,8 +129,12 @@ public static partial class Game
             if (RecoverOnKill(player, monster, tincture: null) is int deathEpoch)
                 ProjectilesFor(player).EnqueueLater(() => PlayerDiedAtEpoch(player, "death from life lost on kill", deathEpoch));
             var explosionEquipment = CaptureKillEquipment(player, monster, at, now);
+            SporeguardOnKillLocked(player, at, now);
             ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, explosionEquipment));
         }
+        else if (IsTotemKill(monster)
+            && PlayerStatValues(player).GetValueOrDefault(Stat.ExplodeEnemiesFor500PctLifeAsFireOnKillPctChance) > 0)
+            ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, totemOnly: true));
         var packets = new List<(byte[] Packet, string? Log)>();
         bool firstBossKill = HasUnsetKillQuestFlag(player, variety.Id);
         if (CommitQuestFlags(player, QuestFlagsOnKill(player, variety.Id)) is { } quest)
@@ -171,8 +181,11 @@ public static partial class Game
                 state.OutputQueue.Add(new([], "0x0033 current passive skill tree (accepted level)", Kind: PlayerMinions.OutputKind.Passives));
             }
         }
-        if (!MonsterGivesNoRewards(monster))
-            state.FlaskRewards.Add(new(monster.Rarity));
+        if (MonsterGrantsKillFlaskCharges(monster))
+            state.FlaskRewards.Add(new(monster.Rarity)
+            {
+                KillChargesPct = BleedingKillFlaskChargesPct(player, monster.BleedSourcesAtDeath?.Contains(player.Id) == true),
+            });
         var rng = AreaRng(player);
         var stacked = RollKillLoot(player, monster, at, rng, firstBossKill);
         if (stacked.Count == 0) return;
@@ -285,7 +298,7 @@ public static partial class Game
                 {
                     var items = ItemsOf(player); byte row = output.InventoryRow!.Value;
                     return InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), output.ItemIds!,
-                        [.. items.Items(row).Where(item => output.ItemIds!.Contains(item.Id))]);
+                        [.. items.Items(row).Where(item => output.ItemIds!.Contains(item.Id)).Select(item => EnergyBladeItem(player, row, item))]);
                 }
                 if (output.Kind == PlayerMinions.OutputKind.Charges) return AcceptedChargePresentationLocked(player, player.Connection.Remote);
                 if (output.Kind == PlayerMinions.OutputKind.RighteousFireRing)
@@ -371,9 +384,9 @@ public static partial class Game
                         || ItemsFor(player).FlaskChargesOf(type) is not { } basis) continue;
                     var local = ItemModStats.Local(flask.Item, ItemsFor(player).Mods); var charges = FlaskCharges.Of(basis, local);
                     if (flask.Item.Charges >= charges.MaxCharges) continue;
-                    double gain = reward.CritGains is { } gains ? gains.GetValueOrDefault(flask.Id) : FlaskCharges.FullShortcut ? int.MaxValue : FlaskCharges.KillCharges(reward.Rarity, ItemsFor(player).Mods);
+                    double gain = reward.CritGains is { } gains ? gains.GetValueOrDefault(flask.Id) : FlaskCharges.FullShortcut ? int.MaxValue : FlaskCharges.KillCharges(reward.Rarity, ItemsFor(player).Mods, reward.KillChargesPct);
                     int whole = player.FlaskChargeCarry.Take(flask.Id,
-                        gain * FlaskCharges.GainMultiplier(local, Get, areaIncrease));
+                        gain * FlaskGainMultiplier(player, flask.Id, local, Get, areaIncrease));
                     if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, item => Flasks.Gain(item, charges, whole)) is { } done) changed.Add(done);
                 }
                 return ([.. changed.Select(i => i.Id)], changed);

@@ -1,6 +1,9 @@
 
 public static partial class Game
 {
+    static int LowestStrengthOrIntelligenceCriticalIncrease(CharacterStats.Pools pools, int enabled) =>
+        enabled != 0 ? Math.Min(pools.Strength, pools.Intelligence) : 0;
+
     static void LoseLifeOnCriticalStrikeLocked(Player player, int percent, double now)
     {
         if (percent <= 0 || player.PlayerLife == 0) return;
@@ -29,16 +32,21 @@ public static partial class Game
             || Flag(Stat.KeystoneElementalOverload) || Flag(Stat.KeystoneAilmentCrit);
     }
 
-    public static int CriticalHitMultiplier(long ordinary, bool noExtra) => noExtra ? 100
-        : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
+    public static int CriticalHitMultiplier(long ordinary, bool noExtra) =>
+        CriticalHitMultiplier(ordinary, noExtra, fixedMultiplier: false);
+
+    public static int CriticalHitMultiplier(long ordinary, bool noExtra, bool fixedMultiplier) => noExtra ? 100
+        : fixedMultiplier ? 300 : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
+
+    static bool FixedCriticalHitMultiplier(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? own) =>
+        (player?.GetValueOrDefault(Stat.CriticalStrikeMultiplierIs300) ?? 0) != 0
+        || (own?.GetValueOrDefault(Stat.CriticalStrikeMultiplierIs300) ?? 0) != 0;
 
     public static int CriticalHitMultiplier(long ordinary, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null) =>
         // "Critical Strikes deal no Damage" (Shade of Solaris).
-        player.GetValueOrDefault(Stat.CriticalStrikesDealNoDamage) != 0 ? 0 : CriticalHitMultiplier(
-            // "Your Critical Strike Multiplier is 300%" (Maligaro's Virtuosity): the total, whatever else adds to it.
-            player.GetValueOrDefault(Stat.CriticalStrikeMultiplierIs300) != 0 ? 300 : ordinary,
-            CriticalHitsDealNoExtraDamage(player, own));
+        player.GetValueOrDefault(Stat.CriticalStrikesDealNoDamage) != 0 ? 0 : CriticalHitMultiplier(ordinary,
+            CriticalHitsDealNoExtraDamage(player, own), FixedCriticalHitMultiplier(player, own));
 
     static long ClawDaggerCriticalBonus(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own)

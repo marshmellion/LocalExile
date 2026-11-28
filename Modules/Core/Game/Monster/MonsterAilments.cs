@@ -35,10 +35,12 @@ public static partial class Game
         bool chaos, bool overTime) => MonsterDamageTaken(m, spell, now, elemental, hit, chaos, 0, overTime);
 
     static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental, bool hit,
-        bool chaos, double increasedPct, bool overTime = false) =>
+        bool chaos, double increasedPct, bool overTime = false, int? maimTaken = null, int? mineAuraTaken = null) =>
         m.Effects.DamageTaken(spell, increasedPct + m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental + m.Effects[Stat.ElementalDamageTakenPlusPct] : 0)
             + (overTime ? m.Effects[Stat.DegenEffectPlusPct] : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
+            + GlacialCageTakenPct(m, now) + (mineAuraTaken ?? StormblastDamageTaken(m, now))
+            + (overTime ? maimTaken ?? (MaimDotTaken.TryGetValue(m, out var maim) ? maim.Strongest(now) : 0) : 0)
             + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
@@ -93,21 +95,150 @@ public static partial class Game
     {
         int count = 0;
         for (var type = AilmentType.Ignite; type <= AilmentType.Poison; type++)
-            if (m.SourceMarked(source, InflictedKeys[(int)type], now) && AilmentOn(m, type, now)) count++;
+            if (AilmentInflictedBy(m, source, type, now)) count++;
         return count;
     }
+
+    static bool AilmentInflictedBy(SpawnedMonster monster, uint source, AilmentType type, double now) =>
+        monster.SourceMarked(source, InflictedKeys[(int)type], now) && AilmentOn(monster, type, now);
 
     /// <summary>Records that this player (their hit, or their own totem's, trap's or mine's) inflicted an ailment of
     /// <paramref name="type"/> on a monster lasting until <paramref name="until"/>. A minion's ailments are not its
     /// owner's. Under the Monsters lock.</summary>
-    public static void InflictedLocked(Player player, SpawnedMonster m, AilmentType type, double until) =>
+    const string PoisonedChaosResistance = "poisoned_chaos_resistance";
+
+    public static void InflictedLocked(Player player, SpawnedMonster m, AilmentType type, double until)
+    {
         m.MarkSource(player.Id, InflictedKeys[(int)type], until);
+        if (type == AilmentType.Poison)
+            m.SetSourceValue(player.Id, PoisonedChaosResistance, PlayerStat(player, Stat.EnemiesPoisonedByYouChaosResistancePlusPct));
+    }
+
+    static int PoisonedChaosResistancePct(SpawnedMonster target, double now)
+    {
+        if (!target.HasSourceValues || target.Poisons.Stacks(now) == 0) return 0;
+        int weakestResistance = 0;
+        foreach (var (source, value) in target.SourceValues(PoisonedChaosResistance))
+            if (target.SourceMarked(source, InflictedKeys[(int)AilmentType.Poison], now))
+                weakestResistance = Math.Min(weakestResistance, value);
+        return weakestResistance;
+    }
 
     /// <summary><see cref="InflictedLocked(Player, SpawnedMonster, AilmentType, double)"/> for a chill, freeze or
     /// shock the player's hit or effect put on it (null: none).</summary>
     public static void InflictedLocked(Player player, SpawnedMonster m, MonsterElementalAilments.Effect? effect)
     {
-        if (effect is not null) InflictedLocked(player, m, TypeOf(effect.Kind), effect.Until);
+        if (effect is null) return;
+        InflictedLocked(player, m, TypeOf(effect.Kind), effect.Until);
+        if (effect.Kind == Kind.Chill)
+        {
+            player.RecentEvents.Record(StatConditions.ChilledEnemy, effect.From);
+            RecordGlacialCageChill(player, m, effect.From, effect.Until);
+        }
+    }
+
+    sealed class GlacialCageChill(double from, int perSecond)
+    {
+        double earned, since = from;
+        public int PerSecond = perSecond;
+        public double DirectUntil = from;
+        public readonly Dictionary<ulong, double> Auras = [];
+
+        public double Taken(double now)
+        {
+            double until = DirectUntil;
+            foreach (double end in Auras.Values) until = Math.Max(until, end);
+            return Math.Min(10, earned + Math.Max(0, Math.Min(now, until) - since) * PerSecond);
+        }
+
+        public void Settle(double now)
+        {
+            if (now <= since) return;
+            earned = Taken(now);
+            since = now;
+            List<ulong>? expired = null;
+            foreach (var (aura, until) in Auras)
+                if (until <= now) (expired ??= []).Add(aura);
+            if (expired is not null)
+                foreach (ulong aura in expired) Auras.Remove(aura);
+        }
+    }
+
+    static readonly RuleTable<SpawnedMonster, Dictionary<uint, GlacialCageChill>> GlacialCageChills = new();
+
+    static void RecordGlacialCageChill(Player player, SpawnedMonster monster, double from, double until)
+    {
+        int perSecond = PlayerStat(player, Stat.PermanentDamagePlusPctPerSecondOfChill);
+        if (perSecond <= 0 || until <= from) return;
+        var state = GlacialCageChillFor(monster, player.Id, from, perSecond);
+        state.DirectUntil = Math.Max(state.DirectUntil, until);
+    }
+
+    static GlacialCageChill GlacialCageChillFor(SpawnedMonster monster, uint owner, double now, int perSecond)
+    {
+        var sources = GlacialCageChills.GetOrCreateValue(monster);
+        if (!sources.TryGetValue(owner, out var state)) sources.Add(owner, state = new(now, perSecond));
+        state.Settle(now);
+        state.PerSecond = perSecond;
+        return state;
+    }
+
+    static void RecordGlacialCageAuraChill(SpawnedMonster monster, uint owner, ulong aura, double now, double until,
+        int perSecond)
+    {
+        if (perSecond > 0 && until > now)
+            GlacialCageChillFor(monster, owner, now, perSecond).Auras[aura] = until;
+        else EndGlacialCageAuraChill(monster, owner, aura, now);
+    }
+
+    static void EndGlacialCageAuraChill(SpawnedMonster monster, uint owner, ulong aura, double now)
+    {
+        if (!GlacialCageChills.TryGetValue(monster, out var sources) || !sources.TryGetValue(owner, out var state)
+            || !state.Auras.ContainsKey(aura)) return;
+        state.Settle(now);
+        state.Auras.Remove(aura);
+    }
+
+    static int GlacialCageTakenPct(SpawnedMonster monster, double now)
+    {
+        if (!double.IsFinite(now) || !GlacialCageChills.TryGetValue(monster, out var sources)) return 0;
+        double strongest = 0;
+        foreach (var source in sources.Values) strongest = Math.Max(strongest, source.Taken(now));
+        return (int)Math.Floor(strongest + 1e-9);
+    }
+
+    static void RetimeGlacialCageChills(SpawnedMonster monster, double now, double previousRate, double newRate)
+    {
+        if (!GlacialCageChills.TryGetValue(monster, out var sources)) return;
+        foreach (var state in sources.Values)
+        {
+            state.Settle(now);
+            state.DirectUntil = RecipientEffectTime.RetimedDeadline(state.DirectUntil, now, previousRate, newRate);
+            foreach (ulong aura in state.Auras.Keys.ToArray())
+                state.Auras[aura] = RecipientEffectTime.RetimedDeadline(state.Auras[aura], now, previousRate, newRate);
+        }
+    }
+
+    static void EndGlacialCageChills(SpawnedMonster monster, double now)
+    {
+        if (!GlacialCageChills.TryGetValue(monster, out var sources)) return;
+        foreach (var state in sources.Values)
+        {
+            state.Settle(now);
+            state.DirectUntil = now;
+            state.Auras.Clear();
+        }
+    }
+
+    static void RefreshGlacialCageChills(SpawnedMonster monster, double now)
+    {
+        if (!GlacialCageChills.TryGetValue(monster, out var sources)) return;
+        foreach (var (source, state) in sources)
+            if (state.DirectUntil > now)
+            {
+                state.Settle(now);
+                state.DirectUntil = monster.Ailments.AppliedUntil(Kind.Chill, source, now);
+            }
     }
 
     /// <summary>A proliferated ailment is its inflicters' too: the source monster's marks of the type pass to the
@@ -174,8 +305,12 @@ public static partial class Game
             && RandomRolls.Chance(playerStats(Stat.ChillAttackersFor4SecondsOnBlockPctChance), 100, random))
             InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Chill, 4, now, playerStats, Target, area));
         if (!Ruled(Stat.ShockAttackersFor4SecondsOnBlockPctChance)
-            && RandomRolls.Chance(playerStats(Stat.ShockAttackersFor4SecondsOnBlockPctChance), 100, random))
-            InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Shock, 4, now, playerStats, Target, area));
+            && RandomRolls.Chance(playerStats(Stat.ShockAttackersFor4SecondsOnBlockPctChance), 100, random)
+            && m.Ailments.WithoutDamage(Kind.Shock, 4, now, playerStats, Target, area) is { } shock)
+        {
+            InflictedLocked(player, m, shock);
+            player.ProjectileRuntime?.GalvanicOnShock(m, now);
+        }
     }
 
     /// <summary>The ailments an ailment without damage can be for the effect rules' "ailment".</summary>
@@ -319,13 +454,16 @@ public static partial class Game
 
     /// <summary>Maim's relative walk factor and the movement_velocity_+% the client should hold. Maim adds -30 into the
     /// monster's existing increased/reduced movement bucket; it never overwrites the speed roll or another modifier.</summary>
-    public static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now)
+    public static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now) => MaimedMovementFactor(m, now, 0);
+
+    static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now, int groundHinder)
     {
         int basePct = m.Effects.MovementPct;
         int maimPct = now < m.MaimedUntil ? -30 : 0;
         // The totem notable's local stat specifies 25%. The common 30% Hinder can expire independently.
         int timedHinder = Math.Max(m.HinderedUntil > now ? 30 : 0, m.TotemHinderedUntil > now ? 25 : 0);
-        int hinderPct = Math.Max(SpiderHinder(m, now), timedHinder);
+        int hinderPct = Math.Max(Math.Max(groundHinder, Math.Max(SpiderHinder(m, now), timedHinder)),
+            Math.Max(WitherHinder(m, now), BlightHinder(m, now).Slow));
         int lowLife = MonsterOnLowLife(m) ? m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] : 0;
         int totalPct = basePct + maimPct - hinderPct + lowLife;
         bool debilitated = now < m.DebilitatedUntil;
@@ -358,21 +496,21 @@ public static partial class Game
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
-        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true, SkillPoisonStats poisonSkill = default,
         string? who = null) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, default(AttackAilmentGains), reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat, who: who);
+            attackerSize, attackerHasReversedStat, poisonSkill, who: who);
 
     public static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
-        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true, SkillPoisonStats poisonSkill = default,
         string? who = null) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat, who: who);
+            attackerSize, attackerHasReversedStat, poisonSkill: poisonSkill, who: who);
 
     static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
@@ -380,10 +518,11 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool? ownHit = null, string? who = null) =>
+        SkillPoisonStats poisonSkill = default, bool? ownHit = null, bool playerAilmentOwned = true, string? who = null) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat, sourceEffect: sourceEffect, ownHit: ownHit, who: who);
+            attackerSize, attackerHasReversedStat, sourceEffect: sourceEffect, ownHit: ownHit, poisonSkill: poisonSkill,
+            playerAilmentOwned: playerAilmentOwned, who: who);
 
     static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
@@ -392,7 +531,9 @@ public static partial class Game
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
         bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null,
-        int weaponWitherChance = 0, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None, string? who = null)
+        SkillPoisonStats poisonSkill = default,
+        int weaponWitherChance = 0, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
+        bool meleeAttack = false, bool closeRangeBowKnockback = false, bool playerAilmentOwned = true, string? who = null)
     {
         bool owned = ownHit ?? playerHit;
         // An effect rule live for the line (blind_chilled_on_hit) blinds by itself.
@@ -425,27 +566,47 @@ public static partial class Game
         if (sourceSkill != 0 && !spell && (ownHit ?? playerHit) && m.Hostile
             && skill?.GetValueOrDefault(Stat.TriggerPrismaticBurstOnHitPctChance) is > 0 and var burstChance)
             TriggerPrismaticBurstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, playerStats, burstChance);
+        if (sourceSkill != 0 && !spell && owned && m is { Hostile: true, EntranceGrace: false, Invulnerable: false }
+            && skill?.GetValueOrDefault(WindburstDistanceStat) is > 0 and var movementMetres)
+            TriggerWindburstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, movementMetres, playerStats);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, owned, random);
         if (ownHit ?? playerHit) ItemMarksOnHitLocked(player, m, now);
         if (playerHit && critical && !EffectRules.LiveFor(player, Stat.GainArcaneSurgeOnCritPctChance))
             ArcaneSurgeOnCritLocked(player, playerStats, now, random);
-        if (critical && (ownHit ?? playerHit) && m.Hostile && !m.Invulnerable && !EffectRules.LiveFor(player, Stat.LosePctOfLifeOnCrit))
-            LoseLifeOnCriticalStrikeLocked(player, Player(Stat.LosePctOfLifeOnCrit), now);
+        if (critical && (ownHit ?? playerHit) && m.Hostile && !m.Invulnerable)
+        {
+            if (Player(Stat.LosePctOfEsOnCrit) is > 0 and var shieldLoss && player.PlayerLife > 0)
+            {
+                double carry = 0;
+                player.EnergyShield.Lose(player.EnergyShield.Maximum * (long)shieldLoss / 100, ref carry);
+            }
+            if (!EffectRules.LiveFor(player, Stat.LosePctOfLifeOnCrit))
+                LoseLifeOnCriticalStrikeLocked(player, Player(Stat.LosePctOfLifeOnCrit), now);
+        }
         bool criticalProjectileKnockback = critical && projectileDamage
             && (playerStats.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) != 0
                 || skill?.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) > 0);
         if (criticalProjectileKnockback && skill?.GetValueOrDefault(Stat.BaseIsProjectile, 1) == 0)
             criticalProjectileKnockback = false;
+        bool ownMeleeHit = !spell && !projectileDamage && (ownHit ?? playerHit)
+            && (meleeAttack || sourceEffect >= 0 && SkillsFor(player).IsMelee(sourceEffect));
+        bool meleeKnockback = ownMeleeHit && (Player(Stat.MeleeKnockback) != 0
+            || (Player(Stat.StrikeSkillsKnockbackOnMeleeHit) != 0 || Skill(Stat.StrikeSkillsKnockbackOnMeleeHit) != 0)
+                && (meleeAttack || sourceEffect >= 0 && SkillsFor(player).IsStrike(sourceEffect)));
+        bool shockedCriticalKnockback = critical
+            && (Player(Stat.CriticalStrikesAlwaysKnockbackShockedEnemies) != 0
+                || Skill(Stat.CriticalStrikesAlwaysKnockbackShockedEnemies) != 0)
+            && m.Ailments.Magnitude(Kind.Shock, now) > 0;
         bool limitCascadeKnockback = cascadeBurst == CascadeBurst.Early && m.Rarity == MonsterRarity.Unique;
         bool knockedBack = cascadeBurst != CascadeBurst.Final
             && (!limitCascadeKnockback || !CascadeKnockbacks.TryGetValue(m, out var last) || now >= last.ReadyAt)
             && KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
                 attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat,
                 // Kineticism: "Attack Projectiles always inflict Bleeding and Maim, and Knock Back Enemies".
-                guaranteed: criticalProjectileKnockback
+                guaranteed: criticalProjectileKnockback || meleeKnockback || shockedCriticalKnockback || closeRangeBowKnockback
                     || projectileDamage && !spell && playerStats.GetValueOrDefault(Stat.KeystoneBarbedTips) != 0,
-                area: areaHit);
+                area: areaHit, spell: spell);
         if (knockedBack && limitCascadeKnockback)
             CascadeKnockbacks.GetValue(m, static _ => new()).ReadyAt = now + 1;
         // "#% chance to gain a Power Charge if you Knock an Enemy Back with Melee Damage" (Hegemony's Era).
@@ -455,7 +616,9 @@ public static partial class Game
             GainFromAttackAilmentLocked(player, true, ChargeType.Power, Stat.UniqueAddPowerChargeOnMeleeKnockbackPct);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
-        if (playerHit) OnslaughtOnHitLocked(player, now);
+        if (playerHit)
+            OnslaughtOnHitLocked(player, now, critical && (ownHit ?? playerHit)
+                ? playerStats.GetValueOrDefault(Stat.OnslaughtOnCritDurationMs) : 0);
         if (playerHit && m.Hostile && m.Rarity == MonsterRarity.Unique)
             player.RecentEvents.Record(StatConditions.HitUniqueEnemy, now);
         if (playerHit && spell && !EffectRules.LiveFor(player, Stat.GainArcaneSurgeOnHitPctChance))
@@ -492,9 +655,12 @@ public static partial class Game
         long criticalEffect = critical && Player(Stat.KeystoneElementalOverload) == 0
             ? (long)Player(Stat.NonDamagingAilmentEffectPlusPctWithCriticalStrikes)
                 + Skill(Stat.NonDamagingAilmentEffectPlusPctWithCriticalStrikes) : 0;
+        var galvanic = playerHit ? player.ProjectileRuntime?.GalvanicShockBonus() ?? default : default;
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
+            if (name == Stat.ChillMinimumSlowPct)
+                value = Math.Max(value, Player(Stat.ChillMinimumSlowPctFromMastery) + Skill(Stat.ChillMinimumSlowPctFromMastery));
             long effect = name switch
             {
                 Stat.VirtualShockEffectPlusPct => criticalEffect + shockVsCursed + lightningVsChilled,
@@ -504,7 +670,10 @@ public static partial class Game
                 _ => 0,
             };
             if (effect != 0) value = ActorScale.Saturate(value + effect);
-            if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock + extraShockChance);
+            if (name == Stat.ChanceToShockPct)
+                value = ActorScale.Saturate((long)value + frozenShock + extraShockChance + galvanic.Chance);
+            if (name == Stat.VirtualShockDurationPlusPct)
+                value = ActorScale.Saturate((long)value + galvanic.Duration);
             if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;
             return name switch
@@ -539,7 +708,7 @@ public static partial class Game
         var alternate = AlternateAilmentsOnHitLocked(m, taken, inherent, now, Attacker, random);
         foreach (var effect in added)
         {
-            InflictedLocked(player, m, effect);
+            if (playerAilmentOwned) InflictedLocked(player, m, effect);
             if (playerHit && effect.Kind == Kind.Freeze)
             {
                 player.RecentEvents.Record(StatConditions.FrozeEnemy, now);
@@ -549,6 +718,7 @@ public static partial class Game
             else if (effect.Kind == Kind.Shock)
             {
                 player.RecentEvents.Record(StatConditions.ShockedEnemy, now);
+                if (playerHit) player.ProjectileRuntime?.GalvanicOnShock(m, now);
                 if (playerHit && m.Hostile && !m.Dead && m.Life > 0
                     && Player(Stat.CreateHeraldOfThunderStormOnShockingEnemy) != 0)
                     ReservationShockLocked(player, now);
@@ -556,10 +726,18 @@ public static partial class Game
         }
         if (m.Dead || m.Life == 0)
         {
+            if (ownMeleeHit && m.Hostile
+                && RandomRolls.Chance(Player(Stat.ChanceToCreateConsecratedGroundOnMeleeKillPct), 100, AreaRng(player)))
+            {
+                var at = m.Walk.Position(now);
+                player.FlaskGrounds.Add(CreateOwnConsecratedGroundLocked(player, at, 14, now + 4, playerStats));
+                PresentNearby(player);
+            }
             int intimidate = Player(Stat.ChanceToIntimidateNearbyEnemiesOnMeleeKillPct);
             if (intimidate > 0 && (ownHit ?? playerHit) && !spell && !projectileDamage
                 && sourceEffect >= 0 && SkillsFor(player).IsMelee(sourceEffect))
-                FearsomeWarriorOnMeleeKillLocked(player, m, now, intimidate, random);
+                FearsomeWarriorOnMeleeKillLocked(player, m, now, intimidate,
+                    Player(Stat.EnemiesYouIntimidateHaveStunDurationOnSelfPlusPct), random);
             if (playerHit && Player(Stat.ExplodeOnKillPctFireDamageToDeal) > 0
                 && (spell || sourceSkill != 0 && SkillsFor(player).IsAttack(SupportedSkill(player, sourceSkill).Effect)))
                 CaptureEquippedHitExplosionLocked(m, playerStats);
@@ -574,9 +752,11 @@ public static partial class Game
             else ShockOnKillLocked(player, m, playerStats, now);
             return;
         }
+        long chanceToTaunt = (long)Player(Stat.ChanceToTauntOnHitPct) + Skill(Stat.ChanceToTauntOnHitPct);
+        if (projectileDamage)
+            chanceToTaunt += (long)Player(Stat.TauntOnProjectileHitChancePct) + Skill(Stat.TauntOnProjectileHitChancePct);
         if ((ownHit ?? playerHit) && m.Hostile && !m.Invulnerable
-            && RandomRolls.Chance(ActorScale.Saturate((long)Player(Stat.ChanceToTauntOnHitPct)
-                + Skill(Stat.ChanceToTauntOnHitPct)), 100, random))
+            && RandomRolls.Chance(ActorScale.Saturate(chanceToTaunt), 100, random))
             ApplyPlayerTauntLocked(player, m, now, TauntSeconds(Attacker));
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random, stat => EffectRules.LiveFor(player, stat));
         if (blindChilled > 0 && chilledBeforeHit)
@@ -610,25 +790,26 @@ public static partial class Game
             + (!spell && name == Stat.WitheredOnHitFor2SecondsPctChance ? weaponWitherChance : 0));
         uint? witherSource = owned ? player.Id : null;
         WitherOnHitLocked(m, WitherStat, now, AreaRng(player), witherSource, stat => EffectRules.LiveFor(player, stat));
+        if (playerHit) CorruptingFeverOnHitLocked(player, targetId, m, playerStats, now, random);
         int poisonStacksBefore = m.Poisons.Stacks(now);
         double poisonUntilBefore = m.Poisons.Until;
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,
-                out double poisonDps, out double poisonSeconds))
-        {
-            player.Area.ActivePoisonMonsters.Add(targetId);
-            if (m.Poisons.Stacks(now) > poisonStacksBefore || m.Poisons.Until > poisonUntilBefore)
-                ShowPoisonBuff(player, targetId, m, PoisonBuffToShow(player, m, now));
-            if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
-                && Player(Stat.ImmuneToPoison) == 0
-                // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
-                && player.IncomingAilments.PoisonStacks(now) < 100)
+            poisonSkill, out double poisonDps, out double poisonSeconds, playerAilmentOwned))
             {
-                int accepted = m.Poisons.Stacks(now) - poisonStacksBefore;
-                for (int i = 0; i < accepted && player.IncomingAilments.PoisonStacks(now) < 100; i++)
-                    player.IncomingAilments.ApplyPoison(now, poisonDps, poisonSeconds, reflected: true, victim: Player);
+                player.Area.ActivePoisonMonsters.Add(targetId);
+                if (owned) AlchemistGroundOnAilmentLocked(player, m, DamageType.Chaos, now);
+                if (m.Poisons.Stacks(now) > poisonStacksBefore || m.Poisons.Until > poisonUntilBefore)
+                    ShowPoisonBuff(player, targetId, m, PoisonBuffToShow(player, m, now));
+                if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
+                    && Player(Stat.ImmuneToPoison) == 0
+                    // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
+                    && player.IncomingAilments.PoisonStacks(now) < 100)
+                {
+                    int accepted = m.Poisons.Stacks(now) - poisonStacksBefore;
+                    for (int i = 0; i < accepted && player.IncomingAilments.PoisonStacks(now) < 100; i++)
+                        player.IncomingAilments.ApplyPoison(now, poisonDps, poisonSeconds, reflected: true, victim: Player);
+                }
             }
-        }
-        // Fleeing (MonsterFlee): its own draws (AreaRng(player)), so a projectile's reaction draws stay in order.
         int fleeChance = MonsterFlee.Chance(spell, Player, Skill);
         if (owned && m.Bleeds.IgnitedAt(now))
             fleeChance = ActorScale.Saturate((long)fleeChance + Player(Stat.PctChanceToCauseBleedingEnemiesToFleeOnHit));
@@ -639,10 +820,17 @@ public static partial class Game
             Console.WriteLine($"[gateway] monster 0x{targetId:x} ({m.Label}) flees from a {(spell ? "spell" : "hit")} " +
                 $"0x{sourceSkill:x4}: {fleeChance}% chance, {m.Effects[Stat.MonsterChanceToNotFleePct]}% not to, to {m.FleeTo}");
         }
-        if (added.Count + alternate.Count == 0 || player.PlayerLife == 0
-            || !RandomRolls.Chance(m.Effects[Stat.ReflectNonDamagingAilmentsPctChance], 100, random)) return;
-        // Scorch and Brittle stop no action, so they act on the player at once, even inside a sweep.
-        ReflectAlternateAilmentsLocked(player, alternate, now, Player, random);
+        if (added.Count + alternate.Count == 0 || player.PlayerLife == 0) return;
+        if (RandomRolls.Chance(m.Effects[Stat.ReflectNonDamagingAilmentsPctChance], 100, random))
+        {
+            // Scorch and Brittle stop no action, so they act on the player at once, even inside a sweep.
+            ReflectAlternateAilmentsLocked(player, alternate, now, Player, random);
+        }
+        else
+        {
+            if (!(ownHit ?? playerHit) || Player(Stat.ShocksReflectedToSelf) == 0) return;
+            added.RemoveAll(static effect => effect.Kind != Kind.Shock);
+        }
         if (added.Count == 0) return;
         if (reflected is not null) reflected.AddRange(added);
         else ReflectAilmentsLocked(player, added, now, playerStats, random);
@@ -674,12 +862,12 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> playerStats, Random random)
     {
         if (player.PlayerLife == 0) return;
-        int Player(uint key) => playerStats.GetValueOrDefault(key);
+        var defences = PlayerElementalDefencesAt(player, now, playerStats.GetValueOrDefault);
         ApplyPlayerAilmentsLocked(player, now, ailments =>
         {
             foreach (var e in added)
                 ailments.Inflict(Enum.Parse<PlayerElementalAilments.Kind>(e.Kind.ToString()), e.Magnitude,
-                    e.Until - e.From, now, Player, random);
+                    e.Until - e.From, now, defences, random);
         });
     }
 
@@ -733,9 +921,11 @@ public static partial class Game
         double trap = BearTrapWalkFactor(m, now);
         double snare = EnsnaredWalkFactor(m, now);
         if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
+        int groundHinder = Math.Max(StormbindHinder(player.Area, m, now),
+            Math.Max(VoidSphereHinder(player.Area, m, now), TornadoHinder(player.Area, m, now)));
         bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
         bool lowLifeMove = MonsterOnLowLife(m) && m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] != 0;
-        if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1 && snare == 1
+        if (elementalIdle && groundHinder == 0 && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1 && snare == 1
             && m.Effects[Stat.ActionSpeedMinusPct] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown && !lowLifeMove) return;
         if (!elementalIdle)
         {
@@ -747,7 +937,8 @@ public static partial class Game
             }
         }
         double action = MonsterActionFactor(m, now, freeze: false);
-        var (walk, movementPct) = MonsterWalkModifiers(m, now, action, vines, trap, snare);
+        var (walk, increasedMovementPct) = MonsterWalkModifiers(m, now, action, vines, trap, snare, groundHinder);
+        int movementPct = MonsterClientMovementPct(m.Effects, increasedMovementPct);
         if (walk != a.WalkFactor)
         {
             // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore
@@ -772,7 +963,7 @@ public static partial class Game
             a.SentActionSpeed = speed;
             SetStats(player, id, [(key, speed)]);
         }
-        bool maimed = TimedWalkDebuff(now, m) || SpiderHinder(m, now) != 0
+        bool maimed = groundHinder != 0 || TimedWalkDebuff(now, m) || SpiderHinder(m, now) != 0
             || lowLifeMove || trap != 1 || snare != 1;
         bool maimShown = m.MaimedMovementShown;
         bool movementChanged = maimed
@@ -790,11 +981,11 @@ public static partial class Game
         }
     }
 
-    static (double Factor, int Pct) MonsterWalkModifiers(SpawnedMonster m, double now, double action, double vines, double trap, double snare)
+    static (double Factor, int Pct) MonsterWalkModifiers(SpawnedMonster m, double now, double action, double vines, double trap, double snare, int groundHinder = 0)
     {
         // Maim changes movement only. Bear Trap's movement multiplier also enters the client's movement_velocity stat.
         bool speedFloored = m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0;
-        var movement = MaimedMovementFactor(m, now);
+        var movement = MaimedMovementFactor(m, now, groundHinder);
         double lessMove = trap * snare * (now < m.CoveredInAshUntil ? .8 : 1);
         if (lessMove != 1 && !(speedFloored && lessMove < 1))
             movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));

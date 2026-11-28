@@ -569,7 +569,9 @@ public static class SaveRows
         "has_mods", "name", "gem_variant", "corrupted", "fractured", "mirrored", "gem_flags", "visual", "defence_base_roll",
         "influences", "split", "synthesised", "foreseeing", "foresee_seed", "alternate_quality_type", "vestigial",
         "heist_blueprint", "deepwater_chart", "ritual_encounter",
+        "incursion_temple", "expedition_saga", "brequel_fruit_level", "foulborn", "mercenary_contract", "mercenary_locked",
         "memory_strands", "intangibility", "required_level", "relic_style", "scrying_area_hash", "skill_bar_gem_id", "custom_name",
+        "content_data", "map_key",
     ];
 
     static object?[] ItemValues(SavedItem i) =>
@@ -578,7 +580,9 @@ public static class SaveRows
         i.GemExperience, (long)i.Rarity, i.Identified, i.Mods is not null, JsonOf(i.Name), i.GemVariant, i.Corrupted, i.Fractured,
         i.Mirrored, i.GemFlags, i.Visual, i.DefenceBaseRoll, (long)i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed,
         i.AlternateQualityType, i.Vestigial, JsonOf(i.HeistBlueprint), JsonOf(i.Chart), JsonOf(i.RitualEncounter),
+        JsonOf(i.IncursionTemple), JsonOf(i.ExpeditionSaga), i.BrequelFruitLevel, i.Foulborn, JsonOf(i.MercenaryContract), i.MercenaryLocked,
         i.MemoryStrands, i.Intangibility, i.RequiredLevel, i.RelicStyle, i.ScryingAreaHash, i.SkillBarGemId?.ToString("N"), i.CustomName,
+        JsonOf(i.ContentData), JsonOf(i.MapKey),
     ];
 
     static List<ItemRow> ReadItems(SaveDatabase db, Owner owner, long id, long? inventory)
@@ -640,7 +644,15 @@ public static class SaveRows
                     ScryingAreaHash = (ushort?)v.Long("scrying_area_hash"),
                     Chart = v.Json<ChartData?>("deepwater_chart"),
                     RitualEncounter = v.Json<RitualEncounterData?>("ritual_encounter"),
+                    IncursionTemple = v.Json<IncursionTempleData?>("incursion_temple"),
+                    ExpeditionSaga = v.Json<ExpeditionSagaData?>("expedition_saga"),
+                    BrequelFruitLevel = (uint?)v.Long("brequel_fruit_level"),
+                    Foulborn = v.Bool("foulborn") == true,
+                    MercenaryContract = v.Json<MercenaryContractData?>("mercenary_contract"),
+                    MercenaryLocked = v.Bool("mercenary_locked") == true,
                     CustomName = v.Text("custom_name"),
+                    ContentData = v.Json<Dictionary<string, string>>("content_data"),
+                    MapKey = v.Json<MapKeyData>("map_key"),
                     SkillBarGemId = v.Text("skill_bar_gem_id") is { } gemId
                         && Guid.TryParseExact(gemId, "N", out var parsedGemId) ? parsedGemId : null };
         }

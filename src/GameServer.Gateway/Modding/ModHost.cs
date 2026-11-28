@@ -1,5 +1,9 @@
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+using System.Runtime.Loader;
 using System.Text.Json;
 using GameServer.Modding;
 
@@ -123,7 +127,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         lock (_gate)
         {
             if (!modules) ReadChoices();
-            LoadMissing();
+            LoadMissing(preload: modules && !leagues && Environment.ProcessorCount > 1);
         }
         if (!watch) return;
         _watcher = new FileSystemWatcher(Path.GetFullPath(Folder))
@@ -411,7 +415,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
     }
 
     // Every folder whose mod is not loaded, each after the mods it depends on; what cannot load keeps its reason.
-    void LoadMissing()
+    void LoadMissing(bool preload = false)
     {
         var waiting = new Dictionary<string, (ModManifest Manifest, string Folder)>(StringComparer.Ordinal);
         _off.Clear();
@@ -455,11 +459,22 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         while (progress && waiting.Count > 0)
         {
             progress = false;
-            foreach (var (id, (manifest, dir)) in waiting.ToList())
+            var candidates = waiting.Values.ToArray();
+            Preparation? next = null;
+            for (int i = 0; i < candidates.Length; i++)
             {
+                var (manifest, dir) = candidates[i];
+                var current = next;
+                next = null;
                 if (!manifest.Depends.All(d => Dependency(d) is not null)) continue;
-                waiting.Remove(id);
-                progress |= Load(manifest, dir);
+                if (preload && i + 1 < candidates.Length)
+                {
+                    var following = candidates[i + 1];
+                    if (following.Manifest.Preload && following.Manifest.Depends.All(d => Dependency(d) is not null))
+                        next = PreloadBinary(following.Manifest, following.Folder);
+                }
+                waiting.Remove(manifest.Id);
+                progress |= Load(manifest, dir, pending: current, following: next);
             }
         }
         foreach (var (id, (manifest, _)) in waiting)
@@ -482,11 +497,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         string[] scripts = modules && HasProject(dir) ? [] : ModScripts.Sources(dir);
         if (!File.Exists(path) && scripts.Length == 0) throw new FileNotFoundException($"no {manifest.Assembly} in the {Noun}'s folder (built yet?)");
         List<(byte[], byte[]?)> assemblies = [];
-        if (File.Exists(path))
-        {
-            string pdb = Path.ChangeExtension(path, ".pdb");
-            assemblies.Add((File.ReadAllBytes(path), File.Exists(pdb) ? File.ReadAllBytes(pdb) : null));
-        }
+        if (File.Exists(path)) assemblies.Add(ReadBinary(path));
         if (scripts.Length == 0) return new(assemblies, null);
         var compiled = ModScripts.Compile(manifest.Id, scripts, ScriptReferences(manifest, dir));
         assemblies.Add(compiled);
@@ -510,20 +521,81 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         return new([(File.ReadAllBytes(dll), File.Exists(pdb) ? File.ReadAllBytes(pdb) : null)], null);
     }
 
-    bool Load(ModManifest manifest, string dir, Images? images = null)
+    static (byte[] Dll, byte[]? Pdb) ReadBinary(string path)
+    {
+        string pdb = Path.ChangeExtension(path, ".pdb");
+        return (File.ReadAllBytes(path), File.Exists(pdb) ? File.ReadAllBytes(pdb) : null);
+    }
+
+    sealed record Preloaded(Images Images, List<Assembly> Assemblies, (int Methods, TimeSpan Took)? Compiled);
+
+    ModLoadContext NewContext(ModManifest manifest, string dir) => new(manifest.Id, Path.GetFullPath(dir),
+        [.. manifest.Depends.Select(d => Dependency(d)?.Context).OfType<ModLoadContext>()]);
+
+    Preparation PreloadBinary(ModManifest manifest, string dir)
+    {
+        var context = NewContext(manifest, dir);
+        var copy = Task.Run<(Images Images, string Path)?>(() =>
+        {
+            if (!HasProject(dir) && ModScripts.Sources(dir).Length != 0) return null;
+            string path = Path.Combine(dir, manifest.Assembly);
+            if (!File.Exists(path)) return null;
+            var image = ReadBinary(path);
+            using var stream = new MemoryStream(image.Dll, writable: false);
+            using var pe = new PEReader(stream);
+            // PrepareMethod can execute a module initializer. Leave global methods to the ordered loader.
+            if (pe.GetMetadataReader().GetTypeDefinition(MetadataTokens.TypeDefinitionHandle(1)).GetMethods().Count != 0) return null;
+            return (new Images([image], null), context.CopyImage(image.Dll, image.Pdb));
+        });
+        return new(context, copy);
+    }
+
+    sealed class Preparation(ModLoadContext context, Task<(Images Images, string Path)?> copy)
+    {
+        public ModLoadContext Context => context;
+        Task<Preloaded?>? warmup;
+
+        // Only the host thread starts or joins a preparation. Any failure reaches the normal Load for its owner.
+        public Task<Preloaded?> StartWarmup() => warmup ??= Warm();
+
+        async Task<Preloaded?> Warm()
+        {
+            // Keep assembly binding and resolver callbacks on the host thread, including on a slow file copy.
+            if (copy.GetAwaiter().GetResult() is not { } file) return null;
+            var assembly = context.LoadFromAssemblyPath(file.Path);
+            var binary = new Preloaded(file.Images, [assembly], null);
+            foreach (var reference in assembly.GetReferencedAssemblies())
+            {
+                try
+                {
+                    if (AssemblyLoadContext.GetLoadContext(context.LoadFromAssemblyName(reference)) == context) return binary;
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
+                {
+                    return binary; // Private and optional dependencies use the ordinary warmup at registration.
+                }
+            }
+            var compiled = await Task.Run(() => ModLoadContext.Precompile(binary.Assemblies)).ConfigureAwait(false);
+            return binary with { Compiled = compiled };
+        }
+    }
+
+    bool Load(ModManifest manifest, string dir, Images? images = null, Preparation? pending = null, Preparation? following = null)
     {
         string id = manifest.Id;
-        var context = new ModLoadContext(id, Path.GetFullPath(dir), [.. manifest.Depends.Select(d => Dependency(d)?.Context).OfType<ModLoadContext>()]);
+        var context = pending?.Context ?? NewContext(manifest, dir);
         var mod = new LoadedMod(manifest, Path.GetFullPath(dir), context);
         ImmutableInterlocked.Update(ref _hosts, h => h.Add(this));
         ImmutableInterlocked.Update(ref _running, r => r.SetItem(id, RankFor(manifest)));
         try
         {
-            mod.Images = images ?? ReadImages(manifest, mod.Folder);
+            var preloaded = pending?.StartWarmup().GetAwaiter().GetResult();
+            mod.Images = preloaded?.Images ?? images ?? ReadImages(manifest, mod.Folder);
             mod.ScriptImage = mod.Images.Scripts;
-            List<Assembly> assemblies = [.. mod.Images.Assemblies.Select(a => context.LoadImage(a.Dll, a.Pdb))];
-            var (methods, took) = ModLoadContext.Precompile(assemblies);
+            List<Assembly> assemblies = preloaded?.Assemblies ?? [.. mod.Images.Assemblies.Select(a => context.LoadImage(a.Dll, a.Pdb))];
+            var (methods, took) = preloaded?.Compiled ?? ModLoadContext.Precompile(assemblies);
             log($"{Tag} {id}: {methods} methods compiled in {took.TotalMilliseconds:0} ms");
+            _ = following?.StartWarmup();
             // A mod's entry class may be a module's: a module that became a mod keeps its sources. Not a league's code, which is
             // the leagues' host's.
             var entries = assemblies.SelectMany(a => a.GetExportedTypes())
@@ -684,14 +756,13 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
                 depends.Add(e.ValueKind == JsonValueKind.String ? e.GetString()! : throw new FormatException("\"depends\" is not a list of ids"));
         }
         if (depends.Contains(id)) throw new FormatException("a mod cannot depend on itself");
-        bool enabled = true;
-        if (doc.RootElement.EnumerateObject().FirstOrDefault(p => p.Name.Equals("enabled", StringComparison.OrdinalIgnoreCase)) is
-            { Value.ValueKind: not JsonValueKind.Undefined } on)
-            enabled = on.Value.ValueKind switch
+        bool Flag(string name, bool fallback) => doc.RootElement.EnumerateObject()
+            .FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).Value.ValueKind switch
             {
+                JsonValueKind.Undefined => fallback,
                 JsonValueKind.True => true,
                 JsonValueKind.False => false,
-                _ => throw new FormatException("\"enabled\" is not true or false"),
+                _ => throw new FormatException($"\"{name}\" is not true or false"),
             };
         bool listed = (Text("leagues") ?? "all") switch
         {
@@ -699,7 +770,8 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
             "listed" => true,
             var other => throw new FormatException($"\"leagues\" is \"{other}\", not \"all\" or \"listed\""),
         };
-        return new ModManifest(id, Text("version") ?? "0", kind, depends, Text("assembly") ?? id + ".dll", enabled) { Listed = listed };
+        return new ModManifest(id, Text("version") ?? "0", kind, depends, Text("assembly") ?? id + ".dll", Flag("enabled", true))
+            { Listed = listed, Preload = Flag("preload", false) };
     }
 
     sealed class LoadedMod(ModManifest manifest, string folder, ModLoadContext? context)

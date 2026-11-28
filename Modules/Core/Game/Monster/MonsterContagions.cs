@@ -210,12 +210,13 @@ static partial class Game
     {
         int spread = 0;
         var next = cast with { DamagePerSecond = cast.DamagePerSecond * cast.SpreadMore };
-        foreach (var (_, other) in player.Area.MonstersNear(at, cast.Radius))
+        foreach (var (otherId, other) in player.Area.MonstersNear(at, cast.Radius))
             if (!ReferenceEquals(other, source) && other is { Hostile: true, Dead: false, Invulnerable: false, Life: > 0, OwnerId: null }
                 && Dist(other.Walk.Position(now), at) <= cast.Radius)
             {
                 other.Contagion.Apply(now, next);
                 if (drain is not null) other.EssenceDrain.ApplySpread(now, drain);
+                SpreadBlightLocked(player.Area, source, otherId, other, now);
                 spread++;
             }
         return spread;
@@ -259,7 +260,7 @@ static partial class Game
     internal static async Task TickContagions(Player player)
     {
         if (!MonsterContagion.AnyApplied && !HasPestilentDamage(player.Area) && !HasSoulrendDamage(player.Area)
-            && !HasFleshrendDamage(player.Area)) return;
+            && !HasFleshrendDamage(player.Area) && !HasBlightDamage(player.Area) && !HasScorchingRayDamage(player.Area)) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner, string Effect)>();
         using (ProjectileMutation(player))
         {
@@ -300,6 +301,69 @@ static partial class Game
                     fleshrend.Remove(id);
                 }
 
+            if (BlightMonsters.TryGetValue(player.Area, out var blightArea))
+            {
+                var blighted = blightArea.Monsters;
+                var pending = blightArea.Tick;
+                // An encounter's life floor can spread Contagion while Commit runs.
+                pending.Clear();
+                pending.AddRange(blighted);
+                foreach (var (id, m) in pending)
+                {
+                    if (!BlightDebuffs.TryGetValue(m, out var state) || player.Area.Monsters.GetValueOrDefault(id) != m)
+                    {
+                        blighted.Remove(id);
+                        BlightDebuffs.Remove(m);
+                        continue;
+                    }
+                    if (!m.Dead && m.Life > 0)
+                    {
+                        state.Accrue(m, now);
+                        int damage = (int)Math.Clamp(state.Carry, 0, int.MaxValue);
+                        state.Carry -= damage;
+                        Commit(id, m, damage, DotOwner(player, state.DamagingCaster), "Blight", chaos: true);
+                    }
+                    bool living = !m.Dead && m.Life > 0;
+                    PresentBlight(player.Area, id, state, living);
+                    // Recovery steps less often than damage. Keep the last fraction of Atrophy's Hinder available.
+                    double recoveryCursor = state.Regeneration == 0 ? now : now - MonsterRegeneration.IntervalSeconds;
+                    if (living && (state.Layers.Count != 0 || state.HinderUntil > recoveryCursor)) continue;
+                    blighted.Remove(id);
+                    // A killing application must remain available for Contagion's death callback.
+                    if (living || m.Contagion.Idle) BlightDebuffs.Remove(m);
+                }
+                pending.Clear();
+            }
+
+            if (ScorchingRayAreas.TryGetValue(player.Area, out var rays) && rays.Targets.Count > 0)
+            {
+                var pending = rays.Pending;
+                pending.Clear();
+                pending.AddRange(rays.Targets);
+                foreach (var (id, m) in pending)
+                {
+                    if (!ScorchingRayBurns.TryGetValue(m, out var burn) || player.Area.Monsters.GetValueOrDefault(id) != m)
+                    {
+                        rays.Targets.Remove(id);
+                        ScorchingRayBurns.Remove(m);
+                        continue;
+                    }
+                    if (!m.Dead && m.Life > 0)
+                    {
+                        burn.Accrue(m, now);
+                        int damage = (int)Math.Clamp(burn.Carry, 0, int.MaxValue);
+                        burn.Carry -= damage;
+                        Commit(id, m, damage, DotOwner(player, burn.DamageOwner), "Scorching Ray", chaos: false);
+                    }
+                    bool living = !m.Dead && m.Life > 0;
+                    PresentScorchingRay(player.Area, id, burn, now, living);
+                    if (living && burn.ShownStages != 0) continue;
+                    rays.Targets.Remove(id);
+                    ScorchingRayBurns.Remove(m);
+                }
+                pending.Clear();
+            }
+
             void TickIndexed(Dictionary<uint, AreaChaosDot> dots, string by, ushort row)
             {
                 List<uint>? expired = null;
@@ -323,6 +387,8 @@ static partial class Game
                 var previous = row is PestilentStrikeDamageRow or SoulrendBuffRow ? dot.Active : null;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) dot.Clear();
+                else if (MaimDotTaken.TryGetValue(m, out _))
+                    damage = dot.Advance(now, (from, until) => MonsterDotTakenOver(m, DamageType.Chaos, from, until, now));
                 else damage = dot.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
                 if (damage > 0)
                 {
@@ -370,6 +436,7 @@ static partial class Game
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
+                    if (owner is null) CaptureLootAilmentsAtDeath(m, now);
                     m.Dead = true;
                     CleanupDeadMonsterLocked(player.Area, id, m);
                     m.LastHitBy = owner;

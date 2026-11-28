@@ -261,7 +261,7 @@ public static class EffectRules
     {
         IReadOnlyList<GameDataStore.FxRuleRow> rows = [.. rules.Select(r =>
             new GameDataStore.FxRuleRow(r.Id, "added", r.Title, null, "built", r.Sources,
-                [.. r.When.Select(w => (w.Trigger, w.Args, (long?)null))], r.If, r.Do) { Engine = "effects" })];
+                r.When, r.If, r.Do) { Engine = "effects" })];
         lock (Gate) { _added = [.. _added, rows]; _addedVersion++; _table = new(-1, [], [], new()); }
         return new Added(rows);
     }

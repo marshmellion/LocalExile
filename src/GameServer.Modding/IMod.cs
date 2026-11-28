@@ -50,5 +50,8 @@ public sealed record ModManifest(string Id, string Version, ModKind Kind, IReadO
     /// <c>data/league-modules.json</c>) and runs only for those leagues' players, before the mods of every league ("all", the
     /// default).</summary>
     public bool Listed { get; init; }
+
+    /// <summary>A binary module opts into binding and warming its methods ahead of its startup turn.</summary>
+    public bool Preload { get; init; }
 }
 

@@ -14,8 +14,11 @@ public static partial class Game
         SendSupportGemBuffs, SendLifetap, SendPetrifiedBloodLoss,
         SendPhysicalAegis, SendUnhinged, SyncPhasing, SendLifeAndManaEndings,
         SendAttackerSlows, SendExpandedInventory, SendQuestItems, SendRage, SendFortification, DrainFlaskTriggers,
-        SendConsumedCorpseCharges,
+        SendConsumedCorpseCharges, SendPlayerStatsChanged,
     ];
+
+    static Task SendPlayerStatsChanged(Player player) =>
+        GameEvents.PlayerStatsChanged.Any ? GameEvents.RunPlayerStatsChanged(player) : Task.CompletedTask;
 
     // After the others, outside their batch: Spirit Chieftain's minion follows its published state.
     static readonly Func<Player, Task>[] StatPresentationsAfter =
@@ -147,7 +150,7 @@ public static partial class Game
         }
         else if (player.BladefallTrarthus is { PaysLife: false } bladefall)
         {
-            bool freeMana = CharacterPlayerStats(player).GetValueOrDefault(Stat.NoManaCost) != 0;
+            bool freeMana = NoManaCostFor(player, CharacterPlayerStats(player).GetValueOrDefault(Stat.NoManaCost));
             if (!freeMana && player.PlayerMana == 0)
                 await EndBladefallTrarthus(player, "out of mana");
             else

@@ -26,7 +26,10 @@ public abstract record ChargeEvent : CombatEvent
     /// the player's own: <paramref name="SelfBleeding"/>, <paramref name="SelfPoisoned"/>.</summary>
     public sealed record Hit(bool Critical, bool Spell, bool? Melee, MonsterRarity Rarity, string? SkillEffect = null,
         Func<uint, int>? Skill = null, bool Killed = false, bool Primary = true, bool Frozen = false,
-        bool Bleeding = false, bool Marked = false, bool SelfBleeding = false, bool SelfPoisoned = false) : ChargeEvent;
+        bool Bleeding = false, bool Marked = false, bool SelfBleeding = false, bool SelfPoisoned = false) : ChargeEvent
+    {
+        public bool NoArmour { get; init; }
+    }
 
     /// <summary>The player killed a hostile monster; <paramref name="Frozen"/>: it was frozen when it died, shattered
     /// included (MonsterElementalAilments.FrozenAtDeath); <paramref name="Poisons"/>: the poisons on it when it died;
@@ -92,7 +95,7 @@ public static class ChargeGains
     public sealed record Rule(uint Stat, ChargeType? Type, Func<ChargeEvent, WeaponProfile, bool> When, bool Flag = false,
         Outcome Does = Outcome.Gain);
 
-    static bool Melee(ChargeEvent.Hit h, WeaponProfile w) => h.Melee ?? (!h.Spell && !w.Bow && !w.Wand);
+    internal static bool Melee(ChargeEvent.Hit h, WeaponProfile w) => h.Melee ?? (!h.Spell && !w.Bow && !w.Wand);
     static bool RareOrUnique(MonsterRarity r) => r is MonsterRarity.Rare or MonsterRarity.Unique;
 
     static readonly Rule[] LegacyKillChances =
@@ -130,7 +133,7 @@ public static class ChargeGains
 
     internal static readonly IReadOnlyList<Rule> OtherRules =
     [
-        new(Stat.GainFrenzyChargeOnHitWhileBleeding, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit, Flag: true),
+        new(Stat.GainFrenzyChargeOnHitWhileBleeding, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit { SelfBleeding: true }, Flag: true),
         new(Stat.GainFrenzyChargeOnHittingRareOrUniqueEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
         new(Stat.ChanceToGainPowerChargeOnRareOrUniqueEnemyHitPct, ChargeType.Power, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
         // On critical strike
@@ -164,6 +167,7 @@ public static class ChargeGains
         new(Stat.GainFrenzyChargeOnHittingUniqueEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit { Rarity: MonsterRarity.Unique }),
         new(Stat.GainPowerChargeOnHitPctChanceAgainstFrozenEnemy, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { Frozen: true }),
         new(Stat.ChanceToGainEnduranceChargeOnHitPctVsBleedingEnemy, ChargeType.Endurance, (e, _) => e is ChargeEvent.Hit { Bleeding: true }),
+        new(Stat.EnduranceChargeOnHitPctVsNoArmour, ChargeType.Endurance, (e, _) => e is ChargeEvent.Hit { NoArmour: true }),
         new(Stat.GainFrenzyChargeOnHittingMarkedEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit { Marked: true }),
         new(Stat.GainPowerChargeOnHitWhileBleeding, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { SelfBleeding: true }, Flag: true),
         new(Stat.AddPowerChargeOnHitWhilePoisonedPct, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { SelfPoisoned: true }),
@@ -225,14 +229,18 @@ public static class ChargeGains
     /// rolls those, the skill's own part included, so they are left out here.
     public static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng, Func<uint, bool>? ruled = null)
     {
-        var rules = e switch
-        {
-            ChargeEvent.Kill => ItemEffectRules.Enabled ? ItemEffectRules.Current.ChargeRules : Rules,
-            ChargeEvent.Hit => ItemEffectRules.Enabled ? ItemEffectRules.Current.HitChargeRules : LegacyHitRules,
-            _ => OtherRules
-        };
+        var rules = ItemEffectRules.Enabled ? ItemEffectRules.Current.PlayerCharges(e) : LegacyRules(e);
         return Roll(e, get, weapon, rng, rules, ruled);
     }
+
+    /// <summary>The original C# rules for an event: what <c>Game_EFFECT_RULES=0</c> rolls, and what the world rules
+    /// must match.</summary>
+    internal static IReadOnlyList<Rule> LegacyRules(ChargeEvent e) => e switch
+    {
+        ChargeEvent.Kill => Rules,
+        ChargeEvent.Hit => LegacyHitRules,
+        _ => OtherRules,
+    };
 
     internal static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng, IReadOnlyList<Rule> rules,
         Func<uint, bool>? ruled = null)
