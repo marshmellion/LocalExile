@@ -66,6 +66,12 @@ public static class CharacterStats
         public bool EvasionBasedOnWard { get; init; }
         public bool ImpalesNearbyEnemies { get; init; }
         public bool HalveColdAndLightningResistance { get; init; }
+        public int? AttackSpeedIncreasedPct { get; init; }
+        public int AttackSpeedMorePct { get; init; }
+
+        public int AttackSpeedWithIncrease(long increased) => AttackSpeedIncreasedPct is { } basis
+            ? ResolveAttackSpeed(basis + increased, AttackSpeedMorePct)
+            : (int)Math.Clamp(AttackSpeedPct + increased, -99L, int.MaxValue);
         // Player stats that monster swings, player ticks, regeneration steps and sweeps read for every character: resolved
         // once per pool build (BuildPoolsFor), never a full stat build on those paths. 0/false: the character has none.
         public int MapTemporalChainsActionSpeedPct { get; init; }
@@ -128,6 +134,9 @@ public static class CharacterStats
         // The helmet's local ES and the gloves' and boots' local armour and evasion, for the masteries' slot increases.
         int HelmetEnergyShield = 0, int HelmetEnergyShieldPct = 0,
         decimal GlovesBootsArmour = 0, decimal GlovesBootsEvasion = 0, int GlovesBootsArmourPct = 0,
+        // "X% increased Armour from Equipped Helmet and Gloves" and its evasion and energy shield kin, already worked
+        // out as the slots' own value times the percent: an increase of one slot is that much more of the slot's value.
+        decimal SlotArmourBonus = 0, decimal SlotEvasionBonus = 0, decimal SlotEnergyShieldBonus = 0,
         // Final "more" multiplier on maximum Life (combined multiplicatively across sources, after increases).
         decimal LifeMorePct = 0,
         int SpellSuppressionWhileFullEnergyShield = 0,
@@ -277,7 +286,7 @@ public static class CharacterStats
         int Rating(decimal value) => (int)Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0m, int.MaxValue);
         decimal armourValue = More(More(Increased(b.Armour, b.ShieldArmour, b.BodyArmour, armourPct,
             (long)b.ShieldArmourPct + b.SharedShieldDefencesPct, b.BodyArmourPct, bodyAsArmour: true,
-            b.GlovesBootsArmour, b.GlovesBootsArmourPct), b.ArmourMorePct), b.ExtraDefenceMorePct);
+            b.GlovesBootsArmour, b.GlovesBootsArmourPct) + b.SlotArmourBonus, b.ArmourMorePct), b.ExtraDefenceMorePct);
         // These item coefficients use complete groups of final production attributes. They join ordinary INC,
         // before slot increases/MORE; Iron Reflexes retains this item term while excluding inherent Dexterity.
         long ordinaryEvasionPct = (long)b.EvasionPct + b.ColdOvercapEvasionPct
@@ -286,7 +295,7 @@ public static class CharacterStats
         int evasionPct = (int)Math.Clamp(totalEvasionPct, int.MinValue, int.MaxValue);
         decimal evasionBase = BaseEvasion + b.Evasion + (long)b.EvasionPerTenMaximumLife * (life / 10);
         decimal evasionValue = More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct,
-            (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct), b.EvasionMorePct), b.ExtraDefenceMorePct);
+            (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct) + b.SlotEvasionBonus, b.EvasionMorePct), b.ExtraDefenceMorePct);
         // "Increased evasion while moving" joins the same increased bucket while the condition holds (PoB Condition Moving).
         // shortcut: Iron Reflexes' converted armour does not get it; upgrade when armour reads a moving condition.
         int? evasionWhileMoving = b.EvasionWhileMovingPct == 0 || b.IronReflexes ? null
@@ -328,7 +337,7 @@ public static class CharacterStats
                 * Math.Max(0m, 100m + b.LifePct + totalEnergyShieldPct) / 100m * lifeMore;
         uint energyShield = b.NoEnergyShield ? 0u : (uint)Rating(Increased(b.EnergyShield, b.ShieldEnergyShield, b.BodyEnergyShield,
             totalEnergyShieldPct, (long)b.ShieldEnergyShieldPct + b.SharedShieldDefencesPct, b.BodyEnergyShieldPct,
-            slot: b.HelmetEnergyShield, slotIncrease: b.HelmetEnergyShieldPct) + convertedShield);
+            slot: b.HelmetEnergyShield, slotIncrease: b.HelmetEnergyShieldPct) + b.SlotEnergyShieldBonus + convertedShield);
         int Max(int bonus) => Math.Min(DamageModel.MaxResistCap, DamageModel.DefaultMaxResistance + bonus);
         int maxBlock = Math.Min(DamageModel.BlockChanceCap, DamageModel.DefaultMaxBlockChance + b.BlockChanceMax);
         int maxSpellBlock = Math.Min(DamageModel.BlockChanceCap, DamageModel.DefaultMaxSpellBlockChance + b.SpellBlockChanceMax);
@@ -344,10 +353,8 @@ public static class CharacterStats
         // attack_speed_+%_per_200_accuracy_rating is per 150 in its own text and in the client: floor(accuracy / 150) x value
         // joins increased (0x1427088d0). shortcut: the off hand uses this accuracy and a gem's own accuracy does not count,
         // until a weapon's local accuracy feeds the pools per hand.
-        int attackSpeedPct = (int)Math.Round(
-            ((1 + (b.AttackSpeedPct + accuracy / 150 * b.AttackSpeedPer150Accuracy) / 100.0) * (1 + b.AttackSpeedMorePct / 100.0) - 1) * 100,
-            MidpointRounding.AwayFromZero);
-        attackSpeedPct = Math.Max(-99, attackSpeedPct);
+        int attackSpeedIncreased = b.AttackSpeedPct + accuracy / 150 * b.AttackSpeedPer150Accuracy;
+        int attackSpeedPct = ResolveAttackSpeed(attackSpeedIncreased, b.AttackSpeedMorePct);
         return new(level, life, mana, accuracy, ExperienceFor(level),
             Armour: armour, ArmourPct: armourPct, Evasion: evasion, EvasionPct: evasionPct,
             EnergyShieldPct: energyShieldPct, EnergyShield: energyShield,
@@ -393,9 +400,14 @@ public static class CharacterStats
             EvasionWhileMoving: evasionWhileMoving)
             {
                 AttributesResolved = true, AccuracyBase = accuracyBase,
+                AttackSpeedIncreasedPct = attackSpeedIncreased, AttackSpeedMorePct = b.AttackSpeedMorePct,
                 ConvertSuppressionToSpellDodge = b.ConvertSuppressionToSpellDodge, BaseSpellDodgeChance = b.BaseSpellDodgeChance,
             };
     }
+
+    static int ResolveAttackSpeed(long increased, int more) => (int)Math.Clamp(
+        Math.Round(((1 + increased / 100d) * (1 + more / 100d) - 1) * 100d, MidpointRounding.AwayFromZero),
+        -99, int.MaxValue);
 
     private static uint[] Experience = default!;
 

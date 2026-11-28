@@ -79,6 +79,11 @@ public static partial class Game
                 : settings.Secondary ? 0
                 : Get(Stat.ChanceToPoisonOnHitWithAttacksPct) + settings.WeaponChance + settings.ProjectileChance);
         if (chaos > 0) chance += Get(Stat.ChaosDamageChanceToPoisonPct);
+        // Single uniques' lines: against a cursed enemy (Cospri's Will), and attacks at maximum Frenzy Charges (Snakebite).
+        if (Player(Stat.ChanceToPoisonPctVsCursedEnemies) is int vsCursed and not 0 && target.Curses.All.Count > 0) chance += vsCursed;
+        if (!spell && !settings.Secondary && Player(Stat.AttacksChanceToPoisonPctOnMaxFrenzyCharges) is int atMaxFrenzy and not 0
+            && Player(Stat.VirtualMaximumFrenzyCharges) is > 0 and var maximumFrenzy && Player(Stat.CurrentFrenzyCharges) >= maximumFrenzy)
+            chance += atMaxFrenzy;
 
         if (chance <= 0 || !RandomRolls.Chance((int)Math.Clamp(chance, 0, 100), 100, random)) return false;
         if (target.Mods.Effects[Stat.CannotBePoisoned] != 0) return false;
@@ -145,12 +150,19 @@ public static partial class Game
                 if (m.Poisons.Idle) { (done ??= []).Add(id); continue; }
                 int damage = 0;
                 if (m.Dead || m.Life == 0) m.Poisons.ClearAtDeath(now);
-                else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), m.Life);
+                else
+                {
+                    uint damageToKill = m.Life;
+                    if (m.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0
+                        || m.Effects[Stat.VirtualChaosDamageDoesNotBypassEnergyShield] != 0)
+                        damageToKill = (uint)Math.Min(uint.MaxValue, (long)m.Life + MonsterEnergyShieldOf(m).Current);
+                    damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), damageToKill);
+                }
                 if (damage > 0)
                 {
                     int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: true, AreaTime(player));
                     bool stageStarts = false;
-                    if (lifeDamage > 0) (m.Life, stageStarts) = TakeOwnerDamageLocked(player, m, lifeDamage);
+                    if (lifeDamage > 0) (m.Life, stageStarts) = TakeOwnerDamageLocked(player, m, lifeDamage, poisonDeath: true);
                     m.Aggro = m.Life > 0;
                     if (m.Life == 0)
                     {

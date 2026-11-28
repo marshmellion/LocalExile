@@ -43,7 +43,8 @@ public static partial class Game
         state.CheckedOwner = owner;
         state.CheckedStatSources = statSources;
         state.CheckedInventoryMutations = invMutations;
-        if (grant.Host == 0 || grant.EffectId != PhysicalAegisEffect || PhysicalAegisGeometry(player, grant) is not { } geometry)
+        if (statSources?.Sources.GetValueOrDefault(Stat.YourAegisSkillsExceptPrimalAreDisabled) is int and not 0
+            || grant.Host == 0 || grant.EffectId != PhysicalAegisEffect || PhysicalAegisGeometry(player, grant) is not { } geometry)
         {
             state.CheckedHasGrant = false;
             RetirePhysicalAegis(player);
@@ -145,6 +146,7 @@ public static partial class Game
         double now = ResourceEffectsTime(player);
         var state = PhysicalAegisAt(player, now, advance: true);
         player.RetiredPhysicalAegisBuffs.Clear();
+        PresentTypedAegises(player);
         var buffs = player.Area.Buffs;
         if (state.Exists && double.IsFinite(state.RestoresAt)) PresentIn(player, state.RestoresAt - now);
         ushort wanted = !state.Exists ? (ushort)0 : state.Depleted ? PhysicalAegisDepletedBuffRow : PhysicalAegisBuffRow;

@@ -25,9 +25,13 @@ public static partial class Game
         {
             player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
         }
+        RaiseCombatEvent(player, new ChargeEvent.FlaskUse(flask.Id,
+            use.LifePerUse > 0 && use.ManaPerUse > 0 ? "hybrid" : use.LifePerUse > 0 ? "life" : "mana"));
         ApplyMinionRecoveryFlasksLocked(player, flask.Item, (byte)slot, use, recovery, local, character, now);
         // Sample the payer at accepted use, including a hybrid flask whose life recovery goes to a minion.
-        int chargeChance = use.ManaPerUse > 0 ? character(Stat.GainPowerChargeOnManaFlaskUsePctChance) : 0;
+        // An effect rule live for the stat rolls it itself (power_charge_on_mana_flask_use).
+        int chargeChance = use.ManaPerUse > 0 && !EffectRules.LiveFor(player, Stat.GainPowerChargeOnManaFlaskUsePctChance)
+            ? character(Stat.GainPowerChargeOnManaFlaskUsePctChance) : 0;
         if (chargeChance > 0 && RandomRolls.Chance(chargeChance, 100, AreaRng(player)))
             ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Power, 1,
                 Stats.Name(Stat.GainPowerChargeOnManaFlaskUsePctChance)));
@@ -40,7 +44,18 @@ public static partial class Game
         // Liveness and the exact source/generation were admitted by 'still' before the charge deduction.
         var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, player.PlayerMaxLife,
             LifeCap(player), UnreservedMana(player))!.Value;
+        if (local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRemovesPctMaximumLife) is > 0 and var removeLife)
+        {
+            uint removed = (uint)Math.Min(life, ((long)player.PlayerMaxLife * removeLife + 99) / 100);
+            life = VaalImmortalCallLife(player, life - removed, now);
+        }
         (player.PlayerLife, player.PlayerMana) = (life, mana);
+        if (life == 0)
+        {
+            player.InvalidateIncomingHits();
+            ClearWardBreakOnDeath(player);
+            RecordHardcoreDeath(player);
+        }
         // Paid recovery flask modifiers can remove a pool, deal a separate hit, or grant charges.
         if (local.GetValueOrDefault(Stat.LocalFlaskRemovesPctMaximumEnergyShieldOnUse) is > 0 and var shieldPct)
         {

@@ -265,7 +265,7 @@ public static partial class Game
         => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now), ignorePhysicalReduction, random);
 
     static int MonsterTakesMitigatedCore(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
-        int additionalTakenPct, bool ignorePhysicalReduction, Random? random, int additionalElementalTakenPct = 0)
+        int additionalTakenPct, bool ignorePhysicalReduction, Random? random, int additionalElementalTakenPct = 0, int overwhelm = 0)
     {
         // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
         // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
@@ -275,6 +275,8 @@ public static partial class Game
         double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physical,
             e.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
         if (ignorePhysicalReduction && physReduction > 0) physReduction = 0;
+        // Overwhelm takes its percent off the reduction the hit meets, and never turns it into damage taken.
+        if (overwhelm > 0 && physReduction > 0) physReduction = Math.Max(0, physReduction - overwhelm);
         double physicalTaken = physical * Math.Max(0, 1 - physReduction / 100.0)
             * (1 + MaimedPhysicalTaken(m, now) / 100.0);
         double total = mitigated.MinTotal - physical + physicalTaken;
@@ -345,7 +347,8 @@ public static partial class Game
     {
         double common = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false,
             increasedPct: additionalTakenPct);
-        double elemental = m.TakenFromPlayer.Elemental == 0 && additionalElementalTakenPct == 0 ? common
+        double elemental = m.TakenFromPlayer.Elemental == 0 && m.Effects[Stat.ElementalDamageTakenPlusPct] == 0
+            && additionalElementalTakenPct == 0 ? common
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false,
                 increasedPct: (double)additionalTakenPct + additionalElementalTakenPct);
         double withered = hasChaos ? WitheredTaken(m, now) : 0;
@@ -512,11 +515,10 @@ public static partial class Game
             DamageType.Lightning => m.Effects[Stat.LightningDamageTakenPlusPct],
             _ => 0,
         };
-        increasedTaken += m.Effects[Stat.DegenEffectPlusPct];
         increasedTaken += FleshrendDamageTaken(m, now);
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type), hit: false,
-                chaos: type == DamageType.Chaos, increasedPct: increasedTaken);
+                chaos: type == DamageType.Chaos, increasedPct: increasedTaken, overTime: true);
         // Pride is a separate more multiplier; Flesh and Stone's Blood Stance affects hits only.
         if (type == DamageType.Physical)
             factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;

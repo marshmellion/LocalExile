@@ -47,6 +47,10 @@ public static partial class Game
         GolemStat(stats, Stat.MinionDamagePlusPctIfHaveUsedAMinionSkillRecently) != 0
         && player.RecentEvents.Happened(UsedMinionSkillRecently, now);
 
+    static int PlaguebringerArea(Player player, IReadOnlyDictionary<uint, int> stats, double now) =>
+        GolemStat(stats, Stat.AreaOfEffectPlusPctForYouAndMinionsIfConsumedCorpseRecently) is int area and not 0
+        && player.RecentEvents.Happened(StatConditions.ConsumedCorpse, now) ? area : 0;
+
     static int MinionHeraldCount(Player player, IReadOnlyDictionary<uint, int> stats) =>
         GolemStat(stats, Stat.MinionDamagePlusPctWhileAffectedByAHerald) == 0
         && GolemStat(stats, Stat.MinionMovementVelocityPlusPctForEachHeraldAffectingYou) == 0 ? 0
@@ -92,6 +96,8 @@ public static partial class Game
                     // (GolemDamage) takes the base stat.
                     "spell_suppression_chance_%" => Stat.BaseSpellSuppressionChancePct,
                     "additional_physical_damage_reduction_%" => Stat.BaseAdditionalPhysicalDamageReductionPct,
+                    // "Minions take X% increased Damage": the reader (MonsterModSet.DamageTaken) takes the base stat.
+                    "damage_taken_+%" => Stat.BaseDamageTakenPlusPct,
                     "chance_to_impale_on_attack_hit_%" => Stat.AttacksImpaleOnHitPctChance,
                     "skill_area_of_effect_+%" or "area_of_effect_+%" => Stat.BaseSkillAreaOfEffectPlusPct,
                     var plain => Stat.Of(plain),
@@ -118,6 +124,7 @@ public static partial class Game
                     Stat.MinionChaosResistancePct => Stat.BaseChaosDamageResistancePct,
                     Stat.MinionChanceToImpaleOnAttackHitPct => Stat.AttacksImpaleOnHitPctChance,
                     Stat.MinionSpellSuppressionChancePct => Stat.BaseSpellSuppressionChancePct,
+                    Stat.MinionDamageTakenPlusPct => Stat.BaseDamageTakenPlusPct,
                     _ => Stat.Of(name),
                 };
             }
@@ -142,6 +149,10 @@ public static partial class Game
         {
             if (value != 0) values[stat] = ActorScale.Saturate((long)values.GetValueOrDefault(stat) + value);
         }
+        AddStat(Stat.BaseSkillAreaOfEffectPlusPct, PlaguebringerArea(player, playerStats, now));
+        int helmetPhysical = MinionPhysicalFromHelmet(player, playerStats);
+        AddStat(Stat.GlobalMinimumAddedPhysicalDamage, helmetPhysical);
+        AddStat(Stat.GlobalMaximumAddedPhysicalDamage, helmetPhysical);
         AddStat(Stat.GlobalMinimumAddedFireDamage, link.FireMin);
         AddStat(Stat.GlobalMaximumAddedFireDamage, link.FireMax);
         AddStat(Stat.BaseChanceToIgnitePct, link.Ignite);
@@ -267,6 +278,8 @@ public static partial class Game
         int Get(uint n) => GolemStat(playerStats, n);
         GolemAdd(values, Stat.GlobalChanceToBlindOnHitPct, Get(Stat.MinionsPctChanceToBlindOnHit));
         GolemAdd(values, Stat.BaseChanceToPoisonOnHitPct, Get(Stat.MinionsChanceToPoisonOnHitPct));
+        // "Minions' Attacks Overwhelm X% Physical Damage Reduction": the minion's own Overwhelm, read at its hit.
+        GolemAdd(values, Stat.EnemyPhysReductionPctPenaltyVsHit, Get(Stat.MinionsAttacksOverwhelmPctPhysicalDamageReduction));
         // "Minions have X% increased Damage over Time Multiplier": the id carries the
         // minion prefix in the middle, so the strip above never reaches it.
         GolemAdd(values, Stat.DotMultiplierPlus, Get(Stat.BaseMinionDotMultiplierPlus));
@@ -452,7 +465,7 @@ public static partial class Game
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
             var (skillLevel, raw, multiplier, crit) = GolemData.Skill(catalog, effect, level);
-            if (effect == 306)
+            if (effect == ElementalHitCloneShot)
             {
                 foreach (var element in new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning })
                     if (Stats.Key($"elemental_hit_cannot_roll_{element.ToString().ToLowerInvariant()}_damage") is uint key)
@@ -463,7 +476,8 @@ public static partial class Game
             }
             int Raw(uint name) => GolemStat(raw, name);
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
-            var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true) ?? GolemProjectile(effect, catalog);
+            var projectile = effect == ElementalHitCloneShot ? ElementalHitCloneArrow(catalog, prismatic) : null;
+            projectile ??= catalog.MonsterProjectile(effect, includeWeaponAttacks: true) ?? GolemProjectile(effect, catalog);
             // Hostile monster profiles use Count as a simultaneous volley. Only the minion launcher
             // expands a spiral into separately timed shots.
             if (projectile is { SpiralAngle: not 0 } && Raw(Stat.NumberOfProjectilesOverride) <= 0
@@ -541,7 +555,7 @@ public static partial class Game
                 foreach (var type in AvatarOfFireConversionSources)
                     conversion.AddGlobal(type, DamageType.Fire, 50);
             int DamageStat(uint name) => avatarOfFire && name == Stat.DealNoNonFireDamage ? 1 : mods[name] + Raw(name);
-            if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
+            if (effect == ElementalHitCloneShot) conversion.AddSkill(DamageType.Physical, prismatic, 100);
             if (golem.Definition.Kind == LivingLightningFamily && effect == LivingLightningZapEffect)
                 conversion.AddSkill(DamageType.Physical, DamageType.Lightning, Own(Stat.MinionBasePhysicalDamagePctToConvertToLightning));
             conversion.AddSkill(DamageType.Cold, DamageType.Fire,
@@ -575,7 +589,7 @@ public static partial class Game
             var versusIgnited = DamagePacket.Empty;
             foreach (var path in conversion.Trace(damage))
             {
-                if (effect == 306 && path.Type != prismatic) continue;
+                if (effect == ElementalHitCloneShot && path.Type != prismatic) continue;
                 if (DamageStats.Prohibited(path.Type, DamageStat, attack: !spell)
                     || GemSupportDamage.Prohibited(path.Type, supportStats)) continue;
                 double increase = mods[Stat.DamagePlusPct] + (spell ? mods[Stat.SpellDamagePlusPct] : mods[Stat.AttackDamagePlusPct])
@@ -736,6 +750,14 @@ public static partial class Game
         return result;
     }
 
+    static int MinionPhysicalFromHelmet(Player player, IReadOnlyDictionary<uint, int> stats)
+    {
+        int percent = stats.GetValueOrDefault(Stat.YourMinionsGainAddedPhysicalDamageEqualToPctOfEnergyShieldOnHelmet);
+        if (percent == 0 || ActiveHand(player, PlayerInventories.Helmet) is not { } helmet) return 0;
+        int energyShield = FactsOf(helmet.Item, ItemsFor(player)).EnergyShield;
+        return ActorScale.Saturate((long)energyShield * percent / 100);
+    }
+
     static void RefreshGolemLocked(Player player, GolemState.Golem golem, IReadOnlyDictionary<uint, int> playerStats, double? at = null)
     {
         double now = at ?? AreaTime(player);
@@ -747,6 +769,8 @@ public static partial class Game
         hash.Add(GolemSummonedInPastEightSeconds(golem, now));
         hash.Add(HasRecentCreationEffects(playerStats) && MinionCreatedRecently(golem, now));
         hash.Add(OwnerUsedMinionSkillRecently(player, playerStats, now));
+        hash.Add(PlaguebringerArea(player, playerStats, now));
+        hash.Add(MinionPhysicalFromHelmet(player, playerStats));
         hash.Add(MinionHeraldCount(player, playerStats));
         hash.Add(PresentMinionDevouredSoulsLocked(player, golem, now));
         hash.Add(FreshMeatActive(golem, now));

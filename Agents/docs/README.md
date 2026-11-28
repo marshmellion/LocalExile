@@ -73,9 +73,13 @@ Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `
 | [dev/performance.md](dev/performance.md) | hot paths: the rule and the guard for code that runs per hit or per stat lookup, and how to measure it; measuring a stack's startup, memory, area creation and busy-instance CPU (`scripts/perf/startup.ps1`, `scripts/perf/PerfBench`), results and the remaining costs |
 | [dev/databases.md](dev/databases.md) | the SQLite databases (`auth`, `characters`, `client`, `world`) built from `sql/`: adding an update, the updater, `client-sql.ps1` and the generated files in `client.db`, the SQL checks and owners |
 | [dev/editable-game-data.md](dev/editable-game-data.md) | what game data can become editable in SQLite, the client-compatibility boundary, the snapshot/cache design and the phased plan |
+| [dev/combat-effect-rules.md](dev/combat-effect-rules.md) | supported combat rules in `world.db`, the shared Frenzy roll and how to verify a rule edit |
 | [dev/drop-data-schema.md](dev/drop-data-schema.md) | the drop tables in SQLite: what seeds them (client tables, `sql/updates/world/`), load and edit rules |
 | [dev/modules.md](dev/modules.md) | the layers: leagues and their `league.json`, what stays in the Gateway, modules, what a module sees |
 | [dev/modding.md](dev/modding.md) | mods in `Mods/Binaries/<id>/`: `mod.json`, writing one (LocalExile-Mods), the hooks, reloading, limits |
+| [dev/effect-rules-guide.md](dev/effect-rules-guide.md) | the way into the effect rules for players, modders and agents: what it does, how to add an effect, the rules for maintaining it |
+| [dev/effect-rules.md](dev/effect-rules.md) | the effect rules: one data-driven system for what things do (item mods, skills, buffs, later monster and map modifiers and atlas passives), as rows in world.db (`effect_rules`, `effect_skills`, `effect_buffs`), the rule format, kinds and executors, adding one, the client findings behind them |
+| [re/item-triggered-skills.md](re/item-triggered-skills.md) | what the client does with a triggered action (0x1ce) for item skills, why it draws nothing, where their art is, a buff row's two effect lists |
 | [dev/item-crafter.md](dev/item-crafter.md) | the item crafter hook for tools: the Gateway's `crafter` mode (bases, mod pools, stat descriptions) and `/item_give` |
 | [dev/campaign-automation.md](dev/campaign-automation.md) | the campaign driver: `campaign.ps1`, the runner, quest step files and verbs, `/state`, `/kill`, `/quest_preset`, its own ports and client session |
 | [dev/headless-client.md](dev/headless-client.md) | cheap clients for agent sessions: the engine's Null renderer, per-client settings, frame cap, process limits, `nullifier.py`, measurements |
