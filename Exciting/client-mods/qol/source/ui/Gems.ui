@@ -1,0 +1,285 @@
+// QoL (in-game panels): Alternate quality gems
+<DEFINITIONS>
+
+begin Frame
+	id = qol_gems;
+	aspect_mode = scaley;
+	size = 1000, 200;
+	float = centre;
+	y = 200;
+	visible = true;
+	mouse_enabled = true;
+	propagate_properties = false;
+	background_colour = argb( 236, 14, 12, 10 );
+	pixel_border_colour = rgb( 137, 100, 64 );
+
+	begin StackLayout
+		id = qol_gems_body;
+		auto_size = true, true;
+		margin = 18, 12, 18, 14;
+		float = centre;
+
+		begin Frame
+			id = qol_gems_title_bar;
+			size = 964, 40;
+
+			begin Label
+				id = title_label;
+				location = 0, 0;
+				size = 916, 40;
+				auto_size = false;
+				text_align = MiddleLeft;
+				font = Fonts.LargeSC;
+				foreground_colour = rgb( 227, 194, 146 );
+				outline_colour = rgb( 0, 0, 0 );
+				text = "Alternate quality gems";
+			end
+
+			begin BasicButton
+				id = close_button;
+				location = 924, 0;
+				size = 40, 40;
+				mouse_enabled = true;
+				background = "Art/2DArt/UIImages/Common/ButtonCloseNormal", stretch;
+			end
+		end
+
+		begin Frame
+			id = gm_space_a;
+			size = 10, 6;
+		end
+		begin Label
+			id = line_0;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_1;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_2;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_3;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_4;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_5;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_6;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_7;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_8;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_9;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_10;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_11;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_12;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_13;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_14;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_15;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_16;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_17;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_18;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_19;
+			size = 964, 30;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 225, 255 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Frame
+			id = gm_space_b;
+			size = 10, 8;
+		end
+		begin Frame
+			id = gm_controls;
+			size = 964, 44;
+
+			begin Button
+				id = prev_button;
+				location = 0, 0;
+				size = 120, 42;
+				text = "Prev";
+			end
+
+			begin Label
+				id = page_label;
+				location = 130, 0;
+				size = 260, 42;
+				auto_size = false;
+				text_align = MiddleCentre;
+				font = Fonts.Normal;
+				foreground_colour = rgb( 200, 190, 160 );
+				text = "";
+			end
+
+			begin Button
+				id = next_button;
+				location = 400, 0;
+				size = 120, 42;
+				text = "Next";
+			end
+		end
+	end
+end

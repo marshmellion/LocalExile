@@ -1,0 +1,18 @@
+{
+  // The Legacy marker: like the Exciting one (marker.json), an enchantment of no stats that loot filters match
+  // (HasEnchantment "Legacy"); an item with a legacy affix has it.
+  "rows": [
+    { "table": "ModType", "copyOf": { "Name": "SocketedCursesUncastableUnique" },
+      "set": { "Name": "LocalExileLegacyMarker", "Stats": [], "ModSellPriceTypesKeys": [] } },
+    { "table": "Mods", "copyOf": { "Id": "SocketedCursesUncastableUnique" },
+      "set": {
+        "Id": "LocalExileLegacyMarker", "Name": "Legacy", "Level": 1, "Domain": 1, "GenerationType": 10,
+        "ModTypeKey": { "row": { "table": "ModType", "Name": "LocalExileLegacyMarker" } },
+        "StatsKey1": null, "StatsKey2": null, "StatsKey3": null, "StatsKey4": null,
+        "StatsKey5": null, "StatsKey6": null, "StatsKey7": null, "StatsKey8": null,
+        "Families": [], "TagsKeys": [], "ImplicitTagsKeys": [], "GrantedEffectsPerLevelKeys": [],
+        "SpawnWeight_TagsKeys": [], "SpawnWeight_Values": [], "GenerationWeight_TagsKeys": [], "GenerationWeight_Values": [],
+        "CraftingItemClassRestrictions": []
+      } }
+  ]
+}

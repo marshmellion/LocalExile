@@ -1,0 +1,31 @@
+{
+  "port": 6170,
+  "pollMilliseconds": 250,
+  "keys": {
+    "loot": "F5",
+    "sort": "F6",
+    "deposit": "F7",
+    "prices": "F8",
+    "hide": "F9",
+    "gems": "F10",
+    "maps": "",
+    "vendor": "",
+    "sorttab": ""
+  },
+  "keysBlockTheGame": false,
+  "hudButtons": true,
+  "inventorySortButton": true,
+  "stashButtons": "header",
+  "mapButton": true,
+  "messagesAsToasts": true,
+  "messageSeconds": 5,
+  "popups": true,
+  "popupSeconds": 7,
+  "popupSounds": true,
+  "priceLines": true,
+  "priceLinesY": 520,
+  "priceLineRows": 6,
+  "harvestPanel": true,
+  "harvestRowsPerPage": 12,
+  "gemRowsPerPage": 20
+}

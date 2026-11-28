@@ -1,0 +1,1185 @@
+{
+ "about": "Uniques the server has no working source for (no normal drop, no boss or content that gives them, no card that drops). Made by checking every unique outside the normal drop pool against the boss tables, card rewards and content code.",
+ "uniques": [
+  {
+   "name": "Ahkeli's Meadow",
+   "group": "other"
+  },
+  {
+   "name": "Ahkeli's Mountain",
+   "group": "other"
+  },
+  {
+   "name": "Ahkeli's Valley",
+   "group": "other"
+  },
+  {
+   "name": "Amanamu's Gaze",
+   "group": "other"
+  },
+  {
+   "name": "Apep's Slumber",
+   "group": "other"
+  },
+  {
+   "name": "Apep's Supremacy",
+   "group": "other"
+  },
+  {
+   "name": "Arbitrary Tenets",
+   "group": "idol"
+  },
+  {
+   "name": "Arborix",
+   "group": "other"
+  },
+  {
+   "name": "Architect's Hand",
+   "group": "other"
+  },
+  {
+   "name": "Baleful Dominion",
+   "group": "other"
+  },
+  {
+   "name": "Black Thumb",
+   "group": "idol"
+  },
+  {
+   "name": "Blightwell",
+   "group": "other"
+  },
+  {
+   "name": "Bold Undertakings",
+   "group": "idol"
+  },
+  {
+   "name": "Calamitous Visions",
+   "group": "other"
+  },
+  {
+   "name": "Cassia's Pride",
+   "group": "idol"
+  },
+  {
+   "name": "Choir of the Storm",
+   "group": "other"
+  },
+  {
+   "name": "Circle of Ambition",
+   "group": "other"
+  },
+  {
+   "name": "Circle of Anguish",
+   "group": "other"
+  },
+  {
+   "name": "Circle of Guilt",
+   "group": "other"
+  },
+  {
+   "name": "Circle of Nostalgia",
+   "group": "other"
+  },
+  {
+   "name": "Circle of Regret",
+   "group": "other"
+  },
+  {
+   "name": "Command of the Pit",
+   "group": "other"
+  },
+  {
+   "name": "Coward's Chains",
+   "group": "other"
+  },
+  {
+   "name": "Coward's Legacy",
+   "group": "other"
+  },
+  {
+   "name": "Crown of the Tyrant",
+   "group": "other"
+  },
+  {
+   "name": "Crystallised Power",
+   "group": "idol"
+  },
+  {
+   "name": "Dance of Destruction",
+   "group": "idol"
+  },
+  {
+   "name": "Dance of the Offered",
+   "group": "other"
+  },
+  {
+   "name": "Darkness Enthroned",
+   "group": "other"
+  },
+  {
+   "name": "Demigod's Beacon",
+   "group": "race"
+  },
+  {
+   "name": "Demigod's Bounty",
+   "group": "race"
+  },
+  {
+   "name": "Demigod's Dominance",
+   "group": "race"
+  },
+  {
+   "name": "Demigod's Eye",
+   "group": "race"
+  },
+  {
+   "name": "Demigod's Immortality",
+   "group": "race"
+  },
+  {
+   "name": "Demigod's Presence",
+   "group": "race"
+  },
+  {
+   "name": "Demigod's Stride",
+   "group": "race"
+  },
+  {
+   "name": "Demigod's Touch",
+   "group": "race"
+  },
+  {
+   "name": "Demigod's Triumph",
+   "group": "race"
+  },
+  {
+   "name": "Destructive Aspiration",
+   "group": "other"
+  },
+  {
+   "name": "Destructive Play",
+   "group": "idol"
+  },
+  {
+   "name": "Dimensional Barrier",
+   "group": "idol"
+  },
+  {
+   "name": "Doryani's Delusion",
+   "group": "other"
+  },
+  {
+   "name": "Dread Captain's Cutlass",
+   "group": "other"
+  },
+  {
+   "name": "Duskdawn",
+   "group": "heist"
+  },
+  {
+   "name": "Eldritch Gaze",
+   "group": "idol"
+  },
+  {
+   "name": "Elixir of the Unbroken Circle",
+   "group": "other"
+  },
+  {
+   "name": "Emperor's Mastery",
+   "group": "other"
+  },
+  {
+   "name": "Endless Tide",
+   "group": "idol"
+  },
+  {
+   "name": "Esh's Mirror",
+   "group": "other"
+  },
+  {
+   "name": "Esh's Visage",
+   "group": "other"
+  },
+  {
+   "name": "Eternal Damnation",
+   "group": "sanctum"
+  },
+  {
+   "name": "Extinguishing Grasp",
+   "group": "other"
+  },
+  {
+   "name": "Extreme Archaeology",
+   "group": "idol"
+  },
+  {
+   "name": "Eye of the Djinn",
+   "group": "idol"
+  },
+  {
+   "name": "Faithguard",
+   "group": "other"
+  },
+  {
+   "name": "Fate of the Vaal",
+   "group": "other"
+  },
+  {
+   "name": "Festering Vengeance",
+   "group": "other"
+  },
+  {
+   "name": "Fungal Remission",
+   "group": "idol"
+  },
+  {
+   "name": "Garb of the Ephemeral",
+   "group": "other"
+  },
+  {
+   "name": "Gruelling Gauntlet",
+   "group": "idol"
+  },
+  {
+   "name": "Hale Negator",
+   "group": "other"
+  },
+  {
+   "name": "Hand of Heresy",
+   "group": "other"
+  },
+  {
+   "name": "Hand of Thought and Motion",
+   "group": "other"
+  },
+  {
+   "name": "Hand of Wisdom and Action",
+   "group": "other"
+  },
+  {
+   "name": "Heroic Tragedy",
+   "group": "other"
+  },
+  {
+   "name": "Immutable Dogma",
+   "group": "idol"
+  },
+  {
+   "name": "Kingmaker",
+   "group": "other"
+  },
+  {
+   "name": "Kitava's Teachings",
+   "group": "other"
+  },
+  {
+   "name": "Kurgal's Gaze",
+   "group": "other"
+  },
+  {
+   "name": "Leadership's Price",
+   "group": "other"
+  },
+  {
+   "name": "Lone Adventurer",
+   "group": "idol"
+  },
+  {
+   "name": "Loreweave",
+   "group": "heist"
+  },
+  {
+   "name": "Lost Unity",
+   "group": "other"
+  },
+  {
+   "name": "Loved by the Sun",
+   "group": "idol"
+  },
+  {
+   "name": "Lucid Dreams",
+   "group": "idol"
+  },
+  {
+   "name": "Mask of the Spirit Drinker",
+   "group": "other"
+  },
+  {
+   "name": "Mask of the Stitched Demon",
+   "group": "other"
+  },
+  {
+   "name": "Mask of the Tribunal",
+   "group": "other"
+  },
+  {
+   "name": "Medved's Challenge",
+   "group": "other"
+  },
+  {
+   "name": "Meticulous Appraiser",
+   "group": "idol"
+  },
+  {
+   "name": "Mystic Refractor",
+   "group": "other"
+  },
+  {
+   "name": "Natural Hierarchy",
+   "group": "other"
+  },
+  {
+   "name": "Night's Hold",
+   "group": "other"
+  },
+  {
+   "name": "Nightgrip",
+   "group": "other"
+  },
+  {
+   "name": "Offering to the Serpent",
+   "group": "other"
+  },
+  {
+   "name": "Olroth's Charge",
+   "group": "other"
+  },
+  {
+   "name": "Ominous Silence",
+   "group": "idol"
+  },
+  {
+   "name": "Perceived Greatness",
+   "group": "idol"
+  },
+  {
+   "name": "Perepiteia",
+   "group": "other"
+  },
+  {
+   "name": "Presence of Chayula",
+   "group": "other"
+  },
+  {
+   "name": "Putembo's Meadow",
+   "group": "other"
+  },
+  {
+   "name": "Putembo's Mountain",
+   "group": "other"
+  },
+  {
+   "name": "Putembo's Valley",
+   "group": "other"
+  },
+  {
+   "name": "Reclaimed Malevolence",
+   "group": "other"
+  },
+  {
+   "name": "Reefbane",
+   "group": "other"
+  },
+  {
+   "name": "Refiner's Bargain",
+   "group": "idol"
+  },
+  {
+   "name": "Refuge in Isolation",
+   "group": "other"
+  },
+  {
+   "name": "Replica Abyssus",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Advancing Fortress",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Alberon's Warpath",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Allelopathy",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Allure",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Alpha's Howl",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Ambu's Charge",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Atziri's Acuity",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Atziri's Foible",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Badge of the Brotherhood",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Bitterdream",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Blood Sacrifice",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Blood Thorn",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Bloodplay",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Bones of Ullr",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Cheap Construction",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Cold Iron Point",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Conqueror's Efficiency",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Covenant",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Doedre's Damning",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Dreamfeather",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Duskdawn",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Earendel's Embrace",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Emberwake",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Farrul's Fur",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Fencoil",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Forbidden Shako",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Fragile Bloom",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Fragility",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Frostbreath",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Gifts from Above",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Grip of the Council",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Harvest",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Headhunter",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Heartbreaker",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Heatshiver",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Hinekora's Sight",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Hotheaded",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Hyrri's Ire",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Hyrri's Truth",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Infractem",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Innsbury Edge",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Inya's Epiphany",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Iron Commander",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Kalisa's Grace",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Kaom's Heart",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Karui Ward",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Kongor's Undying Rage",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Last Resort",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Lavianga's Spirit",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Leer Cast",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Lioneye's Paws",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Loreweave",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Maata's Teaching",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Malachai's Artifice",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Maloney's Mechanism",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Midnight Bargain",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Mistwall",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Nebulis",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Oro's Sacrifice",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Pacifism",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Paradoxica",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Perfect Form",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Powerlessness",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Primordial Might",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Prismweave",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Pure Talent",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Quill Rain",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Reckless Defence",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Red Trail",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Restless Ward",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Rumi's Concoction",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Shroud of the Lightless",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Siegebreaker",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Sorrow of the Divine",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Soul Strike",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Soul Taker",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Soul Tether",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Stampede",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Tasalio's Sign",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Tempestuous Steel",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Three-step Assault",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Trypanon",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Tukohama's Fortress",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Tulfall",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Twyzel",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Ungil's Gauche",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Unstable Payload",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Veil of the Night",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Victario's Charity",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Voideye",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Voidwalker",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Volkuur's Guidance",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Windripper",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Wings of Entropy",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Winterheart",
+   "group": "heist"
+  },
+  {
+   "name": "Replica Witchfire Brew",
+   "group": "heist"
+  },
+  {
+   "name": "Rotmother's Mutiny",
+   "group": "other"
+  },
+  {
+   "name": "Ruinous Wager",
+   "group": "idol"
+  },
+  {
+   "name": "Sacrificial Heart",
+   "group": "other"
+  },
+  {
+   "name": "Sandstorm Visage",
+   "group": "sanctum"
+  },
+  {
+   "name": "Sealed Domain",
+   "group": "idol"
+  },
+  {
+   "name": "Secular Focus",
+   "group": "idol"
+  },
+  {
+   "name": "Servant of Decay",
+   "group": "other"
+  },
+  {
+   "name": "Servant of Order",
+   "group": "idol"
+  },
+  {
+   "name": "Shadow Shaping",
+   "group": "idol"
+  },
+  {
+   "name": "Shadowstitch",
+   "group": "other"
+  },
+  {
+   "name": "Singular Focus",
+   "group": "idol"
+  },
+  {
+   "name": "Skin of the Loyal",
+   "group": "other"
+  },
+  {
+   "name": "Slavedriver's Hand",
+   "group": "other"
+  },
+  {
+   "name": "Smash and Grab",
+   "group": "idol"
+  },
+  {
+   "name": "Soul Catcher",
+   "group": "other"
+  },
+  {
+   "name": "Speaker of the Dead",
+   "group": "idol"
+  },
+  {
+   "name": "Spinesnatch",
+   "group": "other"
+  },
+  {
+   "name": "Star of Wraeclast",
+   "group": "race"
+  },
+  {
+   "name": "Starlight Chalice",
+   "group": "other"
+  },
+  {
+   "name": "Storm's Gift",
+   "group": "other"
+  },
+  {
+   "name": "Story of the Vaal",
+   "group": "other"
+  },
+  {
+   "name": "Straight and Narrow",
+   "group": "idol"
+  },
+  {
+   "name": "String of Servitude",
+   "group": "other"
+  },
+  {
+   "name": "Subsume the Source",
+   "group": "other"
+  },
+  {
+   "name": "Talisman of the Victor",
+   "group": "race"
+  },
+  {
+   "name": "Tecrod's Gaze",
+   "group": "other"
+  },
+  {
+   "name": "Tempered Flesh",
+   "group": "other"
+  },
+  {
+   "name": "Tempered Mind",
+   "group": "other"
+  },
+  {
+   "name": "Tempered Spirit",
+   "group": "other"
+  },
+  {
+   "name": "The Adorned",
+   "group": "other"
+  },
+  {
+   "name": "The Anima Stone",
+   "group": "other"
+  },
+  {
+   "name": "The Anticipation",
+   "group": "other"
+  },
+  {
+   "name": "The Blood of Innocence",
+   "group": "sanctum"
+  },
+  {
+   "name": "The Blue Dream",
+   "group": "other"
+  },
+  {
+   "name": "The Blue Nightmare",
+   "group": "other"
+  },
+  {
+   "name": "The Broken Censer",
+   "group": "sanctum"
+  },
+  {
+   "name": "The Chains of Castigation",
+   "group": "sanctum"
+  },
+  {
+   "name": "The Crimson Storm",
+   "group": "other"
+  },
+  {
+   "name": "The Dark Monarch",
+   "group": "other"
+  },
+  {
+   "name": "The First Crest",
+   "group": "sanctum"
+  },
+  {
+   "name": "The Flow Untethered",
+   "group": "other"
+  },
+  {
+   "name": "The Formless Flame",
+   "group": "other"
+  },
+  {
+   "name": "The Formless Inferno",
+   "group": "other"
+  },
+  {
+   "name": "The Gilded Chalice",
+   "group": "sanctum"
+  },
+  {
+   "name": "The Goddess Scorned",
+   "group": "other"
+  },
+  {
+   "name": "The Goddess Unleashed",
+   "group": "other"
+  },
+  {
+   "name": "The Green Dream",
+   "group": "other"
+  },
+  {
+   "name": "The Green Nightmare",
+   "group": "other"
+  },
+  {
+   "name": "The Halcyon",
+   "group": "other"
+  },
+  {
+   "name": "The Hallowed Monarch",
+   "group": "other"
+  },
+  {
+   "name": "The Hateful Accuser",
+   "group": "other"
+  },
+  {
+   "name": "The Hour of Divinity",
+   "group": "sanctum"
+  },
+  {
+   "name": "The Infinite Pursuit",
+   "group": "other"
+  },
+  {
+   "name": "The Night Lamp",
+   "group": "sanctum"
+  },
+  {
+   "name": "The Pandemonius",
+   "group": "other"
+  },
+  {
+   "name": "The Perandus Pact",
+   "group": "other"
+  },
+  {
+   "name": "The Perfect Form",
+   "group": "other"
+  },
+  {
+   "name": "The Power and the Promise",
+   "group": "sanctum"
+  },
+  {
+   "name": "The Queller of Minds",
+   "group": "other"
+  },
+  {
+   "name": "The Red Dream",
+   "group": "other"
+  },
+  {
+   "name": "The Red Nightmare",
+   "group": "other"
+  },
+  {
+   "name": "The Red Trail",
+   "group": "other"
+  },
+  {
+   "name": "The Retch",
+   "group": "other"
+  },
+  {
+   "name": "The Second Sacrament",
+   "group": "sanctum"
+  },
+  {
+   "name": "The Selfish Shepherd",
+   "group": "other"
+  },
+  {
+   "name": "The Siege",
+   "group": "other"
+  },
+  {
+   "name": "The Snowblind Grace",
+   "group": "other"
+  },
+  {
+   "name": "The Sundered Will",
+   "group": "other"
+  },
+  {
+   "name": "The Wellhook",
+   "group": "other"
+  },
+  {
+   "name": "The Will of Esh",
+   "group": "other"
+  },
+  {
+   "name": "The Will of Tul",
+   "group": "other"
+  },
+  {
+   "name": "The Will of Uul-Netol",
+   "group": "other"
+  },
+  {
+   "name": "The Will of Xoph",
+   "group": "other"
+  },
+  {
+   "name": "The Winds of Fate",
+   "group": "sanctum"
+  },
+  {
+   "name": "The Writhing Jar",
+   "group": "other"
+  },
+  {
+   "name": "Thorough Exploration",
+   "group": "idol"
+  },
+  {
+   "name": "Trade Embargo",
+   "group": "idol"
+  },
+  {
+   "name": "Transcendent Flesh",
+   "group": "other"
+  },
+  {
+   "name": "Transcendent Mind",
+   "group": "other"
+  },
+  {
+   "name": "Transcendent Spirit",
+   "group": "other"
+  },
+  {
+   "name": "Tulfall",
+   "group": "heist"
+  },
+  {
+   "name": "Twist of Fate",
+   "group": "idol"
+  },
+  {
+   "name": "Twisted Wish",
+   "group": "idol"
+  },
+  {
+   "name": "Ulaman's Gaze",
+   "group": "other"
+  },
+  {
+   "name": "Unending Nightmare",
+   "group": "idol"
+  },
+  {
+   "name": "United in Dream",
+   "group": "other"
+  },
+  {
+   "name": "Uul-Netol's Embrace",
+   "group": "other"
+  },
+  {
+   "name": "Uul-Netol's Kiss",
+   "group": "other"
+  },
+  {
+   "name": "Uul-Netol's Vow",
+   "group": "other"
+  },
+  {
+   "name": "Uzaza's Meadow",
+   "group": "other"
+  },
+  {
+   "name": "Uzaza's Mountain",
+   "group": "other"
+  },
+  {
+   "name": "Uzaza's Valley",
+   "group": "other"
+  },
+  {
+   "name": "Voice of the Storm",
+   "group": "other"
+  },
+  {
+   "name": "Vorana's Preparation",
+   "group": "other"
+  },
+  {
+   "name": "Well Supplied",
+   "group": "idol"
+  },
+  {
+   "name": "Wellspring of Creation",
+   "group": "idol"
+  },
+  {
+   "name": "Wrath of the Cosmos",
+   "group": "idol"
+  },
+  {
+   "name": "Xoph's Heart",
+   "group": "other"
+  },
+  {
+   "name": "Xoph's Inception",
+   "group": "other"
+  },
+  {
+   "name": "Xoph's Nurture",
+   "group": "other"
+  },
+  {
+   "name": "Yaomac's Accord",
+   "group": "ultimatum"
+  }
+ ]
+}

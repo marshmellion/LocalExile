@@ -1,0 +1,119 @@
+// The Sentinel Recombinators (ExcitingItems' Recombinators.cs): their client rows applied to one item at a time (as a
+// Divine Orb's are; the server's own sentinel_craft window is gone), and a place in the currency tab's spare slots.
+{
+ "edits": [
+  {
+   "table": "CurrencyItems",
+   "where": {
+    "BaseItemTypesKey": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/SentinelCurrencyArmour"
+     }
+    }
+   },
+   "set": {
+    "CurrencyUseType": 2,
+    "Action": "reroll_mod_values",
+    "__col14": 100,
+    "__col22": 1,
+    "Directions": "Right click this item then left click one of two Armours of the same item class, then right click it again and left click the other to combine them."
+   }
+  },
+  {
+   "table": "CurrencyItems",
+   "where": {
+    "BaseItemTypesKey": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/SentinelCurrencyWeapon"
+     }
+    }
+   },
+   "set": {
+    "CurrencyUseType": 2,
+    "Action": "reroll_mod_values",
+    "__col14": 100,
+    "__col22": 1,
+    "Directions": "Right click this item then left click one of two Weapons or Quivers of the same item class, then right click it again and left click the other to combine them."
+   }
+  },
+  {
+   "table": "CurrencyItems",
+   "where": {
+    "BaseItemTypesKey": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/SentinelCurrencyJewellery"
+     }
+    }
+   },
+   "set": {
+    "CurrencyUseType": 2,
+    "Action": "reroll_mod_values",
+    "__col14": 100,
+    "__col22": 1,
+    "Directions": "Right click this item then left click one of two Jewellery items of the same item class, then right click it again and left click the other to combine them."
+   }
+  }
+ ],
+ "rows": [
+  {
+   "table": "StashTabAffinityByBaseItemType",
+   "copyOf": {
+    "BaseItemType": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/CurrencyRhoaFeather"
+     }
+    }
+   },
+   "set": {
+    "BaseItemType": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/SentinelCurrencyArmour"
+     }
+    }
+   }
+  },
+  {
+   "table": "StashTabAffinityByBaseItemType",
+   "copyOf": {
+    "BaseItemType": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/CurrencyRhoaFeather"
+     }
+    }
+   },
+   "set": {
+    "BaseItemType": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/SentinelCurrencyWeapon"
+     }
+    }
+   }
+  },
+  {
+   "table": "StashTabAffinityByBaseItemType",
+   "copyOf": {
+    "BaseItemType": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/CurrencyRhoaFeather"
+     }
+    }
+   },
+   "set": {
+    "BaseItemType": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/SentinelCurrencyJewellery"
+     }
+    }
+   }
+  }
+ ]
+}

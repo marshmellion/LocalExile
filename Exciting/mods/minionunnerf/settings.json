@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "settings": {
+    "enabled": {
+      "type": "bool",
+      "default": true,
+      "label": "Minion Unnerf on",
+      "applies": "restart"
+    },
+    "spectres": {
+      "type": "group",
+      "label": "Spectres",
+      "settings": {
+        "oldLevel": {
+          "type": "bool",
+          "default": true,
+          "label": "Spectre level as before 3.19",
+          "description": "Gem level 20 makes level 76 spectres (now 70), gem level 25 makes 83 (now 78).",
+          "applies": "restart"
+        },
+        "extraLevels": {
+          "type": "integer",
+          "default": 0,
+          "min": -20,
+          "max": 30,
+          "label": "Extra spectre levels",
+          "description": "Added to the spectre level after that.",
+          "applies": "restart"
+        },
+        "maxLevel": {
+          "type": "integer",
+          "default": 100,
+          "min": 1,
+          "max": 100,
+          "label": "Highest spectre level",
+          "applies": "restart"
+        },
+        "moreDamage": {
+          "type": "integer",
+          "default": 0,
+          "min": -90,
+          "max": 1000,
+          "unit": "%",
+          "label": "Spectres deal more damage",
+          "description": "A \"more\" multiplier on top of everything else.",
+          "applies": "restart"
+        },
+        "moreLife": {
+          "type": "integer",
+          "default": 0,
+          "min": -90,
+          "max": 1000,
+          "unit": "%",
+          "label": "Spectres have more life",
+          "applies": "restart"
+        },
+        "anyCorpse": {
+          "type": "bool",
+          "default": true,
+          "label": "Any monster can be a spectre",
+          "description": "Every corpse can be raised, including monsters GGG made un-raisable.",
+          "applies": "restart"
+        },
+        "uniques": {
+          "type": "bool",
+          "default": true,
+          "label": "Unique monsters too",
+          "description": "Unique monsters and bosses can be raised. A few bosses may not act right as spectres.",
+          "applies": "restart"
+        },
+        "bosses": {
+          "type": "bool",
+          "default": true,
+          "label": "Map and pinnacle bosses too",
+          "description": "Off: unique monsters can be raised, but not map, Atlas or pinnacle bosses.",
+          "applies": "restart"
+        },
+        "commandIgnoresSpellEcho": {
+          "type": "bool",
+          "default": true,
+          "label": "/spectre raises one spectre",
+          "description": "The /spectre command's cast does not repeat with Spell Echo (which would raise a second corpse). Your own Raise Spectre casts are unchanged.",
+          "applies": "restart"
+        }
+      }
+    },
+    "minions": {
+      "type": "group",
+      "label": "Other minions",
+      "settings": {
+        "oldScaling": {
+          "type": "bool",
+          "default": true,
+          "label": "Minion damage and life as before 3.19",
+          "description": "3.19 cut the damage and life of minions (not spectres) by about 20% at gem level 20. This gives it back.",
+          "applies": "restart"
+        },
+        "moreDamage": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 1000,
+          "unit": "%",
+          "label": "More minion damage",
+          "description": "25% more makes up for 20% less. Animate Guardian, Animate Weapon, Blink Arrow and Mirror Arrow are left out: 3.19 did not change their damage.",
+          "applies": "restart"
+        },
+        "moreLife": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 1000,
+          "unit": "%",
+          "label": "More minion life",
+          "applies": "restart"
+        }
+      }
+    },
+    "supports": {
+      "type": "group",
+      "label": "Support gems",
+      "settings": {
+        "oldMinionDamage": {
+          "type": "bool",
+          "default": true,
+          "label": "Minion Damage Support as before 3.15",
+          "description": "25% to 49% more damage at gem levels 1 to 20 (now 25% to 39%).",
+          "applies": "restart"
+        },
+        "noLifePenalty": {
+          "type": "bool",
+          "default": true,
+          "label": "No \"25% less maximum life\" on Minion Damage Supports",
+          "description": "3.15 added it (the Awakened one has it too).",
+          "applies": "restart"
+        }
+      }
+    },
+    "kills": {
+      "type": "group",
+      "label": "Kills",
+      "settings": {
+        "minionKillsAreYours": {
+          "type": "bool",
+          "default": true,
+          "label": "Minion kills count as your kills too",
+          "description": "A kill by your minion (or your totem, trap or mine) also counts as yours: your on-kill effects, charges on kill and other \"when you kill\" bonuses happen for it. It still counts as the minion's kill.",
+          "applies": "restart"
+        }
+      }
+    }
+  }
+}
