@@ -28,8 +28,8 @@ public static partial class Game
 
     static bool SpatialSpellEffect(string? effect) =>
         IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect)
-            || IsCracklingLance(effect) || effect is "LightningConduitAltX" or ManabondEffect or "VortexAltX"
-            or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect or TrarthanBargain
+            || IsCracklingLance(effect) || effect is "LightningConduitAltX" or ManabondEffect || IsVortex(effect)
+            || effect is "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect or TrarthanBargain
             || ShockNovaEffect(effect) || GlacialCascadeEffect(effect) || effect == DivineRetributionEffect;
 
     static DamagePacket BladeBlastDaggerDamage(Player player, int gain)
@@ -129,7 +129,7 @@ public static partial class Game
                             sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: area.Covers,
                             hitAndAilmentMore: beidatMore);
                     });
-                else if (effect == "VortexAltX")
+                else if (IsVortex(effect))
                     ReleaseVortexProjection(gem, from, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
                         sequence, repeat, damageMore, brandedTarget, dotMore);
                 else if (effect == TrarthanBargain)
