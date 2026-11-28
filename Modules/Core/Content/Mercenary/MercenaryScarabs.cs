@@ -128,6 +128,7 @@ public sealed partial class MercenaryModule
                     {
                         Name = wildName, Team = MercenaryWire.MercenaryTeam, MercenaryBuild = pick.Build.Hash16,
                         StateMachine = States(variety, MercenaryWire.PartyIdleStates), HasDialogue = false, NpcFlags = 0, InteractionFlags = 0,
+                        Skills = WithPortalOut(player, variety, area.Level, o.Skills),
                     })
                 : await SpawnMonster(player, variety, area.Level, MonsterRarity.Unique, at.X, at.Y, instanceOwned: true,
                     ownedLooks: MercenaryEquipment.Looks(equipment, fallback), extraMods: MercenaryEquipment.Effects(equipment, difficulty),

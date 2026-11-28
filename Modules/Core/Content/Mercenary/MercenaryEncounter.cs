@@ -214,6 +214,7 @@ public sealed partial class MercenaryModule
                 Name = displayName, Team = MercenaryWire.MercenaryTeam, StateMachine = met, MercenaryBuild = build.Hash16,
                 HasDialogue = true, NpcFlags = 1, InteractionFlags = 1,
                 MinimapIcon = iconRow >= 0 ? (ushort)(iconRow + 1) : (ushort)0,
+                Skills = WithPortalOut(player, variety, level, m.Skills),
             });
         if (id == 0) return false;
         if (player.Area.Monsters.TryGetValue(id, out var body))
@@ -399,23 +400,39 @@ public sealed partial class MercenaryModule
 
     async Task Remove(Player player, uint id)
     {
+        var world = player.Instance.World;
         int miIdx = -1;
-        if (player.Area.Monsters.TryGetValue(id, out var existing) && existing.Variety is { } ev)
+        if ((player.Area.Monsters.TryGetValue(id, out var existing)
+                || player.Area.DormantMonsters.TryGetValue(id, out existing)
+                || world.Area.Monsters.TryGetValue(id, out existing)
+                || world.Area.DormantMonsters.TryGetValue(id, out existing))
+            && existing.Variety is { } ev)
             miIdx = IndexOf(ev.ComponentsOrBase, "MinimapIcon");
-        else if (player.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+        else if (world.MonsterOrigins.TryGetValue(id, out var origin))
             miIdx = IndexOf(origin.Object.Components, "MinimapIcon");
-        player.Instance.World.MonsterOrigins.TryRemove(id, out _);
+
+        bool removed = world.MonsterOrigins.TryRemove(id, out _);
+        removed |= player.Area.Monsters.Remove(id);
+        removed |= player.Area.DormantMonsters.Remove(id);
+        removed |= world.Area.Monsters.Remove(id);
+        removed |= world.Area.DormantMonsters.Remove(id);
+        lock (player.Npcs) removed |= player.Npcs.Remove(id);
+
+        Player? viewer = null;
         foreach (var member in Members(player))
         {
-            member.Area.Monsters.Remove(id);
-            lock (member.Npcs) member.Npcs.Remove(id);
+            viewer ??= member;
+            removed |= member.Area.Monsters.Remove(id);
+            removed |= member.Area.DormantMonsters.Remove(id);
+            lock (member.Npcs) removed |= member.Npcs.Remove(id);
         }
+        if (!removed || viewer is null) return;
         // Hide MinimapIcon before 0x02bd: MercenaryEncounter (row 668) has __col3 == 0, so removing a visible
         // entity detaches and permanently pins its crossed-swords icon on the minimap/tab map.
         if (miIdx >= 0)
-            await Everyone(player, member => SendWorldRecord(member, id, InstanceEntities.HideMinimapIcon(id, (byte)miIdx),
+            await Everyone(viewer, member => SendWorldRecord(member, id, InstanceEntities.HideMinimapIcon(id, (byte)miIdx),
                 $"0x02bc hide mercenary 0x{id:x} minimap icon"));
-        await Everyone(player, member => SendWorldRemoval(member, id, $"0x02bd remove mercenary 0x{id:x}"));
+        await Everyone(viewer, member => SendWorldRemoval(member, id, $"0x02bd remove mercenary 0x{id:x}"));
     }
 
     static int IndexOf(IReadOnlyList<string> items, string value)
@@ -605,6 +622,7 @@ public sealed partial class MercenaryModule
             while (run.Steps < MercenaryWire.CountdownFrames.Length
                 && run.Clock >= MercenaryWire.CountdownFrames[run.Steps] * MercenaryWire.FrameSeconds)
             {
+                lock (run) if (run.Stage != Stage.Countdown) break;
                 int step = run.Steps++;
                 uint id = run.Body;
                 if (step == 0)
@@ -643,7 +661,12 @@ public sealed partial class MercenaryModule
         if (MercenaryTables.ClassOf(run.Class) is not { } kind || MercenaryTables.BuildOf(run.Build) is not { } build
             || Monsters.Find(kind.Path) is not { Supported: true } variety || States(variety, MercenaryWire.DuelStates) is not { } duel
             || !Alive(player)) return false;
-        uint old = run.Body;
+        uint old;
+        lock (run)
+        {
+            if (run.Stage != Stage.Countdown) return false;
+            old = run.Body;
+        }
         string displayName = MercenaryTables.FormatName(run.FirstNameHash32, run.SecondNameHash32) ?? build.Name;
         uint id = await SpawnMonster(player, variety, run.Level, MonsterRarity.Unique, run.X, run.Y,
             ownedLooks: GearOf(kind, build, run.Level, run.Seed, run), extraMods: MercenaryEquipment.Effects(run.Equipment), shape: m => m with
@@ -652,13 +675,23 @@ public sealed partial class MercenaryModule
                 Skills = WithPortalOut(player, variety, run.Level, m.Skills),
             }, ownedKit: KitOf(player, variety, build, run.Level, run.Seed, run.Skills));
         if (id == 0) return false;
-        if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = duel;
-        await Remove(player, old);
+        bool aborted;
         lock (run)
         {
-            run.Stage = Stage.Duel;
-            run.Body = id;
+            aborted = run.Stage != Stage.Countdown;
+            if (!aborted)
+            {
+                run.Stage = Stage.Duel;
+                run.Body = id;
+            }
         }
+        if (aborted)
+        {
+            await Remove(player, id);
+            return false;
+        }
+        if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = duel;
+        await Remove(player, old);
         await JoinEscorts(player, run);
         Save(player, run);
         context.Log($"{player.Layout.Id}: mercenary 0x{old:x} duels as 0x{id:x} (offer={run.ChosenOffer})");
@@ -670,12 +703,18 @@ public sealed partial class MercenaryModule
     async Task JoinEscorts(Player player, Run run)
     {
         Wild[] escorts;
-        lock (run) escorts = [.. run.Wilds.Where(w => w.Escort && !w.Joined && !w.Paid)];
+        lock (run)
+        {
+            if (run.Stage != Stage.Duel) return;
+            escorts = [.. run.Wilds.Where(w => w.Escort && !w.Joined && !w.Paid)];
+        }
         foreach (var wild in escorts)
         {
+            lock (run) if (run.Stage != Stage.Duel || wild.Paid) return;
             if (MercenaryTables.ClassOf(wild.Class) is not { } kind || MercenaryTables.BuildOf(wild.Build) is not { } build
                 || Monsters.Find(kind.Path) is not { Supported: true } variety) continue;
-            var at = player.Area.Monsters.TryGetValue(wild.Body, out var idle) ? idle.Walk.Position(AreaTime(player)) : (wild.X, wild.Y);
+            uint oldBody = wild.Body;
+            var at = player.Area.Monsters.TryGetValue(oldBody, out var idle) ? idle.Walk.Position(AreaTime(player)) : (wild.X, wild.Y);
             var looks = MercenaryEquipment.Looks(wild.Equipment, MercenaryGear.Of(kind, build, run.Level,
                 new Random(unchecked(run.Seed * 397 ^ build.Row))));
             uint id = await SpawnMonster(player, variety, run.Level, MonsterRarity.Unique, at.X, at.Y, instanceOwned: true,
@@ -687,14 +726,24 @@ public sealed partial class MercenaryModule
                     Skills = WithPortalOut(player, variety, run.Level, o.Skills),
                 });
             if (id == 0) continue;
-            await Remove(player, wild.Body);
+            bool aborted;
             lock (run)
             {
-                wild.Body = id;
-                wild.X = at.X;
-                wild.Y = at.Y;
-                wild.Joined = true;
+                aborted = run.Stage != Stage.Duel || wild.Paid;
+                if (!aborted)
+                {
+                    wild.Body = id;
+                    wild.X = at.X;
+                    wild.Y = at.Y;
+                    wild.Joined = true;
+                }
             }
+            if (aborted)
+            {
+                await Remove(player, id);
+                return;
+            }
+            await Remove(player, oldBody);
         }
     }
 
@@ -732,25 +781,96 @@ public sealed partial class MercenaryModule
         Save(player, run);
         context.Log($"{player.Layout.Id}: mercenary duel lost ({why}); 0x{body:x} and {escorts.Length} escort(s) leave");
         uint[] leavers = [.. new[] { body }.Concat(escorts.Select(w => w.Body)).Where(id => id != 0)];
+        await RemoveEncounterInventories(player, run);
         if (!leaving)
         {
+            foreach (uint id in leavers) FreezeMonster(player, id);
             if (body != 0)
-            {
                 await SetStates(player, body, MercenaryWire.FailedStates, "(3, 0, 0, 1): the duel was lost");
-                await AreaDelay(player, 1.5); // [ESTIMATE] time for its line before it goes
-            }
-            bool any = false;
-            foreach (uint id in leavers) any |= await StartPortalOut(player, id);
-            // portal_out_01 fires its "leave" event at 0.64 s; Merc_FadeOut (from 0.39 s) needs a little longer.
-            if (any) await AreaDelay(player, 1.0);
+            if (leavers.Length > 0)
+                _ = AreaFrames.Start(() => FinishFailedDuelAsync(player, body, leavers));
+            return;
         }
         foreach (uint id in leavers) await Remove(player, id);
+    }
+
+    async Task FinishFailedDuelAsync(Player player, uint body, uint[] leavers)
+    {
+        try
+        {
+            if (body != 0)
+                await AreaDelay(player, 1.5); // [ESTIMATE] time for its line before it goes
+            var viewer = Members(player).FirstOrDefault();
+            if (viewer is null)
+            {
+                foreach (uint id in leavers) await Remove(player, id);
+                return;
+            }
+            bool any = false;
+            foreach (uint id in leavers) any |= await StartPortalOut(viewer, id);
+            // portal_out_01 fires its "leave" event at 0.64 s; Merc_FadeOut (from 0.39 s) needs a little longer.
+            if (any) await AreaDelay(viewer, 1.0);
+            var finalViewer = Members(player).FirstOrDefault() ?? viewer;
+            foreach (uint id in leavers) await Remove(finalViewer, id);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { context.Log($"{player.Layout.Id}: mercenary duel-loss cleanup failed: {ex.Message}"); }
+    }
+
+    async Task RemoveFailedLeavers(Player player, Run run)
+    {
+        uint[] leavers;
+        lock (run)
+        {
+            if (run.Stage != Stage.Failed) return;
+            leavers = [.. new[] { run.Body }.Concat(run.Wilds.Where(w => w.Escort).Select(w => w.Body)).Where(id => id != 0).Distinct()];
+        }
+        var world = player.Instance.World;
+        foreach (uint id in leavers)
+            if (player.Area.Monsters.ContainsKey(id)
+                || player.Area.DormantMonsters.ContainsKey(id)
+                || world.Area.Monsters.ContainsKey(id)
+                || world.Area.DormantMonsters.ContainsKey(id)
+                || world.MonsterOrigins.ContainsKey(id))
+                await Remove(player, id);
+    }
+
+    static async Task RemoveEncounterInventories(Player player, Run run)
+    {
+        bool hasRucksack = run.RucksackItems.Count > 0;
+        foreach (var member in Members(player))
+        {
+            await Send(member, InstanceInventories.RemoveInventory(MercenaryWire.EncounterGearInventoryId, InstanceMercenaries.EncounterInventoryManager),
+                "0x00c1 remove encounter gear inventory");
+            if (hasRucksack)
+                await Send(member, InstanceInventories.RemoveInventory(MercenaryWire.EncounterRucksackInventoryId, InstanceMercenaries.EncounterInventoryManager),
+                    "0x00c1 remove encounter rucksack inventory");
+        }
+    }
+
+    static void FreezeMonster(Player player, uint id)
+    {
+        double now = AreaTime(player);
+        if (player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead) Freeze(m, now);
+        if (!ReferenceEquals(player.Instance.World.Area.Monsters, player.Area.Monsters)
+            && player.Instance.World.Area.Monsters.TryGetValue(id, out var wm) && !wm.Dead)
+            Freeze(wm, now);
+
+        static void Freeze(SpawnedMonster m, double now)
+        {
+            var at = m.Walk.Position(now);
+            m.Walk.Order(at.X, at.Y, now);
+            ++m.ActionGeneration;
+            m.SwingGeneration = null;
+            m.BusyUntil = double.MaxValue;
+        }
     }
 
     /// <summary>The duel body's actor skills with EASMercenaryPortalOut added last, so it can leave as in retail.</summary>
     static IReadOnlyList<GrantedSkill>? WithPortalOut(Player player, MonsterCatalog.Variety variety, byte level,
         IReadOnlyList<GrantedSkill>? skills)
     {
+        if (skills?.Any(s => s.Id == MercenaryWire.PortalOutSkillId) == true) return skills;
         var catalog = SkillsFor(player);
         int effect = variety.GrantedEffects?.FirstOrDefault(e => BossKits.IsLeavePortal(catalog, e), -1) ?? -1;
         if (effect < 0 || catalog.FindByRow(MercenaryWire.PortalOutSkillId, effect, catalog.MaxLevelAt(effect, level)) is not { } portal)
@@ -763,12 +883,11 @@ public sealed partial class MercenaryModule
     async Task<bool> StartPortalOut(Player player, uint id)
     {
         if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead) return false;
-        double now = AreaTime(player);
-        var at = m.Walk.Position(now);
-        m.Walk.Order(at.X, at.Y, now);
-        ++m.ActionGeneration;
-        m.SwingGeneration = null;
-        m.BusyUntil = double.MaxValue;
+        FreezeMonster(player, id);
+        if (!player.Instance.World.MonsterOrigins.TryGetValue(id, out var origin)
+            || origin.Object.Skills?.Any(s => s.Id == MercenaryWire.PortalOutSkillId) != true)
+            return false;
+        var at = m.Walk.Position(AreaTime(player));
         // Sent directly, not by SendMonsterAction: that sends nothing once the player is dead, which is how most duels are lost.
         await Everyone(player, member => SendWorldRecord(member, id, InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y,
             MercenaryWire.PortalOutSkillId, member.NextActionSequence(), 0), $"mercenary 0x{id:x} portal_out_01"));

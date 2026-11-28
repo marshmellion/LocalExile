@@ -246,9 +246,14 @@ public sealed partial class MercenaryModule
     async Task OnPlayerLeaving(Player player, string why)
     {
         CloseCompanionTransient(player);
-        // Leaving the area mid-duel forfeits it, as dying does.
-        if (Peek(player) is { Stage: Stage.Duel or Stage.Countdown } run && IsDuelInitiator(player, run))
-            await LoseDuel(player, run, $"the initiator left the area ({why})", leaving: true);
+        // Leaving the area mid-duel forfeits it, as dying does; leaving mid-delay after losing cleans up leavers immediately.
+        if (Peek(player) is { } run)
+        {
+            if (run.Stage is Stage.Duel or Stage.Countdown && IsDuelInitiator(player, run))
+                await LoseDuel(player, run, $"the initiator left the area ({why})", leaving: true);
+            else if (run.Stage == Stage.Failed && (IsDuelInitiator(player, run) || !Members(player).Any()))
+                await RemoveFailedLeavers(player, run);
+        }
     }
 
     void CloseCompanionTransient(Player player)
