@@ -266,6 +266,11 @@ Say 'and asks you for a login name and password for your server (any name you li
 Wait 'Press Enter to start'
 $setupArgs = @{}
 if ($client) { $setupArgs.ClientSource = $client }
+Say ''
+Say 'Quality of Life can put its buttons inside the game: Loot and Sort by the inventory, Deposit all and Sort tab on'
+Say 'the stash, price lines, and the gem and Harvest panels (NativeMods). Without them you still get its small overlay'
+Say 'window with the same buttons. If the game ever closes right at start, Exciting\setup.cmd -NoNativeMods turns them off.'
+if (Ask 'Put the buttons inside the game (recommended)?') { $setupArgs.NativeMods = $true } else { $setupArgs.NoNativeMods = $true }
 & (Join-Path $Folder 'Exciting\setup.ps1') @setupArgs
 if ($LASTEXITCODE -ne 0) { Warn 'Setup stopped: read the red line above, fix that, and run install.cmd again.'; Wait 'Press Enter to close'; exit 1 }
 }

@@ -1,13 +1,14 @@
 # Exciting Items build of LocalExile: sets up (or updates) this checkout to play.
 #   setup.cmd            first time, and whenever you like: checks what you need, copies your client, makes your
-#                        login keys and patched client, installs the mods (NativeMods only with -NativeMods)
+#                        login keys and patched client, installs the mods and the in-game buttons (NativeMods; off with
+#                        -NoNativeMods, which is remembered; -NativeMods turns them on again)
 #   update.cmd           pulls the newest build first (git pull), then does the same
 #   update-all.cmd       update.cmd, then every other installed mod our mods repository has newer (update-all.ps1)
 #   use-testing.cmd      switches to the testing build (branch exciting-testing: what is being tried before a release)
 #   use-release.cmd      switches back to the released build (branch exciting)
 # The mods' client content (new items' art and text) goes into Client\ when the game starts (scripts\dev\live.ps1).
 # Safe to run again: each step does nothing when it is already done. Nothing outside this folder is changed.
-param([switch]$Update, [string]$ClientSource = '', [switch]$NativeMods, [ValidateSet('', 'exciting', 'exciting-testing')][string]$Branch = '')
+param([switch]$Update, [string]$ClientSource = '', [switch]$NativeMods, [switch]$NoNativeMods, [ValidateSet('', 'exciting', 'exciting-testing')][string]$Branch = '')
 
 $ErrorActionPreference = 'Stop'
 $kit = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -120,13 +121,19 @@ if ($patch) {
 }
 Ok 'Client\Game.patched.exe trusts your keys (the item symbol hook and the mods'' content are added when the game starts)'
 
-Step 'NativeMods (optional: the QoL panels inside the game)'
-if (-not $NativeMods) { Note 'not installed (setup.cmd -NativeMods installs it; it is experimental on Windows)'; if (Test-Path 'Client\version.dll') { Move-Item 'Client\version.dll' 'Client\version.dll.off' -Force; Note 'turned an earlier NativeMods off (Client\version.dll.off)' } }
+Step 'The in-game buttons and panels (NativeMods)'
+# On unless you turned it off: -NoNativeMods leaves Client\version.dll.off behind, which keeps it off at every update.
+$NativeMods = if ($NoNativeMods) { $false } elseif ($NativeMods) { $true } else { -not (Test-Path 'Client\version.dll.off') }
+if (-not $NativeMods) {
+    if (Test-Path 'Client\version.dll') { Move-Item 'Client\version.dll' 'Client\version.dll.off' -Force }
+    Note 'off: only the QoL overlay window (setup.cmd -NativeMods turns the in-game buttons on)'
+}
 elseif (-not $is3293d) { Note 'skipped: NativeMods is made for the 3.29.3d client' }
 else {
     $hostDir = 'Client\nativemods-host'
     New-Item -ItemType Directory -Force -Path $hostDir, "$hostDir\addresses" | Out-Null
     Copy-Item "$kit\nativemods\version.dll", "$kit\nativemods\LocalExile.ClientHost.dll" 'Client\' -Force
+    Remove-Item 'Client\version.dll.off' -Force -ErrorAction SilentlyContinue
     Copy-Item "$kit\nativemods\host\*.dll" $hostDir -Force
     Copy-Item "$kit\nativemods\host\addresses\*.json" "$hostDir\addresses" -Force
     # NativeMods runs on .NET inside the game: a private copy of your .NET 10 runtime goes beside it (nothing is installed).
@@ -154,7 +161,7 @@ else {
 }
 "@
     [IO.File]::WriteAllText((Join-Path $repo "$hostDir\LocalExile.Client.Host.runtimeconfig.json"), $config)
-    Ok "installed (on .NET $($rt.Text)); its log: Client\nativemods-host\nativemods-shim.log"
+    Ok "on: the QoL buttons and panels inside the game (on .NET $($rt.Text); log: Client\nativemods-host\nativemods-shim.log)"
 }
 
 Step 'The mods'

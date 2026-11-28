@@ -26,9 +26,22 @@ public sealed class QolClientMod : IClientMod
     bool _hidden, _unloading;
     double _sinceApply;
 
-    readonly List<ISlotAttachment> _all = [];
-    ISlotAttachment? _prices, _vendor, _sortTab, _maps;
-    readonly List<ISlotAttachment> _stashButtons = [];
+    /// <summary>One button: its own small window (a dark box with a border around the game's button), placed by the
+    /// settings in the game's 1600-high coordinates. A negative x counts from the right edge of the screen.</summary>
+    sealed class Btn(string id, string path, string action, Place place)
+    {
+        public readonly string Id = id, Path = path, Action = action;
+        public readonly Place Place = place;
+        public IUiWindow? Window;
+        public IUiControl? Face;
+        public bool Failed;
+        public float SetX = float.NaN, SetY = float.NaN;
+        public string Text = "";
+    }
+    readonly List<Btn> _buttons = [];
+    bool _buttonsFailed, _firstWindowMade;
+    const string FirstUi = "Metadata/UI/Mods/Qol/First.ui";
+    Btn? _loot, _invSort, _prices, _deposit, _vendor, _sortTab, _maps;
 
     string _lastMessage = "";
     int _lastToastId = -1;
@@ -50,26 +63,17 @@ public sealed class QolClientMod : IClientMod
         foreach (string name in new[] { "Harvest.ui", "Gems.ui", "Prices.ui" })
             context.TrackDisposable(game.Files.RegisterVirtualTextFile("Metadata/UI/Mods/Qol/" + name, Resource(name), priority: 50));
 
-        if (_s.HudButtons)
-        {
-            Slot(ScreenSlot.HudTopRight, "qol.hud.loot", "Loot", "loot", 10, 80, "Bring the loot your filter shows to your feet");
-            Slot(ScreenSlot.HudTopRight, "qol.hud.sort", "Sort", "sort", 20, 80, "Sort the inventory");
-            _prices = Slot(ScreenSlot.HudTopRight, "qol.hud.prices", "Prices", "prices", 30, 130, "Price lines on picking up currency: on or off");
-        }
-        if (_s.InventorySortButton)
-            Slot(ScreenSlot.InventoryToolbar, "qol.inv.sort", "Sort", "sort", 50, 80, "Sort the inventory");
-        if (_s.StashButtons is "header" or "footer")
-        {
-            ScreenSlot place = _s.StashButtons == "footer" ? ScreenSlot.StashFooter : ScreenSlot.StashHeader;
-            _stashButtons.Add(Slot(place, "qol.stash.deposit", "Deposit all", "deposit", 50, 130,
-                "Put the inventory into the stash: special tabs, affinity tabs, tabs named after the item's kind, then this tab"));
-            _vendor = Slot(place, "qol.stash.vendor", "Vendor tab", "vendor", 60, 170, "Sell everything in the tab shown (press twice)");
-            _sortTab = Slot(place, "qol.stash.sorttab", "Sort tab", "sorttab", 70, 110, "Sort the normal, premium or quad tab shown");
-            _stashButtons.Add(_vendor);
-            _stashButtons.Add(_sortTab);
-        }
-        if (_s.MapButton)
-            _maps = Slot(ScreenSlot.MapTabBar, "qol.maps.upgrade", "Upgrade maps", "maps", 50, 150, "Three maps of a tier make one of the next tier");
+        Buttons bs = _s.Buttons;
+        context.TrackDisposable(game.Files.RegisterVirtualTextFile(FirstUi,
+            "// QoL (in-game panels): the first window (see Show)\n<DEFINITIONS>\n\nbegin Frame\n\tid = qol_first;\n\tsize = 4, 4;\n\tvisible = false;\n\tmouse_enabled = false;\nend\n", priority: 50));
+        _loot = Button("loot", "Loot", "loot", bs.Loot, "Bring the loot your filter shows to your feet");
+        _invSort = Button("invsort", "Sort", "sort", bs.InventorySort, "Sort the inventory");
+        _prices = Button("prices", "Prices: on", "prices", bs.Prices, "Price lines on picking up currency: on or off");
+        _deposit = Button("deposit", "Deposit all", "deposit", bs.Deposit,
+            "Put the inventory into the stash: special tabs, affinity tabs, tabs named after the item's kind, then this tab");
+        _sortTab = Button("sorttab", "Sort tab", "sorttab", bs.SortTab, "Sort the normal, premium or quad tab shown");
+        _vendor = Button("vendor", "Vendor tab", "vendor", bs.Vendor, "Sell everything in the tab shown (press twice)");
+        _maps = Button("maps", "Upgrade maps", "maps", bs.Maps, "Three maps of a tier make one of the next tier");
 
         foreach (var (action, label) in new[] { ("loot", "QoL: bring loot"), ("sort", "QoL: sort inventory"), ("deposit", "QoL: deposit all"),
                      ("prices", "QoL: price lines on/off"), ("hide", "QoL: hide/show the QoL buttons"), ("gems", "QoL: alternate quality gems"),
@@ -96,8 +100,10 @@ public sealed class QolClientMod : IClientMod
         if (_ctx is { } ctx) ctx.Game.Frame -= OnFrame;
         foreach (var w in new[] { _priceWindow, _gemWindow, _harvestWindow }) try { w?.Close(); } catch (Exception) { }
         _priceWindow = _gemWindow = _harvestWindow = null;
-        _all.Clear();
-        _stashButtons.Clear();
+        foreach (Btn b in _buttons) try { b.Window?.Close(); } catch (Exception) { }
+        _buttons.Clear();
+        _buttonsFailed = false;
+        _firstWindowMade = false;
         _crafts.Clear();
         try { _http.Dispose(); } catch (Exception) { }
         _ctx = null;
@@ -110,13 +116,124 @@ public sealed class QolClientMod : IClientMod
         return r.ReadToEnd();
     }
 
-    ISlotAttachment Slot(ScreenSlot slot, string id, string text, string action, int order, float width, string tip)
+    Btn? Button(string id, string text, string action, Place place, string tip)
     {
-        ISlotAttachment a = _ctx!.Game.Screens.RegisterSlotButton(slot, id, text, () => Do(action),
-            new SlotAttachmentOptions(Order: order, Width: width, Height: 30f, Tooltip: tip));
-        _ctx.TrackDisposable(a);
-        _all.Add(a);
-        return a;
+        if (!place.Show) return null;
+        float w = Math.Clamp(place.Width, 20, 600), h = Math.Clamp(place.Height, 12, 200);
+        string path = $"Metadata/UI/Mods/Qol/Button_{id}.ui";
+        string clean(string t) => t.Replace('"', '\'').Replace('\n', ' ').Replace('\r', ' ');
+        string ui = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"""
+            // QoL (in-game panels): the {id} button
+            <DEFINITIONS>
+
+            begin Frame
+            	id = qol_button_{id};
+            	aspect_mode = scaley;
+            	size = {w}, {h};
+            	location = 0, 0;
+            	visible = false;
+            	mouse_enabled = true;
+            	propagate_properties = false;
+            	background_colour = argb( 236, 14, 12, 10 );
+            	pixel_border_colour = rgb( 137, 100, 64 );
+
+            	begin Button
+            		id = btn;
+            		location = 0, 0;
+            		size = {w}, {h};
+            		text = "{clean(text)}";
+            	end
+            end
+
+            """);
+        _ctx!.TrackDisposable(_ctx.Game.Files.RegisterVirtualTextFile(path, ui, priority: 50));
+        var b = new Btn(id, path, action, place) { Text = text };
+        _buttons.Add(b);
+        return b;
+    }
+
+    /// <summary>Shows or hides a button; its window is made the first time it shows. A window that cannot be made is
+    /// logged once and left alone (the keys and chat commands still work).</summary>
+    void Show(Btn? b, bool visible, float screenWidth, float dx = 0, string? text = null)
+    {
+        // The game's layout reader throws on a file it does not like and is not safe to use again after that, so one
+        // failure stops every button from being made (the keys and chat commands still work).
+        if (b is null || _buttonsFailed) return;
+        if (b.Window is not { IsOpen: true })
+        {
+            if (!visible) return;
+            // Every button's window is made together, the first time one shows: the game then puts them all under
+            // the same parent (the one it has at that moment), so their places are measured from the same thing.
+            // The first window made after entering the game goes under a different parent from the ones after it and
+            // never shows, so a throwaway window is made first.
+            if (!_firstWindowMade)
+            {
+                _firstWindowMade = true;
+                try { _ctx!.Game.Ui.Load(FirstUi, "qol_first").Visible = false; }
+                catch (Exception e) { _buttonsFailed = true; _ctx!.Logger.Warn($"qol: no buttons: {e.Message}"); return; }
+            }
+            foreach (Btn each in _buttons)
+            {
+                if (each.Window is { IsOpen: true }) continue;
+                try
+                {
+                    each.Window = _ctx!.Game.Ui.Load(each.Path, "qol_button_" + each.Id);
+                    each.Window.Visible = false;
+                    each.Face = each.Window.Find<IButton>("btn");
+                    if (each.Face is IButton face) { string action = each.Action; face.Clicked += () => Do(action); }
+                    each.SetX = each.SetY = float.NaN;
+                }
+                catch (Exception e) { each.Failed = true; _buttonsFailed = true; _ctx!.Logger.Warn($"qol: the {each.Id} button was not made, no more buttons are tried: {e.Message}"); return; }
+            }
+            if (b.Window is not { IsOpen: true }) return;
+        }
+        if (visible)
+        {
+            float x = (b.Place.X < 0 ? screenWidth + b.Place.X : b.Place.X) + dx, y = b.Place.Y;
+            // The game places a window from the middle of the screen: (0, 0) is a window centred on it. The settings
+            // count from the top left corner, so they are converted (buttons.origin "topleft" passes them through).
+            if (!string.Equals(_s.Buttons.Origin, "topleft", StringComparison.OrdinalIgnoreCase))
+            {
+                x -= (screenWidth - b.Place.Width) / 2;
+                y -= (1600f - b.Place.Height) / 2;
+            }
+            if (!(Math.Abs(b.SetX - x) < 0.5f && Math.Abs(b.SetY - y) < 0.5f)) { b.Window.SetPosition(x, y); b.SetX = x; b.SetY = y; }
+            if (text is not null && b.Face is { } f && b.Text != text) { f.Text = text; b.Text = text; }
+        }
+        if (b.Window.Visible != visible) b.Window.Visible = visible;
+    }
+
+    // Writes where the game says each button is (to nativemods-shim.log), a few times after the buttons are made
+    // and whenever the stash or inventory opens or closes: what a wrong place is worked out from.
+    string _lastReport = "";
+    int _reports;
+    void Report(float sw, bool stash, bool inventory)
+    {
+        if (!_s.Buttons.LogPlaces || _reports >= 12 || _buttons.TrueForAll(b => b.Window is null)) return;
+        var sb = new System.Text.StringBuilder();
+        sb.Append(System.Globalization.CultureInfo.InvariantCulture, $"stash={stash} inventory={inventory} screenWidth={sw:0.#}");
+        try { if (_ctx!.Game.Ui.GetRootControl() is { } root) sb.Append(System.Globalization.CultureInfo.InvariantCulture, $" root={root.Rect.X:0.#},{root.Rect.Y:0.#} {root.Rect.Width:0.#}x{root.Rect.Height:0.#}"); }
+        catch (Exception) { }
+        foreach (Btn b in _buttons)
+        {
+            if (b.Window is not { IsOpen: true } w) continue;
+            UiRect r = w.Rect;
+            sb.Append(System.Globalization.CultureInfo.InvariantCulture, $" | {b.Id}: shown={w.Visible} asked={b.SetX:0.#},{b.SetY:0.#} is={r.X:0.#},{r.Y:0.#} {r.Width:0.#}x{r.Height:0.#}");
+        }
+        string line = sb.ToString();
+        if (line == _lastReport) return;
+        _lastReport = line;
+        _reports++;
+        _ctx!.Logger.Info("qol buttons: " + line);
+    }
+
+    /// <summary>The screen's width in the game's 1600-high coordinates (2844 at 16:9).</summary>
+    float ScreenWidth()
+    {
+        // The game's own root control does not have the screen's shape (measured: the buttons came out 144 units to
+        // the right with it), so the shape comes from the setting: 16:9 unless buttons.screenAspect says otherwise.
+        float aspect = _s.Buttons.ScreenAspect > 0.5f ? _s.Buttons.ScreenAspect : 16f / 9f;
+        return 1600f * aspect;
     }
 
     void Key(string action)
@@ -140,7 +257,7 @@ public sealed class QolClientMod : IClientMod
     {
         while (!stop.IsCancellationRequested)
         {
-            string query = (_wantGems ? "gems=1&" : "") + (_wantCrafts ? "crafts=1" : "");
+            string query = "panels=1&" + (_wantGems ? "gems=1&" : "") + (_wantCrafts ? "crafts=1" : "");
             try { _stateJson = await _http.GetStringAsync($"http://127.0.0.1:{_s.Port}/state?{query}", stop); }
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { return; }
             catch (Exception) { _stateJson = ""; }
@@ -166,13 +283,25 @@ public sealed class QolClientMod : IClientMod
         var ctx = _ctx!;
         State st = State.Parse(_stateJson);
         bool show = st.Connected && !_hidden && ctx.Game.Screens.IsInGame;
-        foreach (var a in _all) SetVisible(a, show);
-
-        if (_prices?.Control is { } p) p.Text = st.Prices ? "Prices: on" : "Prices: off";
+        float sw = ScreenWidth();
+        bool stash = show && st.TabType.Length > 0;
         bool gridTab = st.TabType is "NormalStash" or "PremiumStash" or "QuadStash";
-        if (_vendor is not null) { SetVisible(_vendor, show && gridTab); if (_vendor.Control is { } v) v.Text = st.VendorArmed ? "Confirm: sell all?" : "Vendor tab"; }
-        if (_sortTab is not null) SetVisible(_sortTab, show && gridTab);
-        if (_maps is not null) SetVisible(_maps, show && st.TabType == "MapStash");
+        bool inventory = show && (stash || ctx.Game.Screens.IsPanelOpen(GamePanel.Inventory) || _s.Buttons.InventorySortAlways);
+        Show(_loot, show, sw);
+        Show(_prices, show, sw, 0, st.Prices ? "Prices: on" : "Prices: off");
+        Show(_invSort, inventory, sw);
+        // The stash row: the buttons that fit the tab shown, one after the other from the first one's place.
+        float dx = 0, gap = _s.Buttons.StashGap;
+        void Row(Btn? b, bool on, string? text = null)
+        {
+            Show(b, on, sw, b is not null && b.Place.InRow ? dx : 0, text);
+            if (on && b is { Failed: false } && b.Place.InRow) dx += b.Place.Width + gap;
+        }
+        Row(_deposit, stash);
+        Row(_sortTab, stash && gridTab);
+        Row(_vendor, stash && gridTab, st.VendorArmed ? "Sell all?" : "Vendor tab");
+        Row(_maps, stash && st.TabType == "MapStash");
+        Report(sw, stash, inventory);
 
         if (_s.MessagesAsToasts && st.Message.Length > 0 && st.Message != _lastMessage)
             ctx.Game.Toasts.Show("QoL", st.Message, ToastSeverity.Info, TimeSpan.FromSeconds(Math.Max(1, _s.MessageSeconds)));
@@ -191,11 +320,6 @@ public sealed class QolClientMod : IClientMod
         PriceLines(show ? st.Pickups : "");
         Gems(show, st);
         Harvest(show, st);
-    }
-
-    static void SetVisible(ISlotAttachment a, bool visible)
-    {
-        if (a.Control is { } c && c.Visible != visible) c.Visible = visible;
     }
 
     void PriceLines(string text)
@@ -352,6 +476,38 @@ public sealed class QolClientMod : IClientMod
         }
     }
 
+    /// <summary>Where a button is, in the game's 1600-high coordinates (at 1080p one pixel is about 1.48). A negative
+    /// x counts from the right edge of the screen. inRow: it follows the stash buttons before it instead of using its
+    /// own x.</summary>
+    sealed class Place
+    {
+        public bool Show { get; set; } = true;
+        public float X { get; set; }
+        public float Y { get; set; }
+        public float Width { get; set; } = 130;
+        public float Height { get; set; } = 36;
+        public bool InRow { get; set; }
+    }
+
+    sealed class Buttons
+    {
+        // Beside the clock, above the flasks.
+        public Place Loot { get; set; } = new() { X = 645, Y = 1393, Width = 88, Height = 30 };
+        // Above the top right cell of the backpack.
+        public Place InventorySort { get; set; } = new() { X = -197, Y = 812, Width = 120, Height = 36 };
+        public bool InventorySortAlways { get; set; }
+        public Place Prices { get; set; } = new() { Show = false, X = 695, Y = 1393, Width = 150, Height = 30 };
+        // The stash row, under the grid and above Highlight Items.
+        public Place Deposit { get; set; } = new() { X = 281, Y = 1236, Width = 170, Height = 36, InRow = true };
+        public Place SortTab { get; set; } = new() { X = 281, Y = 1236, Width = 130, Height = 36, InRow = true };
+        public Place Vendor { get; set; } = new() { X = 281, Y = 1236, Width = 150, Height = 36, InRow = true };
+        public Place Maps { get; set; } = new() { X = 281, Y = 1236, Width = 200, Height = 36, InRow = true };
+        public float StashGap { get; set; } = 6;
+        public string Origin { get; set; } = "centre";
+        public float ScreenAspect { get; set; }
+        public bool LogPlaces { get; set; } = true;
+    }
+
     sealed class Settings
     {
         public int Port { get; set; } = 6170;
@@ -361,10 +517,7 @@ public sealed class QolClientMod : IClientMod
             ["loot"] = "F5", ["sort"] = "F6", ["deposit"] = "F7", ["prices"] = "F8", ["hide"] = "F9", ["gems"] = "F10",
         };
         public bool KeysBlockTheGame { get; set; }
-        public bool HudButtons { get; set; } = true;
-        public bool InventorySortButton { get; set; } = true;
-        public string StashButtons { get; set; } = "header";
-        public bool MapButton { get; set; } = true;
+        public Buttons Buttons { get; set; } = new();
         public bool MessagesAsToasts { get; set; } = true;
         public int MessageSeconds { get; set; } = 5;
         public bool Popups { get; set; } = true;
