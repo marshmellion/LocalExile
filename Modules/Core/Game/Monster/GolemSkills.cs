@@ -511,6 +511,14 @@ public static partial class Game
                     int min = Raw(Stat.Of($"spell_minimum_base_{slug}_damage")), max = Raw(Stat.Of($"spell_maximum_base_{slug}_damage"));
                     if (max > 0) damage = damage.Add(type, new(min, max));
                 }
+            // A monster spell whose hit is its secondary damage only (Brutus's Spiked Ground): that is its hit.
+            if (spell && damage.MaxTotal <= 0 && Raw(Stat.BaseDealNoDamage) == 0)
+                foreach (var type in DamageTypes.ConversionOrder)
+                {
+                    string slug = type.ToString().ToLowerInvariant();
+                    int min = Raw(Stat.Of($"secondary_minimum_base_{slug}_damage")), max = Raw(Stat.Of($"secondary_maximum_base_{slug}_damage"));
+                    if (max > 0) damage = damage.Add(type, new(min, max));
+                }
             else if (catalog.IsAttack(effect) && Raw(Stat.BaseDealNoDamage) == 0)
             {
                 if (ownerAttackCrit is int inheritedCrit) crit = inheritedCrit;

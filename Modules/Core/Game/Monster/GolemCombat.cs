@@ -707,7 +707,7 @@ public static partial class Game
         }
         if (a.Projectile is not null)
         { GolemLaunch(player, g, a, action.Aim, now, nova: a.Effect == 5026); return; }
-        if (a.Effect is 3347 or 10799 or 10800)
+        if (a.Effect is 3347 or 10799 or 10800 || SpectreSpikeLine(g, a))
         {
             double dx = action.Aim.X - at.X, dy = action.Aim.Y - at.Y, length = Math.Max(1, Dist(at, action.Aim));
             int spikes = Math.Clamp(GolemStat(a.Stats, Stat.UpheavalNumberOfSpikes), 1, 12);
@@ -729,6 +729,7 @@ public static partial class Game
         }
         bool area = GolemStat(a.Stats, Stat.IsAreaDamage) != 0 || a.Effect is 136 or 349 or 2563 or 3347 or 10799 or 10800 or 869 or 4839 or 9927 or 9928;
         var centre = a.Effect is 3347 or 10799 or 10800 or 869 or 11994 or 11995 or 11996 or 11997 ? action.Aim : at;
+        if (area && SpectreSpellAtTarget(player, g, a)) centre = action.Aim;
         if (a.Effect is 9927 or 9928 && GolemStat(g.Own, Stat.HolyRelicTargetsNearestEnemy) != 0)
             centre = action.Victim?.Walk.Position(now) ?? action.Aim;
         if (a.Effect == 869)
@@ -780,6 +781,22 @@ public static partial class Game
         if (a.Effect == 10802) g.Combo = (g.Combo + 1) % 6;
         if (a.Effect == 7133 && g.Definition.Id == "RaiseZombieAltY") GolemDieLocked(player, g, now);
     }
+
+    /// <summary>A spectre's own area spell (a monster skill: Hailrake's Glacial Cascade, Merveil's Icestorm, a Frostfire
+    /// Mage's storm call...) lands where it was aimed, as the client draws it, unless the skill is centred on its caster
+    /// (ActiveSkillTargetTypes self, or a Nova). It used to go off around the spectre itself, so a spectre casting from
+    /// range hit nothing. System setting spectre_spells_hit_at_target (default 1; 0 = as before).</summary>
+    static bool SpectreSpellAtTarget(Player player, GolemState.Golem g, GolemState.Ability a) =>
+        g.Definition.Kind == "Spectre" && a.Attack.Spell && a.Projectile is null
+        && !SkillsFor(player).IsSelfTargeted(a.Effect) && !SkillsFor(player).IsNova(a.Effect)
+        && SystemSettings.Default.GetIntOrDefault("spectre_spells_hit_at_target", 1) != 0;
+
+    /// <summary>A spectre's monster cascade (upheaval_number_of_spikes: Hailrake's and the Sea Witches' Glacial Cascade)
+    /// is a line of spikes toward its aim, as the player gem's is.</summary>
+    static bool SpectreSpikeLine(GolemState.Golem g, GolemState.Ability a) =>
+        g.Definition.Kind == "Spectre" && a.Attack.Spell && a.Projectile is null
+        && GolemStat(a.Stats, Stat.UpheavalNumberOfSpikes) > 0
+        && SystemSettings.Default.GetIntOrDefault("spectre_spells_hit_at_target", 1) != 0;
 
     static (double DamagePerSecond, double UnitDamagePerSecond, int NormalDamageIncrease) GolemHazardDamage(
         Player player, GolemState.Golem g, double now, double intrinsicDamagePerSecond, bool area)
