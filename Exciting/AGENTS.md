@@ -19,6 +19,7 @@ branch and only ever fast-forward it (`Exciting/update.cmd` runs `git pull --ff-
 | `Exciting/client-mods/qol/` | `Mods/Client/qol/` (only with `-NativeMods`) | NativeMods client mod (the QoL in-game panels); a player's `settings.json` is kept |
 | `Exciting/nativemods/` | `Client/version.dll`, `Client/LocalExile.ClientHost.dll`, `Client/nativemods-host/` (only with `-NativeMods`) | NativeMods loader, host, address library |
 | `Exciting/client-art.ps1` (run by `setup.ps1`, and by `play.cmd` with `-IfMissing`) | `Mods/Binaries/excitingitems/content/*.json` (orb art), `Mods/Binaries/bodyauras/content/` | makes from the player's own client what we may not share: the orbs' art and the Body Auras' effects (Python 3; Pillow for the orbs) |
+| `Exciting/update-all.cmd`, `update-all.ps1` | `Mods/Binaries/<id>/` (other mods), cache `Tools/LocalExile-Mods/` | `setup.ps1 -Update` (with `-NativeMods` if `Client/version.dll` exists), then every installed mod that is not the build's own and has a higher `version` in our mods repository |
 | `Exciting/install.cmd`, `install.ps1` | (nothing: a guide) | the guided first install for players: checks programs, clones `exciting`, gets the client, runs setup, explains Waypoint |
 | the user's .NET 10 runtime (`dotnet --list-runtimes`) | `Client/nativemods-host/` (only with `-NativeMods`) | private runtime for the host; `LocalExile.Client.Host.runtimeconfig.json` is written with `includedFrameworks` |
 

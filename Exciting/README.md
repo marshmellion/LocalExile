@@ -102,8 +102,10 @@ testing build may use things the released build does not know yet. A new install
 
 ## Update
 
-Close the game and the servers, then double-click **`Exciting\update.cmd`**. It gets the newest build (`git pull`) and
-installs the mods again. Your characters, accounts, keys and mod settings stay (they are in `data\`).
+Close the game and the servers, then double-click **`Exciting\update-all.cmd`**. It gets the newest build (`git pull`),
+installs its mods again, and updates every other mod you added from
+[our mods repository](https://github.com/marshmellion/LocalExile-Mods) to its newest version (`update.cmd` does only
+the first two). Your characters, accounts, keys and mod settings stay (they are in `data\`).
 
 ## Playing
 
