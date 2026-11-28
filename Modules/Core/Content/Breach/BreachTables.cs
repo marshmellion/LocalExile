@@ -289,12 +289,12 @@ public static class BreachTables
         EncounterSkills = skills;
 
         var shared = ObjectTypes.SharedStates();
-        var byType = ObjectTypes.All().ToDictionary(t => t.Type, t => t.Row, StringComparer.Ordinal);
+        var types = ClientTables.TableOrNull("object_types");
         var specs = new Dictionary<string, ObjectSpec>(StringComparer.Ordinal);
         foreach (string typePath in TrackedObjectTypes)
         {
             if (QuestObjectTypes.Find(typePath) is not { } info) continue;
-            StateMachineData? sm = byType.TryGetValue(typePath, out var row) ? ObjectTypes.StateMachine(row, shared) : null;
+            StateMachineData? sm = types is { Count: > 0 } && types.First("type", typePath) is { } row ? ObjectTypes.StateMachine(row, shared) : null;
             if (!QuestObject.CanSerialize(info.Components, sm is not null)) continue;
             var comps = info.Components.ToList();
             specs[typePath] = new ObjectSpec(

@@ -141,9 +141,8 @@ public static class BreachHub
     }
 
     static StateMachineData? LoadStateMachine(string type) =>
-        ObjectTypes.All().Where(t => t.Type == type)
-            .Select(t => ObjectTypes.StateMachine(t.Row, ObjectTypes.SharedStates()))
-            .FirstOrDefault();
+        ClientTables.TableOrNull("object_types") is { Count: > 0 } types && types.First("type", type) is { } row
+            ? ObjectTypes.StateMachine(row, ObjectTypes.SharedStates()) : null;
 
     /// <summary><c>GameEvents.NpcUsesLeagueFlags</c>: opts Chayula/Ailith NPCs into automatic league-flag
     /// <c>NPCTalk</c> filtering and <c>LeagueFlagsSet</c> application.</summary>
