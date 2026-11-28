@@ -56,7 +56,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   projectiles for four seconds, ending early when the quiver leaves the active set.
 - Accuracy, the Accuracy Mastery's target conditions, Deadeye's Avidity and attack evasion.
   Docs: [11](../docs/protocol/11-skills.md) Â§4â€“5, [20](../docs/protocol/20-damage.md) Â§2h.
-- Armour, Evasion and Energy Shield from passives and equipment, Iron Reflexes and Chaos Inoculation.
+- Armour, Evasion and Energy Shield from passives and equipment, Iron Reflexes and Chaos Inoculation. A change of
+  maximum Energy Shield keeps the current percentage.
   Docs: [11](../docs/protocol/11-skills.md) Â§4, [13](../docs/protocol/13-items.md) Â§2.
 - Gem skills, their projectiles and triggered releases, including linked summons and Desecrate's corpses and chaos
   ground.
@@ -227,7 +228,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Attack coefficients, the typed weapon passives and weapon-scoped cold per Dexterity have shared consumers.
   Attack-only ignite chances and the bow skill's ailment multiplier act at contact;
   further skill-specific inputs and native checks remain open (#368).
-- Projectile framework: one 30 Hz runtime for gem and bow projectiles.
+- Projectile framework: one 30 Hz runtime for gem and bow projectiles. Fork sends its two children at the client's
+  -/+ 45 degrees.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) Â§2c.
 - Ruthless and Hardcore rules per connection. Docs: [league modes](../docs/game/league-modes.md).
