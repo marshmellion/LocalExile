@@ -1,0 +1,14 @@
+{
+  "id": "bodyauras",
+  "name": "Body Auras",
+  "description": "Needs the Exciting build of LocalExile (github.com/marshmellion/LocalExile, branch exciting) and Python (the setup makes its effects from your own client). Works with Cosmetic Drops (body auras drop and must be owned). Every weapon effect as a Body Aura character effect (Cosmetics tab), and the auras and character effects on your minions, pets, totems, traps and mines (each its own setting, /aura in the game). With Cosmetic Drops, body auras drop like the weapon effects.",
+  "author": "marshmellion",
+  "version": "0.4.0",
+  "compatibleClientVersions": [
+    "0.6.1-beta"
+  ],
+  "kind": "feature",
+  "depends": [
+    "Game"
+  ]
+}
