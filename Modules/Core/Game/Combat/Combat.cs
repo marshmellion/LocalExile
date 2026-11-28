@@ -5896,6 +5896,7 @@ public static partial class Game
         DetonateExplosiveFusesOnDeath(m);
         QueueInfernalBlowDeath(m, ProjectileWorldTime(player));
         QueueInfernalCryDeath(id, m, ProjectileWorldTime(player));
+        QueueVoltaxicBurstDeath(id, m, ProjectileWorldTime(player));
         SpreadPestilentStrike(player, id, m, ProjectileWorldTime(player));
         if (!destroyCorpse && !m.DevourCorpse && VoidSpheres.TryGetValue(player.Area, out var spheres) && spheres.Count != 0)
         {

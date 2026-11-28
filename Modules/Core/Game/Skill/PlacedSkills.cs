@@ -886,6 +886,7 @@ public static partial class Game
         bool shockNova = ShockNovaEffect(effect);
         bool cascade = GlacialCascadeEffect(effect);
         bool ruin = effect == TrarthanBargain;
+        bool voltaxicBurst = IsVoltaxicBurst(effect);
         if (bladefall || purifyingFlame || conviction || bladeBlast || lance || manabond || tornado
             || cascade || effect == "ShockNovaAltX")
         {
@@ -902,7 +903,7 @@ public static partial class Game
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
                 || frostBomb || stormOrb || voidSphere || hydrosphere || tornado || staticOrb || bladefall || detonateDead || volatileDead
                 || purifyingFlame || conviction || bladeBlast
-                || unloading || lance || manabond || shockNova || cascade || ruin))
+                || unloading || lance || manabond || shockNova || cascade || ruin || voltaxicBurst))
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
@@ -1032,6 +1033,8 @@ public static partial class Game
                 PlacedAreaDamageLocked(player, placed, placed.At, radius, now, releaseMore, currentSkill: true,
                     spellDamage: true, ruinSession: session);
             }
+            else if (voltaxicBurst)
+                session.SchedulePlacedVoltaxicBurst(new(placed, releaseMore), aim, Current);
             else if (detonateDead)
                 session.SchedulePlacedDetonateDead(new(placed, releaseMore), Current);
             else if (volatileDead)
@@ -1059,7 +1062,7 @@ public static partial class Game
             return;
         }
         // These releases require their current linked source; stale placements must not deal generic area damage.
-        if (arc || shockNova || cascade || ruin || purifyingFlame || conviction || bladeBlast || unloading || lance || manabond)
+        if (arc || shockNova || cascade || ruin || voltaxicBurst || purifyingFlame || conviction || bladeBlast || unloading || lance || manabond)
             return;
         // A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down as the player's own does, around the nearest
         // enemy within 60 cells or on the trap or mine itself, instead of one area hit with nothing drawn.

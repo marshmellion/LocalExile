@@ -147,8 +147,9 @@ public static partial class Game
         if (!destroyCorpse || HardcoreProgressBlocked(player) || monster.Variety is null || !monster.Hostile)
             StopCorpseBlocking(player, id, monster);
         DetonateExplosiveFusesOnDeath(monster, session);
-        QueueInfernalBlowDeath(monster, at / (double)ProjectileRuntime.QuantaPerSecond, session);
-        QueueInfernalCryDeath(id, monster, at / (double)ProjectileRuntime.QuantaPerSecond, session);
+        QueueInfernalBlowDeath(monster, now, session);
+        QueueInfernalCryDeath(id, monster, now, session);
+        QueueVoltaxicBurstDeath(id, monster, now, session);
         SpreadPestilentStrike(player, id, monster, at / (double)ProjectileRuntime.QuantaPerSecond);
         // A soul only moves on some kills: an unchanged balance must not take a gate turn through the presentation.
         if (VaalSoulsUnpresented(player))

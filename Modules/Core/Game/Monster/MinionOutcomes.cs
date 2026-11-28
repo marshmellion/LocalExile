@@ -97,6 +97,7 @@ public static partial class Game
         RememberCursedCorpse(player, victimId, monster);
         QueueInfernalBlowDeath(monster, now);
         QueueInfernalCryDeath(victimId, monster, now);
+        QueueVoltaxicBurstDeath(victimId, monster, now);
         TransferMarksOnDeathLocked(player, monster, now);
         HitSummonsOnDeathLocked(player, victimId, monster, now);
         QueueEssenceDeathSpawnLocked(player, victimId, monster);
