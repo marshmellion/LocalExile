@@ -53,10 +53,23 @@ public sealed class SkillCatalog
 
     private readonly Tables? _tables;
     private readonly StatCatalog _stats = new();
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> _castsOnDeath = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (bool OnDeath, bool OverContacts)> _monsterActionStats = new();
 
-    public bool CastsOnDeath(int effect) => _castsOnDeath.GetOrAdd(effect, row =>
-        EffectStats(row, 1).Any(stat => (stat.Item1 == Stat.CastOnDeathPct || stat.Item1 == Stat.AttackOnDeathPct) && stat.Item2 > 0));
+    public bool CastsOnDeath(int effect) => MonsterActionStats(effect).OnDeath;
+
+    public bool DistributesProjectilesOverContactPoints(int effect) => MonsterActionStats(effect).OverContacts;
+
+    private (bool OnDeath, bool OverContacts) MonsterActionStats(int effect) =>
+        _monsterActionStats.GetOrAdd(effect, static (row, catalog) =>
+        {
+            bool onDeath = false, overContacts = false;
+            foreach (var (stat, value) in catalog.EffectStats(row, 1))
+            {
+                onDeath |= (stat == Stat.CastOnDeathPct || stat == Stat.AttackOnDeathPct) && value > 0;
+                overContacts |= stat == Stat.DistributeProjectilesOverContactPoints && value != 0;
+            }
+            return (onDeath, overContacts);
+        }, this);
 
     // Both sets of effects already have their own native rows and per-level stat sets. Only name-based lookups
     // require resolution; explicit row-based calls retain their exact identity (including monster effects).
@@ -1313,6 +1326,9 @@ public sealed class SkillCatalog
         MonsterContact(varietyId, animationKey, sequence)
         ?? (fallbackAnimationKey is not null && !string.Equals(fallbackAnimationKey, animationKey, StringComparison.Ordinal)
             ? MonsterContact(varietyId, fallbackAnimationKey, sequence) : null);
+
+    /// <summary>Whether <c>monster_contact_clips</c> has extracted animation pools for <paramref name="varietyId"/>.</summary>
+    public bool HasMonsterContacts(string varietyId) => _monsterContacts.ContainsKey(varietyId);
 
     /// <summary>A variety's whole pool for an animation key (every clip the selector may pick), or null.</summary>
     public MonsterClipContact[]? MonsterContactPool(string varietyId, string animationKey) =>
