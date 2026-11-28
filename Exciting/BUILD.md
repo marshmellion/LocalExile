@@ -13,6 +13,6 @@ Written by the publish step: what the branch `exciting` was made from.
 | `piety-crash-fix` | `5be776900` |
 | `le-trade-patch` | `ceb76d31f` |
 | LocalExile main's own fix: players walk through their minions, monsters do not (picked) | `be30d268d`, `311fd77db` |
-| `exciting-kit` | `6afa629d3` |
+| `exciting-kit` | `8f2e0164b` |
 
 Published 2026-11-28.
