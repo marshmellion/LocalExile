@@ -32,7 +32,11 @@ public static class WorldLoader
             // Made by the first Stat.Of when game data (GameData.Open) read stat names earlier: its server ids stay.
             Program.Stats ??= new();
             // The rules name stats by the generated keys (Stat.g.cs): they must be this build's.
-            if (Program.Stats.Names.Count > 0 && Program.Stats.Checksum != Stat.Checksum)
+            // Stats a content pack added after the game's own (a mod's new modifiers) are allowed: the generated ones must match.
+            int generated = (int)typeof(Stat).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                .Where(f => f.IsLiteral && f.FieldType == typeof(uint)).Select(f => (uint)f.GetRawConstantValue()!).DefaultIfEmpty(0u).Max();
+            if (Program.Stats.Names.Count > 0 && Program.Stats.Checksum != Stat.Checksum
+                && (Program.Stats.Names.Count <= generated || Program.Stats.ChecksumOf(generated) != Stat.Checksum))
                 throw new InvalidOperationException("The client's Stats table differs from Stat.g.cs; run python scripts/dev/stat_ids.py and rebuild.");
         });
         Step("skills", () => Program.Skills = new());

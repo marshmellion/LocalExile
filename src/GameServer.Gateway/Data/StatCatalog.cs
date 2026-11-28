@@ -66,14 +66,15 @@ public sealed class StatCatalog
     public static bool IsClientId(uint id) => id < FirstServerId;
 
     /// <summary>FNV-1a over the names joined by newlines: the table <see cref="Stat"/> was generated from has the same.</summary>
-    public ulong Checksum
+    public ulong Checksum => ChecksumOf(_names.Count);
+
+    /// <summary>The checksum of the first <paramref name="count"/> names: a client table with stats a mod's content pack
+    /// added after the game's own still matches the build when its first names do.</summary>
+    public ulong ChecksumOf(int count)
     {
-        get
-        {
-            ulong h = 0xcbf29ce484222325;
-            foreach (byte b in System.Text.Encoding.UTF8.GetBytes(string.Join('\n', _names))) h = (h ^ b) * 0x100000001b3;
-            return h;
-        }
+        ulong h = 0xcbf29ce484222325;
+        foreach (byte b in System.Text.Encoding.UTF8.GetBytes(string.Join('\n', _names.Take(Math.Min(count, _names.Count))))) h = (h ^ b) * 0x100000001b3;
+        return h;
     }
 
     /// <summary>Whether this build has a stat by this name. Uses the same name cache as <see cref="Key(string)"/>, so a
