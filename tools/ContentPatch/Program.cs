@@ -92,6 +92,13 @@ try
                 { Log($"{packs.Count} content pack(s) unchanged since the last apply: nothing to do"); return 0; }
             }
             Log($"{packs.Count} content pack(s) in {mods}");
+            // The first start of a new checkout: the Gateway has not built client.db from sql/ yet; build it here, as it
+            // would, so the content goes in now instead of at the next start.
+            if (!File.Exists(ClientDb))
+            {
+                Log($"building {ClientDb} from sql/ (the first start) ...");
+                GameServer.Storage.SqlUpdater.Update(ClientDb, "client", log: Log);
+            }
             byte[] root;
             var mirror = new ServerMirror(ClientDb);
             using (var p = Open(mirror, ServerRows))
