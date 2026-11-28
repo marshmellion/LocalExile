@@ -8,8 +8,8 @@ the parts that are not in LocalExile's main yet, so that **Exciting Items** and 
 - **Modding hooks**: currency used on items, chest drops, level requirements, cosmetics, minion kills, gem stats...
 - **Content in the client**: new currency with its own art (Defiled Vaal Orb, Krangle Orb, Limit Break Orb, Radiant
   Orb, Sealed Cosmetic, Cosmetic Cache), new implicit texts, larger stacks, pickup popups, a sun beside exciting items.
-  On a Steam client this goes through [NativeMods](https://github.com/mrnamwen/LocalExile-NativeMods), which hands the
-  game our files without changing your client's files.
+  Each start puts it into your copy of the client (`Client\`): our own bundle beside the game's files and an updated
+  file index (the original is kept and comes back with `restore`). Your own install is never touched.
 - **The mods**: Exciting Items, Cosmetic Drops, Quality of Life (with its panels inside the game), Harvest Crafts and
   Minion Unnerf.
 
@@ -50,8 +50,7 @@ must own the game):
    - checks Git, .NET and Node, and prepares the file unpacker (`Tools\ooz`);
    - asks for your 3.29.3d client folder and copies it into `Client\` (your own install is only read);
    - makes your own login keys and a patched copy of the client that trusts them (`Client\Game.patched.exe`);
-   - installs NativeMods into `Client\` (with a private copy of your .NET runtime: nothing is installed in Windows);
-   - copies the mods into `Mods\Binaries\` and the in-game panels into `Mods\Client\`;
+   - copies the mods into `Mods\Binaries\`;
    - offers to make your login account.
 
 3. Double-click **`Exciting\play.cmd`**. The first start builds the servers and the game data (a few minutes), puts the
@@ -66,28 +65,34 @@ To make another account later:
 ## Update
 
 Close the game and the servers, then double-click **`Exciting\update.cmd`**. It gets the newest build (`git pull`) and
-installs the mods and NativeMods again. Your characters, accounts, keys and mod settings stay (they are in `data\`).
+installs the mods again. Your characters, accounts, keys and mod settings stay (they are in `data\`).
 
 ## Playing
 
 - **Mod settings**: every mod has its settings in `Mods\Binaries\<mod>\settings.json` (names, defaults and ranges); your
   own values are kept in `data\mods\<mod>.json`. In game, `/mod` lists the mods and why any did not load.
-- **Quality of Life**: buttons at the top right (Loot, Sort, Prices), above the inventory and on the stash; keys F5
-  loot, F6 sort, F7 deposit all, F8 price lines, F9 hide the buttons, F10 alternate quality gems. Its in-game panel
-  settings (keys, which buttons show, price lines) are in `Mods\Client\qol\settings.json`. `/qol` does the same by chat.
+- **Quality of Life**: its overlay window (started with the servers) has the buttons (Loot, Sort, Prices, and on the
+  stash Deposit all, Vendor tab, Sort tab, Upgrade maps) and the keys F5 loot, F6 sort, F7 deposit all, F8 price lines,
+  F9 hide, F10 alternate quality gems. `/qol` does the same by chat.
+- **NativeMods (experimental)**: `Exciting\setup.cmd -NativeMods` also installs
+  [NativeMods](https://github.com/mrnamwen/LocalExile-NativeMods) and the QoL panels inside the game. On Windows it
+  lowered the frame rate and closed the game in our tests, so it is off by default; delete `Client\version.dll` to
+  turn it off again.
 - **Exciting Items**: `/exciting` lists its commands. Its README is in `Mods\Binaries\excitingitems\README.md`.
 
 ## When something goes wrong
 
 | What you see | What to do |
 |---|---|
-| The game closes at start, or right after loading | Delete `Client\version.dll` (turns NativeMods off; the game then runs without our client content) and send `Client\nativemods-host\nativemods-shim.log` |
-| New currency shows as a plain or missing item | Read `logs\content-patch.log` (the content step of `play.cmd`) |
+| "Deserialised a mod that we don't recognise" | The client has no content yet: read `logs\content-patch.log` (the content step of `play.cmd`) |
+| New currency shows as a plain or missing item | The same: `logs\content-patch.log` |
+| The game closes at start with NativeMods on | Delete `Client\version.dll` (NativeMods off) |
 | A mod does not load | `/mod` in game, and `logs\live-gateway.log` |
 | `Game.patched.exe` disappears | Your antivirus removed it (a patched executable): allow it, then run `setup.cmd` again |
 | `setup.cmd` or `update.cmd` stops with a red line | It says what is missing; fix that and run it again (each step is safe to repeat) |
 | Anything else | LocalExile's own guide: `Agents\GettingStarted.md` |
 
+To take the content out of your client copy: `dotnet run --project tools\ContentPatch -c Release -- restore`.
 To remove NativeMods completely: delete `Client\version.dll`, `Client\LocalExile.ClientHost.dll`,
 `Client\nativemods-host\` and `Mods\Client\`.
 
@@ -99,13 +104,13 @@ The branch `exciting` of https://github.com/marshmellion/LocalExile is LocalExil
 | Branch | What it adds |
 |---|---|
 | `effect-rules-tables` | the effect rules engine and its tables |
-| `modding-api` | modding hooks, the content patcher (also for Steam clients, through NativeMods) |
+| `modding-api` | modding hooks, the content patcher (standalone and Steam clients) |
 | `private-hooks` | more modding hooks (hand rules, gem stats, minion kills, spell repeats, ...) |
 | `local-hooks` | the hand-overs Legacy Restored uses (supports, skill stats, currency use, Imprint items) |
 | `jewel-allocates` | jewels that "Allocate" a passive grant it while socketed |
 | `piety-crash-fix` | fixes for two client crashes (Tempest Shield, Piety's retreat) |
 | `le-trade-patch` | what the LE.trade bridge needs (abyssal sockets in item specs, the trade panel) |
-| `exciting-kit` | this folder: the setup scripts, the mods, NativeMods and these docs |
+| `exciting-kit` | this folder: the setup scripts, the mods, NativeMods (optional) and these docs |
 
 Licenses: LocalExile is GNU GPL v2; NativeMods is GNU GPL v2 (`Exciting\nativemods\SOURCE.md` says where its source
 is). LocalExile is not affiliated with or endorsed by Grinding Gear Games, and is for local play only.

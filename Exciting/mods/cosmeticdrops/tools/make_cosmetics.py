@@ -223,7 +223,7 @@ def notice(rid, text, hide_items=1):
     notices.append({"table": "Achievements", "copyOf": {"Id": "Flashback2ReachLevel35"},
                     "set": {"Id": rid, "Description": text, "Objective": "", "HideAchievementItems": hide_items}})
 # The reward toast on the right of the screen (the one a league challenge reward gets, with the cosmetic's own icon):
-# one hidden challenge step per cosmetic and its AchievementItemRewards row naming the MtxTypes row. The mod sends the
+# one hidden challenge step per cosmetic and its AchievementItemRewards row naming its MtxTypeGameSpecific row. The mod sends the
 # step's completion (S->C 0x125); the client shows "{challenge}: {step} (Complete)" and the reward toast with the icon.
 mtx_id = {h: mid for mid, h in db.execute("select Id, HASH32 from MtxTypes")}
 for i, e in enumerate(out):
@@ -235,7 +235,8 @@ for i, e in enumerate(out):
     notices.append({"table": "AchievementItemRewards", "copyOf": {"Id": "KoreanHat"},
                     "set": {"Id": f"LocalExileCosmeticReward{i}", "Message": f"{e['name']} unlocked!",
                             "AchievementItemsKey": {"row": {"table": "AchievementItems", "Id": f"LocalExileCosmeticItem{i}"}},
-                            "Rewards": {"row": {"table": "MtxTypes", "Id": mtx_id[e["hash"]]}}}})
+                            # Rewards is a MtxTypeGameSpecific row (not a MtxTypes one): the one whose Type is the cosmetic.
+                            "Rewards": {"row": {"table": "MtxTypeGameSpecific", "Type": {"row": {"table": "MtxTypes", "Id": mtx_id[e["hash"]]}}}}}})
 for h in hideouts:
     notice(f"LocalExileHideout{h['row']}", f"Hideout unlocked: {h['name']}")
 if os.environ.get("BANNERS") == "0": notices = []
