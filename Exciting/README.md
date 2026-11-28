@@ -87,6 +87,15 @@ To make another account later:
 "your-password" | dotnet run --project src\GameServer.Auth -c Release -- register yourname
 ```
 
+## The testing build
+
+New things go to the **testing build** first (the branch `exciting-testing`) and become the released build (`exciting`)
+once they have been played for a while. To try them early, close the game and the servers and double-click
+**`Exciting\use-testing.cmd`**; **`Exciting\use-release.cmd`** goes back. `update.cmd` keeps you on the one you chose
+(in Waypoint, Versions shows both branches). Expect bugs there, and back up `data\` first: a character played on the
+testing build may use things the released build does not know yet. A new install straight on the testing build:
+`install.cmd -Testing`.
+
 ## Update
 
 Close the game and the servers, then double-click **`Exciting\update.cmd`**. It gets the newest build (`git pull`) and

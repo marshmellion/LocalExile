@@ -2,11 +2,11 @@
 # Download install.cmd and double-click it, or run this file. It tells you what to do at each step, opens the pages
 # you need, and waits for you. Run it again any time: steps that are already done are skipped.
 # It never installs anything without asking, and changes nothing outside the folder you choose.
-param([string]$Folder = '')
+param([string]$Folder = '', [switch]$Testing)
 
 $ErrorActionPreference = 'Stop'
 $repoUrl = 'https://github.com/marshmellion/LocalExile.git'
-$branch = 'exciting'
+$branch = if ($Testing) { 'exciting-testing' } else { 'exciting' }
 $modsUrl = 'https://github.com/marshmellion/LocalExile-Mods'
 
 function Title([string]$text) { Write-Host ''; Write-Host ('=' * 70) -ForegroundColor DarkCyan; Write-Host " $text" -ForegroundColor Cyan; Write-Host ('=' * 70) -ForegroundColor DarkCyan }

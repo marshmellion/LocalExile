@@ -2,9 +2,11 @@
 #   setup.cmd            first time, and whenever you like: checks what you need, copies your client, makes your
 #                        login keys and patched client, installs the mods (NativeMods only with -NativeMods)
 #   update.cmd           pulls the newest build first (git pull), then does the same
+#   use-testing.cmd      switches to the testing build (branch exciting-testing: what is being tried before a release)
+#   use-release.cmd      switches back to the released build (branch exciting)
 # The mods' client content (new items' art and text) goes into Client\ when the game starts (scripts\dev\live.ps1).
 # Safe to run again: each step does nothing when it is already done. Nothing outside this folder is changed.
-param([switch]$Update, [string]$ClientSource = '', [switch]$NativeMods)
+param([switch]$Update, [string]$ClientSource = '', [switch]$NativeMods, [ValidateSet('', 'exciting', 'exciting-testing')][string]$Branch = '')
 
 $ErrorActionPreference = 'Stop'
 $kit = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -34,6 +36,7 @@ if (-not (Has 'node')) { Fail 'Node.js is missing: install it from https://nodej
 Ok "git, .NET $(($sdks[-1] -split ' ')[0]), Node $(& node --version)"
 if (-not ((Has 'py') -or (Has 'python'))) { Note 'Python 3 not found (optional: Body Auras and the new orbs'' art need it): https://www.python.org/downloads/windows/' }
 
+if ($Branch) { $Update = $true }
 if ($Update) {
     Step 'Getting the newest build'
     $dirty = @(& git status --porcelain --untracked-files=no)
@@ -41,6 +44,14 @@ if ($Update) {
         Note 'You changed these files of the checkout:'
         $dirty | ForEach-Object { Note "  $_" }
         Fail 'Put them back first (git checkout -- <file>, or git stash), or ask for help: the update would mix them with the new build.'
+    }
+    if ($Branch) {
+        & git fetch origin $Branch
+        if ($LASTEXITCODE -ne 0) { Fail "Getting the branch $Branch failed: read what git printed above." }
+        & git switch $Branch 2>$null
+        if ($LASTEXITCODE -ne 0) { & git switch -c $Branch --track "origin/$Branch" }
+        if ($LASTEXITCODE -ne 0) { Fail "Switching to $Branch failed: read what git printed above. Your checkout is unchanged." }
+        Ok "now on $(if ($Branch -eq 'exciting') { 'the released build' } else { 'the testing build' }) ($Branch)"
     }
     & git pull --ff-only
     if ($LASTEXITCODE -ne 0) { Fail 'git pull failed: read what git printed above. Your checkout is unchanged.' }
