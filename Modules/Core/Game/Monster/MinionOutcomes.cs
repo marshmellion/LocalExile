@@ -97,6 +97,7 @@ public static partial class Game
         RememberCursedCorpse(player, victimId, monster);
         QueueInfernalBlowDeath(monster, now);
         QueueInfernalCryDeath(victimId, monster, now);
+        QueueVoltaxicBurstDeath(victimId, monster, now);
         TransferMarksOnDeathLocked(player, monster, now);
         HitSummonsOnDeathLocked(player, victimId, monster, now);
         QueueEssenceDeathSpawnLocked(player, victimId, monster);
@@ -104,6 +105,7 @@ public static partial class Game
         QueueVaalSoulPresentationLocked(player, "Vaal souls after minion kill");
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(player) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
+        if (!playerKill && GravebindCreditsKill(player, at, now)) playerKill = true;
         var partyShares = PartyExperienceShares(player, at);
         ShareKill(player, victimId, monster, variety, at, partyShares);
         SoulEaterSoul(player, victimId, at);
@@ -127,8 +129,12 @@ public static partial class Game
             if (RecoverOnKill(player, monster, tincture: null) is int deathEpoch)
                 ProjectilesFor(player).EnqueueLater(() => PlayerDiedAtEpoch(player, "death from life lost on kill", deathEpoch));
             var explosionEquipment = CaptureKillEquipment(player, monster, at, now);
+            SporeguardOnKillLocked(player, at, now);
             ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, explosionEquipment));
         }
+        else if (IsTotemKill(monster)
+            && PlayerStatValues(player).GetValueOrDefault(Stat.ExplodeEnemiesFor500PctLifeAsFireOnKillPctChance) > 0)
+            ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, totemOnly: true));
         var packets = new List<(byte[] Packet, string? Log)>();
         bool firstBossKill = HasUnsetKillQuestFlag(player, variety.Id);
         if (CommitQuestFlags(player, QuestFlagsOnKill(player, variety.Id)) is { } quest)

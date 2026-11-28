@@ -178,7 +178,7 @@ public static partial class Game
             : enemies.Sum(m => WarcryPower(m.Rarity));
         double taunt = TauntSeconds(key => ActorScale.Saturate((long)Player(key) + Own(key)));
         int taunted = TauntLocked(player, at, radius, now, taunt, Own(Stat.EnemiesTauntedByYourWarciesAreIntimidated) != 0,
-            Player(Stat.EnemiesYouIntimidateHaveStunDurationOnSelfPlusPct));
+            Player(Stat.EnemiesYouIntimidateHaveStunDurationOnSelfPlusPct), fromWarcry: true);
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own)
             * SkillDurationModifiers.CallToArmsMore(Player);
         double effect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.SkillBuffEffectPlusPct)) / 100d);

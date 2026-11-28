@@ -32,6 +32,7 @@ public static partial class Game
                 || IsBladeVortex(SkillsFor(player).EffectId(effect)) || SkillsFor(player).EffectId(effect) == VaalBladeVortexEffect
                 || IsCracklingLance(SkillsFor(player).EffectId(effect)) || IsHexblastEffect(SkillsFor(player).EffectId(effect))
                 || SkillsFor(player).EffectId(effect) == ManabondEffect
+                || IsVoltaxicBurst(SkillsFor(player).EffectId(effect))
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
@@ -107,7 +108,8 @@ public static partial class Game
         // step, which drops it (11 Â§"skill_is_non_pathing"): the totem stood still and its spell drew nothing.
         payload[Stat.SkillIsNonPathing] = 1;
         if (SpellTotemNova(player, gem.Effect) || IsGroundBladeBlast(SkillsFor(player).EffectId(gem.Effect))
-            || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(gem.Effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(gem.Effect)))
+            || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(gem.Effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(gem.Effect))
+            || IsVoltaxicBurst(SkillsFor(player).EffectId(gem.Effect)))
             payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, gem.Stats, spell: true, gem.Effect);
         else if (ShockNovaEffect(SkillsFor(player).EffectId(gem.Effect)))
             payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, 26, gem.Stats, spell: true, gem.Effect);
@@ -549,7 +551,8 @@ public static partial class Game
             }
             if (BladefallEffect(effect) || FrostBombEffect(effect) || OrbOfStormsEffect(effect) || VoidSphereEffect(effect) || HydrosphereEffect(effect) || TornadoEffect(effect)
                 || IsPurifyingFlame(effect) || IsWaveOfConviction(effect)
-                || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect))
+                || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect)
+                || IsVoltaxicBurst(effect))
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
@@ -557,6 +560,8 @@ public static partial class Game
                     if (!Current()) return;
                     var at = ReleaseAim();
                     if (BladefallEffect(effect)) session.ReleaseTotemBladefall(totem, at, sequence, Current);
+                    else if (IsVoltaxicBurst(effect))
+                        session.ReleaseTotemVoltaxicBurst(totem, gem, at, sequence, Current);
                     else if (FrostBombEffect(effect))
                         session.ReleaseFrostBomb(gem.Effect, SupportedSkill(player, totem.SkillId).Stats, at, Current,
                             impact => TotemNovaLocked(player, session, totem, impact.Centre, impact.Radius, sequence,

@@ -30,7 +30,8 @@ public static partial class Game
         IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect)
             || IsCracklingLance(effect) || effect is "LightningConduitAltX" or ManabondEffect or "VortexAltX"
             or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect or TrarthanBargain
-            || ShockNovaEffect(effect) || GlacialCascadeEffect(effect) || effect == DivineRetributionEffect;
+            || ShockNovaEffect(effect) || GlacialCascadeEffect(effect) || effect == DivineRetributionEffect
+            || IsVoltaxicBurst(effect);
 
     static DamagePacket BladeBlastDaggerDamage(Player player, int gain)
     {
@@ -205,6 +206,9 @@ public static partial class Game
                     ScheduleGlacialCascade(effect, from, aim, source.Stats,
                         () => SkillRadius(Player, source.Stats, spell: true, gem.Effect), CurrentSource,
                         pulse => Hit(pulse.Centre, pulse.Radius, burstMore: pulse.DamageMore, cascadeBurst: pulse.Burst));
+                else if (IsVoltaxicBurst(effect))
+                    ScheduleVoltaxicBurst(gem, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
+                        sequence, repeat, damageMore, brandedTarget, beidatMore);
             });
 
             bool CurrentSource() => Active && !Player.Paused && Player.PlayerLife > 0 && sacrifice.Current

@@ -138,6 +138,8 @@ public static partial class Game
             player.Area.Monsters.Remove(corpseId);
             player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(corpseId), "Madness explosion consumes corpse",
                 TargetId: corpseId, Kind: PlayerMinions.OutputKind.Remove));
+            if (TakeExplosionArt(player, now))
+                QueueExplosionEffect(player, at, ChaosExplosionAo, "Madness chaos explosion");
         }
     }
 }

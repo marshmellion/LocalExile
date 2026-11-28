@@ -5906,6 +5906,8 @@ public static partial class Game
     {
         if (player.Area.Owned) player.Area.Delta.DiscardActions(id);
         if (m.ShockedAtDeath is null) CaptureLootAilmentsAtDeath(m, ProjectileWorldTime(player));
+        double deathNow = AreaTime(player);
+        if (!playerKill && GravebindCreditsKill(player, m.Walk.Position(deathNow), deathNow)) playerKill = true;
         // Guarantee the mini life bar is hidden for every kill path (AreaStats deduplicates when already set at the hit/DoT site).
         SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
         if (m.HasCurses || playerKill && m.Hostile && (HitMarkedMonsters.TryGetValue(m, out _)
@@ -5932,6 +5934,7 @@ public static partial class Game
         DetonateExplosiveFusesOnDeath(m);
         QueueInfernalBlowDeath(m, ProjectileWorldTime(player));
         QueueInfernalCryDeath(id, m, ProjectileWorldTime(player));
+        QueueVoltaxicBurstDeath(id, m, ProjectileWorldTime(player));
         SpreadPestilentStrike(player, id, m, ProjectileWorldTime(player));
         if (!destroyCorpse && !m.DevourCorpse && VoidSpheres.TryGetValue(player.Area, out var spheres) && spheres.Count != 0)
         {
@@ -5980,7 +5983,8 @@ public static partial class Game
             if (corpseConsumed)
                 await Game.SendWorldRemoval(player, id,
                     $"0x02bd corpse 0x{id:x} ({m.Label}) {(corpseDestroyed ? "destroyed on hit kill" : devoured ? "devoured by the supported skill" : "consumed by the killing blow")}");
-            await ExplodeOnKill(player, id, m, at, explosionEquipment);
+            SporeguardOnKillLocked(player, at, now);
+            await ExplodeOnKill(player, id, m, at, explosionEquipment, skillStats);
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(player, id, at);
