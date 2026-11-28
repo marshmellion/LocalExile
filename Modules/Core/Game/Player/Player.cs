@@ -200,12 +200,18 @@ public static partial class Game
         bool petrifiedEnded;
         if (player.PlayerLife != 0 || player.AuraDeathHandled || ProjectileOutputGuard.Value is { } current && !current()) return;
         player.AuraDeathHandled = true;
-        CharacterSaves.ClearActiveAuras(CharacterName(player));
-        CharacterSaves.SetPetrifiedBlood(CharacterName(player), false);
+        // Auras, heralds, stances and Petrified Blood switch off while dead. By default they stay remembered and come back
+        // on resurrect, as on the official servers (system setting keep_auras_on_death, 0 = clear them as before).
+        bool keep = KeepAurasOnDeath(player);
+        if (!keep)
+        {
+            CharacterSaves.ClearActiveAuras(CharacterName(player));
+            CharacterSaves.SetPetrifiedBlood(CharacterName(player), false);
+        }
         ended = [.. player.Auras.Values];
         petrifiedEnded = player.PetrifiedBlood.Active || player.Area.Buffs.Has(player.Id, PetrifiedBlood.BuffRow, player.Id);
         player.Auras.Clear();
-        ReconcileStanceSelectionLocked(player, persist: true);
+        ReconcileStanceSelectionLocked(player, persist: !keep);
         player.PetrifiedBlood.Clear();
         player.LeechDisplay.Clear();
         player.Lifetap.Clear();
@@ -219,6 +225,11 @@ public static partial class Game
             await SendPlayerMana(player, "aura reservation cleared on death");
         }
     }
+
+    /// <summary>Whether a death keeps the remembered auras for the resurrect (system setting keep_auras_on_death, default 1).
+    /// Hardcore deaths clear them anyway (the character leaves its league).</summary>
+    public static bool KeepAurasOnDeath(Player player) =>
+        !player.Character.Hardcore && SystemSettings.Default.GetIntOrDefault("keep_auras_on_death", 1) != 0;
 
     public static Task PlayerDied(Player player, string label, byte deathKind = InstanceProtocol.DeathKindNormal) =>
         PlayerDiedAtEpoch(player, label, deathKind: deathKind);
@@ -1845,6 +1856,13 @@ public static partial class Game
                 "0x01b3 player is_dead = 0");
             await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, x, y),
                 $"0x01b7 player to the checkpoint ({x}, {y}): {checkpointReason}");
+            if (KeepAurasOnDeath(player))
+            {
+                // Alive again: the remembered auras come back on (the area change paths restore them on entry).
+                await SendOwnAuraChanges(player);
+                await SendCharacterStats(player, PlayerStatChange.Auras);
+                await SendPlayerMana(player, "auras restored after resurrect");
+            }
             await GameEvents.RunResurrected(player);
         }
         finally { Volatile.Write(ref player.Resurrecting, 0); }
