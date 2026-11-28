@@ -16,7 +16,8 @@ public static partial class Game
         }
         Add(Stat.BaseMovementVelocityPlusPct, map.Get(Stat.MapPlayerMovementVelocityPlusPct));
         Add(Stat.DebuffTimePassedPlusPct, map.Get(Stat.MapDebuffTimePassedPlusPct));
-        Add(Stat.ActorScalePlusPct, map.Get(Stat.MapActorScalePlusPct));
+        // Character size goes in through base_actor_scale_+%: the final actor_scale_+% is derived from it (ActorScale.Project).
+        Add(Stat.BaseActorScalePlusPct, map.Get(Stat.MapActorScalePlusPct));
         return stats ?? sources;
     }
 
