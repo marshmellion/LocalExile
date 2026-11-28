@@ -18,6 +18,8 @@ branch and only ever fast-forward it (`Exciting/update.cmd` runs `git pull --ff-
 | `Exciting/mods/<id>/` | `Mods/Binaries/<id>/` (git-ignored) | server mods (C# scripts the Gateway compiles); `/MIR` keeps `saves/` |
 | `Exciting/client-mods/qol/` | `Mods/Client/qol/` (only with `-NativeMods`) | NativeMods client mod (the QoL in-game panels); a player's `settings.json` is kept |
 | `Exciting/nativemods/` | `Client/version.dll`, `Client/LocalExile.ClientHost.dll`, `Client/nativemods-host/` (only with `-NativeMods`) | NativeMods loader, host, address library |
+| `Exciting/client-art.ps1` (run by `setup.ps1`, and by `play.cmd` with `-IfMissing`) | `Mods/Binaries/excitingitems/content/*.json` (orb art), `Mods/Binaries/bodyauras/content/` | makes from the player's own client what we may not share: the orbs' art and the Body Auras' effects (Python 3; Pillow for the orbs) |
+| `Exciting/install.cmd`, `install.ps1` | (nothing: a guide) | the guided first install for players: checks programs, clones `exciting`, gets the client, runs setup, explains Waypoint |
 | the user's .NET 10 runtime (`dotnet --list-runtimes`) | `Client/nativemods-host/` (only with `-NativeMods`) | private runtime for the host; `LocalExile.Client.Host.runtimeconfig.json` is written with `includedFrameworks` |
 
 At every start `scripts/dev/live.ps1` runs `tools/ContentPatch` (`apply --if-changed`). It writes the mods' content packs

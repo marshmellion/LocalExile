@@ -10,20 +10,44 @@ the parts that are not in LocalExile's main yet, so that **Exciting Items** and 
   Orb, Sealed Cosmetic, Cosmetic Cache), new implicit texts, larger stacks, pickup popups, a sun beside exciting items.
   Each start puts it into your copy of the client (`Client\`): our own bundle beside the game's files and an updated
   file index (the original is kept and comes back with `restore`). Your own install is never touched.
-- **The mods**: Exciting Items, Cosmetic Drops, Quality of Life (with its panels inside the game), Harvest Crafts and
-  Minion Unnerf.
+- **The mods**: Exciting Items, Cosmetic Drops, Body Auras, Quality of Life (with its panels inside the game), Harvest
+  Crafts and Minion Unnerf. More of our mods, and what each one needs: https://github.com/marshmellion/LocalExile-Mods
 
 Everything runs on your own computer. You need your own copy of the game.
+
+## The easy way: the guided install
+
+1. Open https://github.com/marshmellion/LocalExile/blob/exciting/Exciting/install.cmd and click the **download** button
+   (the arrow at the top right of the file, "Download raw file").
+2. Double-click the downloaded **`install.cmd`** (if Windows says it protected your PC: **More info**, then **Run anyway**).
+3. Do what it says. It checks each program you need and opens its download page when one is missing, downloads this
+   build, walks you through getting the 3.29.3d client from your own Steam account, sets everything up, explains
+   Waypoint, and starts the game. Stopped halfway? Run it again: it skips what is done.
+
+The rest of this page is the same thing by hand, and what to do when something goes wrong.
+
+## With Waypoint
+
+[Waypoint](https://github.com/LocalExile/Waypoint/releases) is LocalExile's launcher (it needs the
+[.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)). After the install above:
+
+1. In Waypoint choose **Add a folder you already have...** and pick your install folder (Waypoint then shows the
+   `exciting` branch's updates under Versions).
+2. Start and stop the game with Waypoint's buttons; **Mods** has every mod's settings.
+3. To get more of our mods: **Mods** -> **Browse** -> the **...** menu -> **Add repository**, paste
+   `https://github.com/marshmellion/LocalExile-Mods`, and accept the warning that it is not the official list. Each
+   mod's description starts with what it needs ("Needs the Exciting build" means this install).
 
 ## What you need
 
 | | Why | How to check |
 |---|---|---|
-| Windows 10 or 11, about 80 GB free | the client is copied once | |
+| Windows 10 or 11, about 130 GB free | the client is copied once | |
 | [Git](https://git-scm.com/download/win) | gets this build and its updates | `git --version` |
 | [.NET 10 SDK](https://dotnet.microsoft.com/download) | builds and runs the servers | `dotnet --list-sdks` shows `10.x` |
 | [Node.js](https://nodejs.org) (LTS) | unpacks the game's files | `node --version` |
 | Path of Exile **3.29.3d** (Steam layout) | the game you play | `PathOfExileSteam.exe` and a `Bundles2` folder |
+| [Python 3](https://www.python.org/downloads/windows/) (optional, tick "Add python.exe to PATH") and Pillow (`py -m pip install pillow`) | makes Body Auras' effects and the new orbs' art from your client | `py --version` |
 
 Install the three programs with their installers (defaults are fine), then open a new PowerShell window.
 
@@ -50,11 +74,12 @@ must own the game):
    - checks Git, .NET and Node, and prepares the file unpacker (`Tools\ooz`);
    - asks for your 3.29.3d client folder and copies it into `Client\` (your own install is only read);
    - makes your own login keys and a patched copy of the client that trusts them (`Client\Game.patched.exe`);
-   - copies the mods into `Mods\Binaries\`;
+   - copies the mods into `Mods\Binaries\`, and with Python makes the orbs' art from your client (`Exciting\client-art.ps1`);
    - offers to make your login account.
 
 3. Double-click **`Exciting\play.cmd`**. The first start builds the servers and the game data (a few minutes), puts the
-   mods' content into the game, and opens the game. Log in with the account from step 2.
+   mods' content into the game, and opens the game. Log in with the account from step 2. With Python, the second start
+   also makes the Body Auras (they read the game data the first start made).
 
 To make another account later:
 
@@ -90,6 +115,7 @@ installs the mods again. Your characters, accounts, keys and mod settings stay (
 | A mod does not load | `/mod` in game, and `logs\live-gateway.log` |
 | `Game.patched.exe` disappears | Your antivirus removed it (a patched executable): allow it, then run `setup.cmd` again |
 | `setup.cmd` or `update.cmd` stops with a red line | It says what is missing; fix that and run it again (each step is safe to repeat) |
+| No Body Auras in the cosmetics | Python was missing: install it, run `setup.cmd`, then start twice |
 | Anything else | LocalExile's own guide: `Agents\GettingStarted.md` |
 
 To take the content out of your client copy: `dotnet run --project tools\ContentPatch -c Release -- restore`.
