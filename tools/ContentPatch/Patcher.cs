@@ -20,9 +20,9 @@ public sealed class Patcher : IDisposable
     readonly string _ggpkPath;
     readonly string _backup;
     readonly GGPK? _ggpk;
-    // A Steam install (loose Bundles2\ files): nothing in it is written; the changed files go to this folder, which
-    // NativeMods hands the game in place of its own (Mods/Client/.merged-cache).
-    readonly string? _steam, _outFolder;
+    // A Steam install (loose Bundles2\ files): our bundle and the patched index are written as files there, the
+    // original index kept in the backup folder as original_index.steam.bin.
+    readonly string? _steam;
     readonly IReadOnlyDictionary<string, SchemaTable> _schema;
     readonly Oodle _oodle = new();
     readonly Dictionary<int, byte[]> _bundleCache = [];
@@ -49,20 +49,31 @@ public sealed class Patcher : IDisposable
         LoadOriginalIndex();
     }
 
-    /// <summary>A Steam install (its folder holds Bundles2\_.index.bin): read only; <see cref="Commit"/> writes the
-    /// changed files into <paramref name="outFolder"/> (emptied first).</summary>
-    public Patcher(DirectoryInfo steamFolder, string outFolder, string schemaFile, Action<string> log, ServerMirror? mirror = null,
+    /// <summary>A Steam install (its folder holds Bundles2\_.index.bin, the client reads those loose files).</summary>
+    public Patcher(DirectoryInfo steamFolder, string schemaFile, string backupFolder, Action<string> log, ServerMirror? mirror = null,
         Func<string, long>? serverRows = null)
     {
         _mirror = mirror;
         _serverRows = serverRows;
         _ggpkPath = "";
-        _backup = "";
         _steam = steamFolder.FullName;
-        _outFolder = outFolder;
+        _backup = Path.Combine(backupFolder, "original_index.steam.bin");
         _schema = DatSchema.LoadFile(schemaFile);
         _log = log;
-        byte[] content = Decompress(ReadGgpk(ClientFiles.Index));
+        byte[] current = ReadGgpk(ClientFiles.Index);
+        byte[] content = Decompress(current);
+        if (!IndexEditor.Parse(content).Bundles.Any(b => b.Name == OurBundle))
+        {
+            // The index is the client's own (a new client, or one Steam or a copy replaced): it is the original now.
+            Directory.CreateDirectory(Path.GetDirectoryName(_backup)!);
+            if (!File.Exists(_backup) || !File.ReadAllBytes(_backup).AsSpan().SequenceEqual(current))
+            {
+                File.WriteAllBytes(_backup, current);
+                _log($"kept the client's original index in {_backup}");
+            }
+        }
+        else if (File.Exists(_backup)) content = Decompress(File.ReadAllBytes(_backup));
+        else throw new InvalidOperationException($"the client's index is already patched and {_backup} is missing: put the client's own Bundles2\\_.index.bin back first");
         _original = GameIndex.Parse(content);
         _index = IndexEditor.Parse(content);
     }
@@ -396,21 +407,6 @@ public sealed class Patcher : IDisposable
     public byte[] Commit()
     {
         foreach (var (name, table) in _tables) _files[$"Data/{_schema[name].Name}.datc64"] = table.Write();
-        if (_outFolder is not null)
-        {
-            if (Directory.Exists(_outFolder)) Directory.Delete(_outFolder, recursive: true);
-            long bytes = 0;
-            foreach (var (path, data) in _files)
-            {
-                string to = Path.Combine(_outFolder, path.Replace('/', Path.DirectorySeparatorChar));
-                Directory.CreateDirectory(Path.GetDirectoryName(to)!);
-                File.WriteAllBytes(to, data);
-                bytes += data.Length;
-            }
-            _log($"wrote {_files.Count} file(s), {bytes:N0} bytes, into {_outFolder} (NativeMods gives them to the game)");
-            _mirror?.Commit(_log);
-            return [];
-        }
         using var blob = new MemoryStream();
         var places = new List<(string Path, int Offset, int Size)>();
         foreach (var (path, data) in _files.OrderBy(f => f.Key, StringComparer.Ordinal))
@@ -426,6 +422,16 @@ public sealed class Patcher : IDisposable
         byte[] ourBundle = RawBundle.Write(blob.ToArray());
         byte[] index = RawBundle.Write(_index.Write());
 
+        if (_steam is not null)
+        {
+            string bundlePath = Path.Combine(_steam, OurBundleFile.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(bundlePath)!);
+            File.WriteAllBytes(bundlePath, ourBundle);
+            File.WriteAllBytes(Path.Combine(_steam, ClientFiles.Index.Replace('/', Path.DirectorySeparatorChar)), index);
+            _log($"wrote {places.Count} file(s), {blob.Length:N0} bytes, into {OurBundleFile}; the index has {_index.FileCount:N0} files in {_index.Bundles.Count} bundles");
+            _mirror?.Commit(_log);
+            return [];
+        }
         if (!_ggpk!.Root.TryFindNode(OurBundleFile, out var node))
         {
             _ggpk.Root.FindOrAddDirectory("Bundles2", out var bundles);
@@ -445,6 +451,15 @@ public sealed class Patcher : IDisposable
         _ggpk!.Dispose();
         GgpkMaintenance.RepairRootHash(_ggpkPath);
         return GgpkMaintenance.RootHash(_ggpkPath);
+    }
+
+    /// <summary>A Steam install: puts the client's original index back (our bundle stays, unused).</summary>
+    public static void RestoreSteam(string steamFolder, string backupFolder, Action<string> log)
+    {
+        string backup = Path.Combine(backupFolder, "original_index.steam.bin");
+        if (!File.Exists(backup)) { log("no original index kept: the client was never patched"); return; }
+        File.WriteAllBytes(Path.Combine(steamFolder, ClientFiles.Index.Replace('/', Path.DirectorySeparatorChar)), File.ReadAllBytes(backup));
+        log("the client's original index is back");
     }
 
     /// <summary>Puts the client's original index back (our bundle stays, unused).</summary>
