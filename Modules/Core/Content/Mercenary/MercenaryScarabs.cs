@@ -20,6 +20,8 @@ public sealed partial class MercenaryModule
         public bool Escort { get; set; }
         public string Name { get; set; } = "";
         public int Difficulty { get; set; }
+        /// <summary>An escort that has joined the duel as a fighter (<see cref="JoinEscorts"/>).</summary>
+        public bool Joined { get; set; }
     }
 
     /// <summary>Mercenary blueprint encoded onto a <c>MercenaryWarrant</c> rematch item.</summary>

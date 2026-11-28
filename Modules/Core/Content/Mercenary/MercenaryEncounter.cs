@@ -514,7 +514,8 @@ public sealed partial class MercenaryModule
         // Take Item, Rematch, Hire: owner-only in retail 3.29 (IsMapOwner / 0xbd0b7d78)
         if (!IsEncounterOwner(player, run)) return true;
 
-        if (action.Kind == InstanceMercenaries.EncounterActionKind.Rematch && (run.Level < 68 || run.IsWarrantCall))
+        // Rematch "is only available in maps" (wiki), and not for a Mercenary a Warrant called.
+        if (action.Kind == InstanceMercenaries.EncounterActionKind.Rematch && (!MapDevices.IsMapArea(player.Layout.Hash) || run.IsWarrantCall))
             return true;
         if (action.Kind == InstanceMercenaries.EncounterActionKind.TakeRucksack && run.RucksackItems.Count == 0)
             return true;
@@ -648,6 +649,7 @@ public sealed partial class MercenaryModule
             ownedLooks: GearOf(kind, build, run.Level, run.Seed, run), extraMods: MercenaryEquipment.Effects(run.Equipment), shape: m => m with
             {
                 Name = displayName, StateMachine = duel, MercenaryBuild = build.Hash16, HasDialogue = false, NpcFlags = 0,
+                Skills = WithPortalOut(player, variety, run.Level, m.Skills),
             }, ownedKit: KitOf(player, variety, build, run.Level, run.Seed, run.Skills));
         if (id == 0) return false;
         if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = duel;
@@ -668,7 +670,7 @@ public sealed partial class MercenaryModule
     async Task JoinEscorts(Player player, Run run)
     {
         Wild[] escorts;
-        lock (run) escorts = [.. run.Wilds.Where(w => w.Escort && !w.Paid)];
+        lock (run) escorts = [.. run.Wilds.Where(w => w.Escort && !w.Joined && !w.Paid)];
         foreach (var wild in escorts)
         {
             if (MercenaryTables.ClassOf(wild.Class) is not { } kind || MercenaryTables.BuildOf(wild.Build) is not { } build
@@ -682,6 +684,7 @@ public sealed partial class MercenaryModule
                 {
                     Name = wild.Name, MercenaryBuild = build.Hash16,
                     StateMachine = States(variety, MercenaryWire.DuelStates), HasDialogue = false, NpcFlags = 0,
+                    Skills = WithPortalOut(player, variety, run.Level, o.Skills),
                 });
             if (id == 0) continue;
             await Remove(player, wild.Body);
@@ -690,7 +693,7 @@ public sealed partial class MercenaryModule
                 wild.Body = id;
                 wild.X = at.X;
                 wild.Y = at.Y;
-                wild.Escort = false;
+                wild.Joined = true;
             }
         }
     }
@@ -703,19 +706,73 @@ public sealed partial class MercenaryModule
         await DespawnCompanion(player);
 
         // If player died during a mercenary duel, wager is forfeited and encounter fails
-        if (Peek(player) is not { Stage: Stage.Duel } run) return;
-        if (!string.IsNullOrEmpty(run.DuelInitiator)
-            && !string.Equals(run.DuelInitiator, CharacterName(player), StringComparison.OrdinalIgnoreCase))
-            return;
-        uint duelId;
+        if (Peek(player) is { Stage: Stage.Duel or Stage.Countdown } run && IsDuelInitiator(player, run))
+            await LoseDuel(player, run, "the initiator died", leaving: false);
+    }
+
+    static bool IsDuelInitiator(Player player, Run run) => string.IsNullOrEmpty(run.DuelInitiator)
+        || string.Equals(run.DuelInitiator, CharacterName(player), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A lost duel (the wiki: "Dying to any of the mercenaries or leaving the area will forfeit the match ... both
+    /// the main mercenary and the accompanying wild mercenaries ... leave without dropping any items"). The wager is kept;
+    /// the Mercenary takes Mercenary.ot's encounter_state 3 ("Duel failed": its beat-player line, no minimap icon) and then
+    /// leaves, and the Trarthan Scarab of Infamy's escorts leave with it, unpaid. A player who left sees none of it.</summary>
+    async Task LoseDuel(Player player, Run run, string why, bool leaving)
+    {
+        uint body;
+        Wild[] escorts;
         lock (run)
         {
-            if (run.Stage != Stage.Duel) return;
+            if (run.Stage is not (Stage.Duel or Stage.Countdown)) return;
             run.Stage = Stage.Failed;
-            duelId = run.Body;
+            body = run.Body;
+            escorts = [.. run.Wilds.Where(w => w.Escort && !w.Paid)];
+            foreach (var wild in escorts) wild.Paid = true;
         }
         Save(player, run);
-        if (duelId != 0) await Remove(player, duelId);
+        context.Log($"{player.Layout.Id}: mercenary duel lost ({why}); 0x{body:x} and {escorts.Length} escort(s) leave");
+        uint[] leavers = [.. new[] { body }.Concat(escorts.Select(w => w.Body)).Where(id => id != 0)];
+        if (!leaving)
+        {
+            if (body != 0)
+            {
+                await SetStates(player, body, MercenaryWire.FailedStates, "(3, 0, 0, 1): the duel was lost");
+                await AreaDelay(player, 1.5); // [ESTIMATE] time for its line before it goes
+            }
+            bool any = false;
+            foreach (uint id in leavers) any |= await StartPortalOut(player, id);
+            // portal_out_01 fires its "leave" event at 0.64 s; Merc_FadeOut (from 0.39 s) needs a little longer.
+            if (any) await AreaDelay(player, 1.0);
+        }
+        foreach (uint id in leavers) await Remove(player, id);
+    }
+
+    /// <summary>The duel body's actor skills with EASMercenaryPortalOut added last, so it can leave as in retail.</summary>
+    static IReadOnlyList<GrantedSkill>? WithPortalOut(Player player, MonsterCatalog.Variety variety, byte level,
+        IReadOnlyList<GrantedSkill>? skills)
+    {
+        var catalog = SkillsFor(player);
+        int effect = variety.GrantedEffects?.FirstOrDefault(e => BossKits.IsLeavePortal(catalog, e), -1) ?? -1;
+        if (effect < 0 || catalog.FindByRow(MercenaryWire.PortalOutSkillId, effect, catalog.MaxLevelAt(effect, level)) is not { } portal)
+            return skills;
+        return [.. skills ?? [], portal];
+    }
+
+    /// <summary>Starts the body's portal_out_01 (from its class .ao: a town portal opens at 0.33 s and Merc_FadeOut plays at
+    /// 0.39 s) and stops its AI for good; the caller removes it once the clip has played.</summary>
+    async Task<bool> StartPortalOut(Player player, uint id)
+    {
+        if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead) return false;
+        double now = AreaTime(player);
+        var at = m.Walk.Position(now);
+        m.Walk.Order(at.X, at.Y, now);
+        ++m.ActionGeneration;
+        m.SwingGeneration = null;
+        m.BusyUntil = double.MaxValue;
+        // Sent directly, not by SendMonsterAction: that sends nothing once the player is dead, which is how most duels are lost.
+        await Everyone(player, member => SendWorldRecord(member, id, InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y,
+            MercenaryWire.PortalOutSkillId, member.NextActionSequence(), 0), $"mercenary 0x{id:x} portal_out_01"));
+        return true;
     }
 
     void OnKill(KillContext kill)
