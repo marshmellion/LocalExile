@@ -16,15 +16,17 @@ branch and only ever fast-forward it (`Exciting/update.cmd` runs `git pull --ff-
 | In the repository | Copied by `setup.ps1` to | Role |
 |---|---|---|
 | `Exciting/mods/<id>/` | `Mods/Binaries/<id>/` (git-ignored) | server mods (C# scripts the Gateway compiles); `/MIR` keeps `saves/` |
-| `Exciting/client-mods/qol/` | `Mods/Client/qol/` | NativeMods client mod (the QoL in-game panels); a player's `settings.json` is kept |
-| `Exciting/nativemods/` | `Client/version.dll`, `Client/LocalExile.ClientHost.dll`, `Client/nativemods-host/` | NativeMods loader, host, address library |
-| the user's .NET 10 runtime (`dotnet --list-runtimes`) | `Client/nativemods-host/` | private runtime for the host; `LocalExile.Client.Host.runtimeconfig.json` is written with `includedFrameworks` |
+| `Exciting/client-mods/qol/` | `Mods/Client/qol/` (only with `-NativeMods`) | NativeMods client mod (the QoL in-game panels); a player's `settings.json` is kept |
+| `Exciting/nativemods/` | `Client/version.dll`, `Client/LocalExile.ClientHost.dll`, `Client/nativemods-host/` (only with `-NativeMods`) | NativeMods loader, host, address library |
+| the user's .NET 10 runtime (`dotnet --list-runtimes`) | `Client/nativemods-host/` (only with `-NativeMods`) | private runtime for the host; `LocalExile.Client.Host.runtimeconfig.json` is written with `includedFrameworks` |
 
-At every start `scripts/dev/live.ps1` runs `tools/ContentPatch` (`apply --if-changed`). For a Steam client (no
-`Content.ggpk`) it reads the client's loose `Bundles2/` and writes the changed files (tables, `.dds` art, appended text
-files) to `Mods/Client/.merged-cache/`, which NativeMods serves to the game; the same rows go into `data/client.db` for
-the servers. It also writes the item symbol hook (a section `.lxhook`) into `Client/Game.patched.exe`. For a standalone
-client it patches `Content.ggpk` instead, as before. The packs are the mods' `content/*.json` files.
+At every start `scripts/dev/live.ps1` runs `tools/ContentPatch` (`apply --if-changed`). It writes the mods' content packs
+(`content/*.json`: table rows, `.dds` art, appended text files) into the client copy: for a Steam client our bundle
+`Client/Bundles2/LocalExile/Content.bundle.bin` and a patched `Client/Bundles2/_.index.bin` (the original kept in
+`data/content-patch/original_index.steam.bin`), for a standalone client the same inside `Content.ggpk`. The same rows go
+into `data/client.db` for the servers, and the item symbol hook (a section `.lxhook`) into `Client/Game.patched.exe`.
+`restore` undoes it. NativeMods is optional and off by default: on Windows its file overlay was mounted after the game
+had read some tables (mixed tables close the game) and its hooks cost frame rate; it is not used for content.
 
 ## Diagnosing
 
@@ -32,7 +34,8 @@ client it patches `Content.ggpk` instead, as before. The packs are the mods' `co
 - Servers: `logs/live-gateway.log`, `logs/live-auth.log`, `logs/live-patch.log` (and `.err`); previous runs in `logs/archive/`.
 - Content: `logs/content-patch.log` (`[content]` lines). A row-count mismatch between client and `client.db` means the
   client is another build than the tables in `sql/`.
-- NativeMods: `Client/nativemods-host/nativemods-shim.log`. To rule it out, rename `Client/version.dll`.
+- NativeMods (if installed): `Client/nativemods-shim.log` and `Client/nativemods-host/nativemods-shim.log`. To rule it out, rename `Client/version.dll`.
+- "Deserialised a mod that we don't recognise": the client lacks the content (the content step failed or did not run).
 - Mods: `/mod` in game; settings values in `data/mods/<id>.json`, declarations in each mod's `settings.json`.
 - Client build: only 3.29.3c and 3.29.3d run (`src/GameServer.Core/Protocol/ClientBuilds.cs`); NativeMods needs 3.29.3d
   (`Client/Game.exe` SHA-256 `e9ba3d31...f53d`).

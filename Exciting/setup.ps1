@@ -1,9 +1,10 @@
 # Exciting Items build of LocalExile: sets up (or updates) this checkout to play.
 #   setup.cmd            first time, and whenever you like: checks what you need, copies your client, makes your
-#                        login keys and patched client, installs NativeMods and the mods
+#                        login keys and patched client, installs the mods (NativeMods only with -NativeMods)
 #   update.cmd           pulls the newest build first (git pull), then does the same
+# The mods' client content (new items' art and text) goes into Client\ when the game starts (scripts\dev\live.ps1).
 # Safe to run again: each step does nothing when it is already done. Nothing outside this folder is changed.
-param([switch]$Update, [string]$ClientSource = '', [switch]$NoNativeMods)
+param([switch]$Update, [string]$ClientSource = '', [switch]$NativeMods)
 
 $ErrorActionPreference = 'Stop'
 $kit = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -91,10 +92,10 @@ if ($patch) {
     & dotnet run --project src\GameServer.Auth -c Release -- patch Client\Game.exe Client\Game.patched.exe
     if ($LASTEXITCODE -ne 0) { Fail 'Patching the client failed: read what it printed above.' }
 }
-Ok 'Client\Game.patched.exe trusts your keys (the item symbol hook is added when the game starts)'
+Ok 'Client\Game.patched.exe trusts your keys (the item symbol hook and the mods'' content are added when the game starts)'
 
-Step 'NativeMods (the in-game panels and our client content on a Steam client)'
-if ($NoNativeMods) { Note 'skipped (-NoNativeMods)' }
+Step 'NativeMods (optional: the QoL panels inside the game)'
+if (-not $NativeMods) { Note 'not installed (setup.cmd -NativeMods installs it; it is experimental on Windows)'; if (Test-Path 'Client\version.dll') { Move-Item 'Client\version.dll' 'Client\version.dll.off' -Force; Note 'turned an earlier NativeMods off (Client\version.dll.off)' } }
 elseif (-not $is3293d) { Note 'skipped: NativeMods is made for the 3.29.3d client' }
 else {
     $hostDir = 'Client\nativemods-host'
@@ -138,7 +139,7 @@ foreach ($mod in Get-ChildItem "$kit\mods" -Directory) {
     if ($LASTEXITCODE -ge 8) { Fail "Copying the mod $($mod.Name) failed (robocopy code $LASTEXITCODE)." }
     Note "server mod: $($mod.Name)"
 }
-if ($is3293d -and -not $NoNativeMods) {
+if ($is3293d -and $NativeMods) {
     foreach ($mod in Get-ChildItem "$kit\client-mods" -Directory) {
         $to = "Mods\Client\$($mod.Name)"
         $keep = Test-Path "$to\settings.json"
