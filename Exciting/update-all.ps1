@@ -1,7 +1,7 @@
 # Updates everything to the newest: the Exciting build (LocalExile plus our changes and the mods that come with it, the
 # same as update.cmd), then every other mod in Mods\Binaries that our mods repository has a newer version of
 # (https://github.com/marshmellion/LocalExile-Mods, kept in Tools\LocalExile-Mods\). Your characters, accounts, keys and
-# mod settings stay (they are in data\). NativeMods stays on if you have it.
+# mod settings stay (they are in data\). The in-game buttons (NativeMods) stay as you set them.
 $ErrorActionPreference = 'Stop'
 $kit = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Split-Path -Parent $kit
@@ -20,7 +20,6 @@ function Version([string]$folder) {
 
 # 1. The build and its own mods: setup.ps1 -Update (git pull, then the mods, the client-made art, ...).
 $setupArgs = @{ Update = $true }
-if (Test-Path 'Client\version.dll') { $setupArgs.NativeMods = $true }   # keep NativeMods on for those who have it
 & (Join-Path $kit 'setup.ps1') @setupArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

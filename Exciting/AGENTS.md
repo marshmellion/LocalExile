@@ -16,20 +16,21 @@ branch and only ever fast-forward it (`Exciting/update.cmd` runs `git pull --ff-
 | In the repository | Copied by `setup.ps1` to | Role |
 |---|---|---|
 | `Exciting/mods/<id>/` | `Mods/Binaries/<id>/` (git-ignored) | server mods (C# scripts the Gateway compiles); `/MIR` keeps `saves/` |
-| `Exciting/client-mods/qol/` | `Mods/Client/qol/` (only with `-NativeMods`) | NativeMods client mod (the QoL in-game panels); a player's `settings.json` is kept |
-| `Exciting/nativemods/` | `Client/version.dll`, `Client/LocalExile.ClientHost.dll`, `Client/nativemods-host/` (only with `-NativeMods`) | NativeMods loader, host, address library |
+| `Exciting/client-mods/qol/` | `Mods/Client/qol/` (unless off, see below) | NativeMods client mod (the QoL in-game panels); a player's `settings.json` is kept |
+| `Exciting/nativemods/` | `Client/version.dll`, `Client/LocalExile.ClientHost.dll`, `Client/nativemods-host/` (unless off) | NativeMods loader, host, address library |
 | `Exciting/client-art.ps1` (run by `setup.ps1`, and by `play.cmd` with `-IfMissing`) | `Mods/Binaries/excitingitems/content/*.json` (orb art), `Mods/Binaries/bodyauras/content/` | makes from the player's own client what we may not share: the orbs' art and the Body Auras' effects (Python 3; Pillow for the orbs) |
-| `Exciting/update-all.cmd`, `update-all.ps1` | `Mods/Binaries/<id>/` (other mods), cache `Tools/LocalExile-Mods/` | `setup.ps1 -Update` (with `-NativeMods` if `Client/version.dll` exists), then every installed mod that is not the build's own and has a higher `version` in our mods repository |
+| `Exciting/update-all.cmd`, `update-all.ps1` | `Mods/Binaries/<id>/` (other mods), cache `Tools/LocalExile-Mods/` | `setup.ps1 -Update`, then every installed mod that is not the build's own and has a higher `version` in our mods repository |
 | `Exciting/install.cmd`, `install.ps1` | (nothing: a guide) | the guided first install for players: checks programs, clones `exciting`, gets the client, runs setup, explains Waypoint |
-| the user's .NET 10 runtime (`dotnet --list-runtimes`) | `Client/nativemods-host/` (only with `-NativeMods`) | private runtime for the host; `LocalExile.Client.Host.runtimeconfig.json` is written with `includedFrameworks` |
+| the user's .NET 10 runtime (`dotnet --list-runtimes`) | `Client/nativemods-host/` (unless off) | private runtime for the host; `LocalExile.Client.Host.runtimeconfig.json` is written with `includedFrameworks` |
 
 At every start `scripts/dev/live.ps1` runs `tools/ContentPatch` (`apply --if-changed`). It writes the mods' content packs
 (`content/*.json`: table rows, `.dds` art, appended text files) into the client copy: for a Steam client our bundle
 `Client/Bundles2/LocalExile/Content.bundle.bin` and a patched `Client/Bundles2/_.index.bin` (the original kept in
 `data/content-patch/original_index.steam.bin`), for a standalone client the same inside `Content.ggpk`. The same rows go
 into `data/client.db` for the servers, and the item symbol hook (a section `.lxhook`) into `Client/Game.patched.exe`.
-`restore` undoes it. NativeMods is optional and off by default: on Windows its file overlay was mounted after the game
-had read some tables (mixed tables close the game) and its hooks cost frame rate; it is not used for content.
+`restore` undoes it. NativeMods (the QoL buttons and panels inside the game) is on by default since the Windows fixes in
+`nativemods/SOURCE.md`; `setup.ps1 -NoNativeMods` turns it off and leaves `Client/version.dll.off`, which keeps it off
+at every later setup or update until `-NativeMods`. It is not used for content (the content patcher is).
 
 ## Diagnosing
 

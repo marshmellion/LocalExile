@@ -127,10 +127,10 @@ the first two). Your characters, accounts, keys and mod settings stay (they are 
 - **Quality of Life**: its overlay window (started with the servers) has the buttons (Loot, Sort, Prices, and on the
   stash Deposit all, Vendor tab, Sort tab, Upgrade maps) and the keys F5 loot, F6 sort, F7 deposit all, F8 price lines,
   F9 hide, F10 alternate quality gems. `/qol` does the same by chat.
-- **NativeMods (experimental)**: `Exciting\setup.cmd -NativeMods` also installs
-  [NativeMods](https://github.com/mrnamwen/LocalExile-NativeMods) and the QoL panels inside the game. On Windows it
-  lowered the frame rate and closed the game in our tests, so it is off by default; delete `Client\version.dll` to
-  turn it off again.
+- **The in-game buttons (NativeMods)**: setup installs [NativeMods](https://github.com/mrnamwen/LocalExile-NativeMods)
+  and the QoL buttons and panels inside the game (Loot, Sort, Deposit all, Sort tab, prices, the gem and Harvest
+  panels). `Exciting\setup.cmd -NoNativeMods` turns them off (updates keep it off), `-NativeMods` on again. Their
+  places and sizes: `Mods\Client\qol\settings.json` ("buttons").
 - **Exciting Items**: `/exciting` lists its commands. Its README is in `Mods\Binaries\excitingitems\README.md`.
 
 ## When something goes wrong
@@ -139,7 +139,8 @@ the first two). Your characters, accounts, keys and mod settings stay (they are 
 |---|---|
 | "Deserialised a mod that we don't recognise" | The client has no content yet: read `logs\content-patch.log` (the content step of `play.cmd`) |
 | New currency shows as a plain or missing item | The same: `logs\content-patch.log` |
-| The game closes at start with NativeMods on | Delete `Client\version.dll` (NativeMods off) |
+| No buttons inside the game (only the overlay window) | Run `Exciting\setup.cmd -NativeMods` (they need the 3.29.3d client) |
+| The game closes at start | Run `Exciting\setup.cmd -NoNativeMods` (the in-game buttons off) and tell us |
 | A mod does not load | `/mod` in game, and `logs\live-gateway.log` |
 | `Game.patched.exe` disappears | Your antivirus removed it (a patched executable): allow it, then run `setup.cmd` again |
 | `setup.cmd` or `update.cmd` stops with a red line | It says what is missing; fix that and run it again (each step is safe to repeat) |
@@ -164,7 +165,7 @@ The branch `exciting` of https://github.com/marshmellion/LocalExile is LocalExil
 | `jewel-allocates` | jewels that "Allocate" a passive grant it while socketed |
 | `piety-crash-fix` | fixes for two client crashes (Tempest Shield, Piety's retreat) |
 | `le-trade-patch` | what the LE.trade bridge needs (abyssal sockets in item specs, the trade panel) |
-| `exciting-kit` | this folder: the setup scripts, the mods, NativeMods (optional) and these docs |
+| `exciting-kit` | this folder: the setup scripts, the mods, NativeMods (the in-game buttons) and these docs |
 
 Licenses: LocalExile is GNU GPL v2; NativeMods is GNU GPL v2 (`Exciting\nativemods\SOURCE.md` says where its source
 is). LocalExile is not affiliated with or endorsed by Grinding Gear Games, and is for local play only.
