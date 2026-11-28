@@ -55,6 +55,7 @@ public static class WorldLoader
         Step("buff rows", BuffRows.LoadGameData);
         Step("bladefall volleys", BladefallVolleys.LoadGameData);
         Step("impossible escape", ImpossibleEscapeCatalogue.LoadGameData);
+        Step("forbidden jewels", ForbiddenJewels.LoadGameData);
 
         // The world: areas, their layouts and objects, then the quests placed in them.
         Step("labyrinth trials", LabyrinthTrials.LoadGameData);

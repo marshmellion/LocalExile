@@ -121,6 +121,8 @@ public static partial class Game
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return [];
         if (MonsterGivesNoItems(m)) return [];
+        // "Monsters drop no Items" (map_monster_no_drops, a Valdo modifier).
+        if (MapModsOf(player)?.Get(Stat.MapMonsterNoDrops) > 0) return [];
         if (!GameEvents.AllowsLoot(player)) return [];
 
         var lootStats = PlayerStatValues(player);
