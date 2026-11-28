@@ -6,6 +6,22 @@ using GameServer.Core.World;
 // EnemyDebuffsTick shows the buff.
 public static partial class Game
 {
+    static void FearsomeWarriorOnMeleeKillLocked(Player player, SpawnedMonster killed, double now, int chance, Random random)
+    {
+        if (!killed.Hostile || !RandomRolls.Chance(chance, 100, random)) return;
+        const int radius = 40; // Fearsome Warrior: within four metres of the melee kill.
+        var at = killed.Walk.Position(now);
+        var nearby = new List<EntityId>();
+        player.Area.Grid.Near(at, radius, nearby);
+        foreach (var id in nearby)
+        {
+            if (!player.Area.Monsters.TryGetValue(id.Value, out var monster) || !monster.Hostile
+                || monster.Dead || monster.Life == 0 || monster.Invulnerable || Dist(monster.Walk.Position(now), at) > radius) continue;
+            monster.IntimidatedUntil = Math.Max(monster.IntimidatedUntil, now + HitDebuffSeconds);
+            monster.PresentationChanged?.Invoke();
+        }
+    }
+
     public const double HitDebuffSeconds = 4;
     public const int HitDebuffTakenPct = 10;
     // BuffDefinitions intimidated and unnerved; neither is IsRecovery, so 0x1c1 carries no values.
@@ -31,12 +47,18 @@ public static partial class Game
     /// <summary>Whether a hit intimidates and unnerves: chance_to_intimidate_on_hit_% (and attacks_intimidate_on_hit_%
     /// for an attack), chance_to_unnerve_on_hit_% (and chance_to_unnerve_on_hit_with_spells_% for a spell), and Grattus
     /// Signet's crits: spells_inflict_intimidate_on_crit, attacks_inflict_unnerve_on_crit.</summary>
-    public static (bool Intimidate, bool Unnerve) HitDebuffRolls(Func<uint, int> get, bool spell, bool critical, Random random)
+    /// <paramref name="ruled"/>: the stats an effect rule is live for on the hitting character (EffectRules.LiveFor); the
+    /// rule rolls those, so they are left out here.
+    public static (bool Intimidate, bool Unnerve) HitDebuffRolls(Func<uint, int> get, bool spell, bool critical, Random random,
+        Func<uint, bool>? ruled = null)
     {
-        bool intimidate = spell && critical && get(Stat.SpellsInflictIntimidateOnCrit) != 0
-            || RandomRolls.Chance(get(Stat.ChanceToIntimidateOnHitPct) + (spell ? 0 : get(Stat.AttacksIntimidateOnHitPct)), 100, random);
-        bool unnerve = !spell && critical && get(Stat.AttacksInflictUnnerveOnCrit) != 0
-            || RandomRolls.Chance(get(Stat.ChanceToUnnerveOnHitPct) + (spell ? get(Stat.ChanceToUnnerveOnHitWithSpellsPct) : 0), 100, random);
+        bool Ruled(uint stat) => ruled is not null && ruled(stat);
+        bool intimidate = spell && critical && !Ruled(Stat.SpellsInflictIntimidateOnCrit) && get(Stat.SpellsInflictIntimidateOnCrit) != 0
+            || !Ruled(Stat.ChanceToIntimidateOnHitPct)
+                && RandomRolls.Chance(get(Stat.ChanceToIntimidateOnHitPct) + (spell ? 0 : get(Stat.AttacksIntimidateOnHitPct)), 100, random);
+        bool unnerve = !spell && critical && !Ruled(Stat.AttacksInflictUnnerveOnCrit) && get(Stat.AttacksInflictUnnerveOnCrit) != 0
+            || !Ruled(Stat.ChanceToUnnerveOnHitPct)
+                && RandomRolls.Chance(get(Stat.ChanceToUnnerveOnHitPct) + (spell ? get(Stat.ChanceToUnnerveOnHitWithSpellsPct) : 0), 100, random);
         return (intimidate, unnerve);
     }
 
@@ -50,26 +72,102 @@ public static partial class Game
     public static double BlindSeconds(Func<uint, int> get) =>
         HitDebuffSeconds * Math.Max(0, 1 + get(Stat.BlindDurationPlusPct) / 100.0);
 
+    static IReadOnlyDictionary<uint, int>? WithWeaponAilmentStats(IReadOnlyDictionary<uint, int>? skill,
+        IReadOnlyDictionary<uint, int>? weapon, bool offHand = false, IReadOnlyDictionary<uint, int>? otherWeapon = null)
+    {
+        if (weapon is null && otherWeapon is null) return skill;
+        int guaranteed = (weapon?.GetValueOrDefault(Stat.LocalMaimOnHit) ?? 0)
+            | (otherWeapon?.GetValueOrDefault(Stat.LocalMaimOnHit) ?? 0);
+        int chance = ActorScale.Saturate((long)(weapon?.GetValueOrDefault(Stat.LocalMaimOnHitPct) ?? 0)
+            + (otherWeapon?.GetValueOrDefault(Stat.LocalMaimOnHitPct) ?? 0));
+        int chillMs = (offHand ? weapon : otherWeapon)?.GetValueOrDefault(Stat.LocalChillOnHitMsIfInOffHand) ?? 0;
+        if (guaranteed == 0 && chance == 0 && chillMs <= 0) return skill;
+        Dictionary<uint, int> hit = skill is null ? new() : new(skill);
+        if (guaranteed != 0) hit[Stat.LocalMaimOnHit] = guaranteed;
+        if (chance != 0) hit[Stat.LocalMaimOnHitPct] = chance;
+        if (chillMs > 0) hit[Stat.LocalChillOnHitMsIfInOffHand] = chillMs;
+        return hit;
+    }
+
     // A hit that landed on a living hostile monster, in the area's frame. <paramref name="random"/> belongs to the
     // hit so projectile draws stay in order; others pass AreaRng(player).
     public static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
-        Random random)
+        Random random, Func<uint, bool>? ruled = null)
     {
-        if (m.Hostile) ApplyContactDebuffsLocked(m, get, spell, critical, now, random);
+        if (m.Hostile) ApplyContactDebuffsLocked(m, get, spell, critical, now, random, ruled);
+    }
+
+    /// <summary>The debuffs the effect rules' "debuff" can put on the monster of a hit.</summary>
+    public static bool NamedDebuff(string debuff) => debuff is "intimidated" or "unnerved" or "crushed" or "hindered"
+        or "maimed" or "blinded" or "withered" or "fire_exposure" or "cold_exposure" or "lightning_exposure" or "covered_in_ash";
+
+    /// <summary>What the effect rules' "debuff" does to the monster of a hit: one of the debuffs below, from
+    /// <paramref name="now"/>, a later one restarting it. The rule has rolled its chance; what the debuff itself asks of
+    /// the monster (immunity, a chance to avoid it) and what the hitting side's other stats do to it (duration, effect,
+    /// magnitude: <paramref name="get"/>, the character's stats with the skill's) is worked out here, by the code the
+    /// hit used before. <paramref name="seconds"/> is the rule's base duration and <paramref name="amount"/> its base
+    /// magnitude (an Exposure's resistance). <paramref name="id"/>: the monster's id in its area, 0 where the hit's site
+    /// has none (Blind needs it). False for a name that is not one of them.</summary>
+    public static bool ApplyNamedDebuffLocked(Player player, SpawnedMonster m, uint id, string debuff, double seconds, double amount,
+        double now, Func<uint, int> get)
+    {
+        // An invulnerable monster's hit raises the event too, and the code never put a hit's debuffs on it.
+        if (!m.Hostile || m.Dead || m.Life == 0 || m.Invulnerable) return true;
+        switch (debuff)
+        {
+            case "intimidated": m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + seconds); break;
+            case "unnerved": m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + seconds); break;
+            case "crushed": m.CrushedUntil = Math.Max(m.CrushedUntil, now + seconds); break;
+            case "hindered":
+                if (m.Effects[Stat.YouCannotBeHindered] == 0 && m.Effects[Stat.ImmuneToHinder] == 0)
+                    m.HinderedUntil = Math.Max(m.HinderedUntil, now + seconds);
+                break;
+            // Covered in Ash: slower, and more fire damage taken, while it lasts.
+            case "covered_in_ash": m.CoveredInAshUntil = Math.Max(m.CoveredInAshUntil, now + seconds); break;
+            // Maim: the monster's immunity and its chance to avoid it, and the Maim support's physical damage taken.
+            case "maimed":
+                TryApplyMaimLocked(m, 100, Math.Max(0, get(Stat.SupportMaimedEnemiesPhysicalDamageTakenPlusPct)), now, AreaRng(player), seconds);
+                return true;
+            // Blind: blind_duration_+% and blind_effect_+%; the blind itself is the character's (cannot_be_blinded there).
+            case "blinded":
+                if (id != 0) InflictMonsterBlind(player, id, m, now,
+                    (100, get(Stat.BlindEffectPlusPct), seconds * Math.Max(0, 1 + get(Stat.BlindDurationPlusPct) / 100.0)));
+                return true;
+            // Withered: one more stack. A skill's support_withered_base_duration_ms is the duration in place of the
+            // rule's; wither_expire_speed_+% and withered_effect_+% as for any stack.
+            case "withered":
+                double baseSeconds = get(Stat.SupportWitheredBaseDurationMs) is > 0 and var ms ? ms / 1000.0 : seconds;
+                ApplyWitherStacksLocked(m, 1, WitherDurationSeconds(baseSeconds, get), get, now);
+                return true;
+            // Exposure: the rule's magnitude with the stats that add to an Exposure the character inflicts.
+            case "fire_exposure" or "cold_exposure" or "lightning_exposure":
+                int element = debuff[0] switch { 'f' => 0, 'c' => 1, _ => 2 };
+                if (m.Mods.Effects[Stat.ImmuneToExposure] > 0 || amount >= 0) return true;
+                if (InflictedExposure(get, ExposureTypes[element], (int)Math.Round(amount)) is < 0 and var magnitude)
+                    Expose(m, element, magnitude, now, seconds);
+                return true;
+            default: return false;
+        }
+        m.PresentationChanged?.Invoke();
+        return true;
     }
 
     static void ApplyContactDebuffsLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
-        Random random)
+        Random random, Func<uint, bool>? ruled = null)
     {
         if (m.Dead || m.Life == 0) return;
-        var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, random);
+        bool Ruled(uint stat) => ruled is not null && ruled(stat);
+        var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, random, ruled);
         if (intimidate) { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
         if (unnerve) { m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
-        if (RandomRolls.Chance(get(Stat.ChanceToCrushOnHitPct), 100, random))
+        if (!Ruled(Stat.ChanceToCrushOnHitPct) && RandomRolls.Chance(get(Stat.ChanceToCrushOnHitPct), 100, random))
             { m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds); m.PresentationChanged?.Invoke(); }
-        TryApplyMaimLocked(m, get(Stat.MaimOnHitPct),
+        // A weapon's own "Maim on hit" lines are local and not a rule's stat; maim_on_hit_% is left to a live rule.
+        int maim = !spell && get(Stat.LocalMaimOnHit) != 0 ? 100
+            : ActorScale.Saturate((long)(Ruled(Stat.MaimOnHitPct) ? 0 : get(Stat.MaimOnHitPct)) + (spell ? 0 : get(Stat.LocalMaimOnHitPct)));
+        TryApplyMaimLocked(m, maim,
             Math.Max(0, get(Stat.SupportMaimedEnemiesPhysicalDamageTakenPlusPct)), now, random);
-        if (spell && RandomRolls.Chance(get(Stat.SpellsChanceToHinderOnHitPct), 100, random))
+        if (spell && !Ruled(Stat.SpellsChanceToHinderOnHitPct) && RandomRolls.Chance(get(Stat.SpellsChanceToHinderOnHitPct), 100, random))
             ApplyHinderLocked(m, now);
     }
 
@@ -90,7 +188,8 @@ public static partial class Game
     public static bool PlayerAvoidsMaim(Func<uint, int> get, Random random) =>
         get(Stat.ImmuneToMaim) != 0 || RandomRolls.Chance(get(Stat.AvoidMaimPctChance), 100, random);
 
-    static bool TryApplyMaimLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random)
+    static bool TryApplyMaimLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random,
+        double seconds = MaimSeconds)
     {
         if (m.Dead || m.Life == 0) return false;
         if (m.Effects[Stat.ImmuneToMaim] != 0 || RandomRolls.Chance(m.Effects[Stat.AvoidMaimPctChance], 100, random))
@@ -98,13 +197,13 @@ public static partial class Game
         if (!RandomRolls.Chance(chance, 100, random)) return false;
         // Settle elapsed bleed damage at its Rupture deadlines using the target's previous Maim.
         if (physicalTaken > 0 && m.Bleeds.Burning) SettleBleeding(m, now);
-        m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds);
+        m.MaimedUntil = Math.Max(m.MaimedUntil, now + seconds);
         m.PresentationChanged?.Invoke();
         physicalTaken = Math.Max(0, physicalTaken);
         if (physicalTaken > 0 && (physicalTaken >= m.MaimedPhysicalTakenPct || m.MaimedPhysicalTakenUntil <= now))
         {
             m.MaimedPhysicalTakenPct = physicalTaken;
-            m.MaimedPhysicalTakenUntil = now + MaimSeconds;
+            m.MaimedPhysicalTakenUntil = now + seconds;
         }
         return true;
     }
@@ -169,12 +268,22 @@ public static partial class Game
     /// inflicts its own; inflict_all_exposure_on_hit, base_inflict_{element}_exposure_on_hit_%_chance and, for a hit with
     /// that damage, chance_to_inflict_{element}_exposure_on_hit_with_{element}_damage_% inflict the default -10%. The
     /// stronger one counts (<see cref="InflictedExposure"/>).</summary>
-    public static int ExposureRoll(Func<uint, int> get, DamageType type, bool withType, Random random)
+    /// <paramref name="ruled"/>: the stats an effect rule is live for on the hitting character; the rule inflicts
+    /// those, so they are left out here.
+    public static int ExposureRoll(Func<uint, int> get, DamageType type, bool withType, Random random) =>
+        ExposureRoll(get, type, withType, random, 0);
+
+    static int ExposureRoll(Func<uint, int> get, DamageType type, bool withType, Random random, int skillChance,
+        Func<uint, bool>? ruled = null)
     {
         string e = type.ToString().ToLowerInvariant();
-        bool rolled = get(Stat.InflictAllExposureOnHit) != 0 || RandomRolls.Chance(get(Stat.Of($"base_inflict_{e}_exposure_on_hit_%_chance"))
-            + (withType ? get(Stat.Of($"chance_to_inflict_{e}_exposure_on_hit_with_{e}_damage_%")) : 0), 100, random);
-        int magnitude = Math.Min(rolled ? DefaultExposure : 0, get(Stat.Of($"{e}_exposure_on_hit_magnitude")));
+        bool Ruled(uint stat) => ruled is not null && ruled(stat);
+        uint baseChance = Stat.Of($"base_inflict_{e}_exposure_on_hit_%_chance"), own = Stat.Of($"{e}_exposure_on_hit_magnitude");
+        int chance = Ruled(baseChance) ? skillChance : ActorScale.Saturate((long)get(baseChance) + skillChance
+            + (withType ? get(Stat.Of($"chance_to_inflict_{e}_exposure_on_hit_with_{e}_damage_%")) : 0));
+        bool rolled = !Ruled(Stat.InflictAllExposureOnHit) && get(Stat.InflictAllExposureOnHit) != 0
+            || RandomRolls.Chance(chance, 100, random);
+        int magnitude = Math.Min(rolled ? DefaultExposure : 0, Ruled(own) ? 0 : get(own));
         return magnitude >= 0 ? 0 : InflictedExposure(get, type, magnitude);
     }
 
@@ -198,12 +307,16 @@ public static partial class Game
         ExposureOnHitLocked(m, get, mitigated, now, random, null);
 
     static void ExposureOnHitLocked(SpawnedMonster m, Func<uint, int> get, DamagePacket mitigated, double now, Random random,
-        int? dominantElement)
+        int? dominantElement, (int Fire, int Cold, int Lightning) skill = default, Func<uint, bool>? ruled = null)
     {
         if (m.Effects[Stat.ImmuneToExposure] > 0) return;
         for (int i = 0; i < ExposureTypes.Length; i++)
-            if (ExposureRoll(get, ExposureTypes[i], mitigated[ExposureTypes[i]].Max > 0, random) is < 0 and var magnitude)
+        {
+            var type = ExposureTypes[i];
+            int chance = type switch { DamageType.Fire => skill.Fire, DamageType.Cold => skill.Cold, _ => skill.Lightning };
+            if (ExposureRoll(get, type, mitigated[type].Max > 0, random, chance, ruled) is < 0 and var magnitude)
                 Expose(m, i, magnitude, now);
+        }
         int strongestExposure = get(Stat.PurgeExposeResistPctMatchingHighestElementDamage);
         if (strongestExposure < 0)
         {
@@ -261,10 +374,10 @@ public static partial class Game
     /// without a time.</summary>
     public static int MonsterExposure(SpawnedMonster m, DamageType type, double now)
     {
-        int strongest = type == DamageType.Fire ? PyroclastExposure(m, now) : 0;
+        int strongest = type == DamageType.Fire ? Math.Min(PyroclastExposure(m, now), NearbyFireExposureOn(m)) : 0;
         foreach (var ((t, magnitude), until) in m.Exposures)
             if (t == type && until > now) strongest = Math.Min(strongest, magnitude);
-        return strongest;
+        return strongest != 0 && m.Effects[Stat.ImmuneToExposure] != 0 ? 0 : strongest;
     }
 
     // Its Exposure of this type ended (EnemyDebuffsTick: it ran out, or it or the player died).
@@ -287,23 +400,32 @@ public static partial class Game
     /// <summary>How long a hit withers for, 0 for not: one roll for withered_on_hit_for_2_seconds_%_chance and Withering
     /// Touch's withered_on_hit_chance_%, for its support_withered_base_duration_ms or else 2 s, expiring slower by
     /// wither_expire_speed_+% (the Eldritch gloves' "Withered you Inflict expires X% slower").</summary>
-    public static double WitherRoll(Func<uint, int> get, Random random)
+    public static double WitherRoll(Func<uint, int> get, Random random, Func<uint, bool>? ruled = null)
     {
+        // The rule rolls the two chances as one and adds the stack (EffectRules.LiveFor).
+        if (ruled is not null && ruled(Stat.WitheredOnHitFor2SecondsPctChance)) return 0;
         if (!RandomRolls.Chance(get(Stat.WitheredOnHitFor2SecondsPctChance) + get(Stat.WitheredOnHitChancePct), 100, random)) return 0;
         double seconds = get(Stat.SupportWitheredBaseDurationMs) is > 0 and var ms ? ms / 1000.0 : 2;
         return WitherDurationSeconds(seconds, get);
     }
 
     // A hit that landed on a living monster, in the area's frame: one more Withered stack, with withered_effect_+%.
-    public static void WitherOnHitLocked(SpawnedMonster m, Func<uint, int> get, double now, Random random)
+    public static void WitherOnHitLocked(SpawnedMonster m, Func<uint, int> get, double now, Random random) =>
+        WitherOnHitLocked(m, get, now, random, null);
+
+    public static void WitherOnHitLocked(SpawnedMonster m, Func<uint, int> get, double now, Random random, uint? source,
+        Func<uint, bool>? ruled = null)
     {
-        if (m.Mods.Effects[Stat.ImmuneToWither] > 0 || WitherRoll(get, random) is not (> 0 and var seconds)) return;
-        ApplyWitherStacksLocked(m, 1, seconds, get, now);
+        if (m.Mods.Effects[Stat.ImmuneToWither] > 0 || WitherRoll(get, random, ruled) is not (> 0 and var seconds)) return;
+        ApplyWitherStacksLocked(m, 1, seconds, get, now, source);
     }
 
     // Adds <paramref name="stacks"/> Withered stacks with already-scaled duration <paramref name="seconds"/>
     // (capped at WitheredMaxStacks = 15, replacing the earliest-ending stack).
-    public static void ApplyWitherStacksLocked(SpawnedMonster m, int stacks, double seconds, Func<uint, int> get, double now)
+    public static void ApplyWitherStacksLocked(SpawnedMonster m, int stacks, double seconds, Func<uint, int> get, double now) =>
+        ApplyWitherStacksLocked(m, stacks, seconds, get, now, null);
+
+    public static void ApplyWitherStacksLocked(SpawnedMonster m, int stacks, double seconds, Func<uint, int> get, double now, uint? source)
     {
         if (stacks <= 0 || seconds <= 0 || m.Mods.Effects[Stat.ImmuneToWither] > 0) return;
         double pct = WitheredPct * Math.Max(0, 1 + get(Stat.WitheredEffectPlusPct) / 100.0);
@@ -311,7 +433,7 @@ public static partial class Game
         for (int i = 0; i < stacks; i++)
         {
             if (m.Withered.Count >= WitheredMaxStacks) m.Withered.Remove(m.Withered.MinBy(s => s.Until));
-            m.Withered.Add((now + seconds, pct));
+            m.Withered.Add((now + seconds, pct, source));
         }
         m.PresentationChanged?.Invoke();
     }
@@ -319,16 +441,28 @@ public static partial class Game
     /// <summary>The increased chaos damage from active Withered stacks at <paramref name="now"/>.</summary>
     public static double WitheredTaken(SpawnedMonster m, double now) => ReadWithered(m, now).Taken;
 
+    static int WitheredElementalHitTaken(SpawnedMonster m, uint source, double now, IReadOnlyDictionary<uint, int> stats) =>
+        WitheredElementalHitTaken(m, source, now,
+            stats.GetValueOrDefault(Stat.EnemiesWitheredByYouTakePlusPctIncreasedElementalDamageFromYourHits));
+
+    static int WitheredElementalHitTaken(SpawnedMonster m, uint source, double now, int perStack)
+    {
+        if (perStack == 0 || m.Mods.Effects[Stat.ImmuneToWither] > 0) return 0;
+        return ActorScale.Saturate((long)perStack * ReadWithered(m, now, source).Own);
+    }
+
     // A Withering pod contributes once while an enemy is in its radius. It shares the timed stacks' cap, and
     // leaving removes that pod immediately without changing any of the Withered stacks from hits or other skills.
-    static (int Count, double Taken, double Until, double DisplayPct) ReadWithered(SpawnedMonster m, double now)
+    static (int Count, double Taken, double Until, double DisplayPct, int Own) ReadWithered(SpawnedMonster m, double now,
+        uint? source = null)
     {
-        int count = 0;
+        int count = 0, own = 0;
         double taken = 0, latest = 0, display = 0;
-        foreach (var (until, pct) in m.Withered)
+        foreach (var (until, pct, owner) in m.Withered)
         {
             if (until <= now) continue;
             count++;
+            if (source is uint id && owner == id) own++;
             taken += pct;
             latest = Math.Max(latest, until);
             display = pct;
@@ -339,12 +473,13 @@ public static partial class Game
                 {
                     if (pod.Withered is not double pct || pod.Until <= now) continue;
                     count++;
+                    if (source is uint id && pod.Source == id) own++;
                     taken += pct;
                     latest = Math.Max(latest, pod.Until);
                     display = pct;
                     if (count == WitheredMaxStacks) break;
                 }
-        return (count, taken, latest, display);
+        return (count, taken, latest, display, own);
     }
 
     /// <summary>The increased damage a hit takes from them at <paramref name="now"/>: Intimidate's on an attack, Unnerve's

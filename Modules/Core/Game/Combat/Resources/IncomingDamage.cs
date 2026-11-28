@@ -43,7 +43,7 @@ public static partial class Game
             lifeDamage: toLife, damaged: taken.MaxTotal > 0, enemy: false);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
-        if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+        if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
         RecordHardcoreDeath(player);
     }
 
@@ -83,6 +83,9 @@ public static partial class Game
         // Doppelgänger Guise's sane conditional final is component-specific and follows ordinary increased Damage Taken.
         // Apply it before every resource pool so it is not repeated between mitigation and allocation.
         physical = ApplyUnhingedTaken(physical, DamageType.Physical, Get);
+        if (physical > 0 && player.EnergyShield.Full
+            && Get(Stat.PassiveMasteryPhysicalDamageTakenPlusPctFinalWhileOnFullEnergyShield) is int fullShield and not 0)
+            physical = ActorScale.Saturate((long)Math.Round(physical * Math.Max(0, 100d + fullShield) / 100d));
         chaos = ApplyUnhingedTaken(chaos, DamageType.Chaos, Get);
         (physical, other, chaos) = MitigateTriggeredGuardHit(player, physical, other, chaos, at);
         (physical, other, chaos) = VaalArcticArmourHit(player, physical, other, chaos, at);
@@ -98,6 +101,8 @@ public static partial class Game
         // Physical Aegis follows mitigation and totem redirection. Path of Exile's damage order puts an Aegis before
         // Ward; only the Aegis overflow reaches Ward, ES, Mana and Life.
         physical = PhysicalAegisDamage(player, physical, at);
+        // The Fire, Cold, Lightning and Elemental Aegises take their share of the elemental part at the same step.
+        other = TypedAegisDamage(player, other, types, at);
         (physical, other, chaos) = AbsorbTriggeredGuardHit(player, physical, other, chaos, at);
         int total = (int)Math.Min(int.MaxValue, (long)physical + other + chaos);
         int diverted = MinionsTakeOwnerHitLocked(player, total, at, playerStats);
@@ -118,7 +123,9 @@ public static partial class Game
             && (Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0);
         int bypass = divineFlesh ? 100 : Get(IncomingResourceDefences.BypassStat);
         int physicalLife = protectsMana ? player.EnergyShield.Damage(physical, true, at)
-            : IncomingResourceDefences.Damage(player.EnergyShield, physical, bypass, at);
+            // "Physical Damage taken bypasses Energy Shield" (The Fourth Vow): that share of the physical part.
+            : IncomingResourceDefences.Damage(player.EnergyShield, physical,
+                Math.Clamp(bypass + Get(Stat.PctPhysicalDamageBypassesEnergyShield), 0, 100), at);
         int otherLife = protectsMana ? player.EnergyShield.Damage(other, true, at)
             : IncomingResourceDefences.Damage(player.EnergyShield, other, bypass, at);
         int nonChaosLife = (int)Math.Min(int.MaxValue, (long)physicalLife + otherLife);
@@ -230,7 +237,7 @@ public static partial class Game
         int physicalAbsorbed = Math.Min(physicalEligible, nonChaosAbsorbed);
         if (!wasBroken && player.Ward.Broken)
         {
-            if (player.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
+            if (player.WardBreak.GrantAdrenaline(now, Get(WardBreakEffects.AdrenalineSource)))
             {
                 player.Pools = PoolsFor(player, player.Pools.Level);
                 player.ApplyMovementSpeed();

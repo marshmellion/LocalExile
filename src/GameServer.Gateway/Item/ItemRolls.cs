@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Text.Json;
+using GameServer.Modding;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
 
@@ -25,17 +27,52 @@ public sealed class ItemRolls
         _words = LoadWords(folder);
         _influenceTags = LoadInfluenceTags(folder);
         _mirrorMapTypes = LoadMirrorMapTypes();
-        _affixesByDomain = catalog.Mods.All
-            .Where(m => m.GenerationType is Prefix or Suffix && !m.EssenceOnly)
-            .GroupBy(m => m.Domain)
-            .ToDictionary(g => g.Key, g => g.ToArray());
-        _corruptedImplicitsByDomain = catalog.Mods.All
-            .Where(m => m.GenerationType == CorruptedImplicit)
-            .GroupBy(m => m.Domain)
-            .ToDictionary(g => g.Key, g => g.ToArray());
+        _tables = BuildTables(catalog.Revision, catalog.Mods.Revision);
     }
 
     readonly SystemSettings _settings;
+    readonly Lock _tablesLock = new();
+    sealed record RollTables(
+        long ItemRevision,
+        long ModRevision,
+        Dictionary<int, ModCatalog.Mod[]> AffixesByDomain,
+        Dictionary<int, ModCatalog.Mod[]> CorruptedImplicitsByDomain,
+        System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences, string? Tag), IReadOnlyList<(ModCatalog.Mod, int)>> Pools);
+    RollTables _tables;
+
+    RollTables CurrentTables()
+    {
+        long itemRev = catalog.Revision;
+        long modRev = catalog.Mods.Revision;
+        var current = Volatile.Read(ref _tables);
+        if (current.ItemRevision == itemRev && current.ModRevision == modRev)
+            return current;
+        lock (_tablesLock)
+        {
+            itemRev = catalog.Revision;
+            modRev = catalog.Mods.Revision;
+            current = _tables;
+            if (current.ItemRevision == itemRev && current.ModRevision == modRev)
+                return current;
+            var rebuilt = BuildTables(itemRev, modRev);
+            Volatile.Write(ref _tables, rebuilt);
+            return rebuilt;
+        }
+    }
+
+    RollTables BuildTables(long itemRev, long modRev)
+    {
+        var allMods = catalog.Mods.All;
+        var affixes = allMods
+            .Where(m => m.GenerationType is Prefix or Suffix && !m.EssenceOnly)
+            .GroupBy(m => m.Domain)
+            .ToDictionary(g => g.Key, g => g.ToArray());
+        var corrupted = allMods
+            .Where(m => m.GenerationType == CorruptedImplicit)
+            .GroupBy(m => m.Domain)
+            .ToDictionary(g => g.Key, g => g.ToArray());
+        return new(itemRev, modRev, affixes, corrupted, new());
+    }
 
     public const int Prefix = 1, Suffix = 2;
 
@@ -52,10 +89,7 @@ public sealed class ItemRolls
 
     /// <summary>Words.dat: rare name words (lists 1 and 2) and the other lists.</summary>
     public IReadOnlyList<Word> Words => _words;
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences, string? Tag), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
     private readonly Dictionary<(int Class, int Influence), string> _influenceTags;
-    private readonly Dictionary<int, ModCatalog.Mod[]> _affixesByDomain;
-    private readonly Dictionary<int, ModCatalog.Mod[]> _corruptedImplicitsByDomain;
 
     /// <summary>The GenerationType 5 (corrupted implicit) mods that can roll on <paramref name="type"/> at
     /// <paramref name="itemLevel"/>, filtered by domain, level bounds (<c>Level &lt;= itemLevel &lt;= MaxLevel</c>)
@@ -64,7 +98,7 @@ public sealed class ItemRolls
         ItemCatalog.BaseType type, int itemLevel, int? domainOverride = null)
     {
         int domain = domainOverride ?? type.ModDomain;
-        if (!_corruptedImplicitsByDomain.TryGetValue(domain, out var domainMods)) return [];
+        if (!CurrentTables().CorruptedImplicitsByDomain.TryGetValue(domain, out var domainMods)) return [];
         var result = new List<(ModCatalog.Mod, int)>();
         for (int i = 0; i < domainMods.Length; i++)
         {
@@ -84,10 +118,12 @@ public sealed class ItemRolls
     /// <summary>The same with a tag the item itself has beyond its base's: a cluster jewel's theme, behind which its
     /// notables are. Its own overload: mods built against the three-parameter one keep working.</summary>
     public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> Pool(ItemCatalog.BaseType t, int itemLevel,
-        ItemInfluence influences, string? tag) =>
-        _pools.GetOrAdd((t.Row, itemLevel, influences, tag), _ =>
+        ItemInfluence influences, string? tag)
+    {
+        var tables = CurrentTables();
+        return tables.Pools.GetOrAdd((t.Row, itemLevel, influences, tag), _ =>
         {
-            if (!_affixesByDomain.TryGetValue(t.ModDomain, out var domainMods)) return [];
+            if (!tables.AffixesByDomain.TryGetValue(t.ModDomain, out var domainMods)) return [];
             var tags = TagsWith(t, influences);
             if (tag is { Length: > 0 }) tags = new HashSet<string>(tags) { tag };
             var result = new List<(ModCatalog.Mod, int)>();
@@ -100,6 +136,7 @@ public sealed class ItemRolls
             }
             return result;
         });
+    }
 
     /// <summary>The affixes that can roll on this item.</summary>
     public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> Pool(ItemCatalog.BaseType t, Item item) =>
@@ -232,7 +269,7 @@ public sealed class ItemRolls
 
     /// <summary>The rare per-side limit from <c>system_settings</c>, adjusted by the item's own
     /// local_maximum_prefixes_allowed_+ / local_maximum_suffixes_allowed_+ (Simplex and Focused Amulets and the
-    /// Simplex ring bases); jewel classes and Idols have their own, lower defaults. A side never goes below zero.</summary>
+    /// Simplex ring bases); jewel classes have their own, lower defaults. A side never goes below zero.</summary>
     (int Prefix, int Suffix) MaxAffixesPerSide(ItemCatalog.BaseType type, Item item)
     {
         var (prefix, suffix) = SmallAffixClass(type.Class)
@@ -243,9 +280,24 @@ public sealed class ItemRolls
             Math.Max(0, suffix + local.GetValueOrDefault(Stat.LocalMaximumSuffixesAllowedPlus)));
     }
 
-    /// <summary>The item classes with two affixes a side and three or four on a rare: jewels, and Idols (AtlasRelic),
-    /// which share the jewels' caps.</summary>
-    static bool SmallAffixClass(string itemClass) => itemClass is "Jewel" or "AbyssJewel" or "AtlasRelic";
+    /// <summary>The item classes with two affixes a side and three or four on a rare: jewels, and the classes a module
+    /// gave the jewels' caps (<see cref="UseJewelAffixCaps"/>).</summary>
+    static bool SmallAffixClass(string itemClass) => itemClass is "Jewel" or "AbyssJewel" || jewelCapClasses.Contains(itemClass);
+
+    // Once per UseJewelAffixCaps: an owner's unload takes away only its own.
+    static ImmutableList<string> jewelCapClasses = [];
+
+    /// <summary>Gives an item class of a module's own the jewels' affix caps until the module unloads.</summary>
+    public static IDisposable UseJewelAffixCaps(IModuleLifetime owner, string itemClass)
+    {
+        ImmutableInterlocked.Update(ref jewelCapClasses, list => list.Add(itemClass));
+        return owner.Own(new Undo(() => ImmutableInterlocked.Update(ref jewelCapClasses, list => list.Remove(itemClass))));
+    }
+
+    sealed class Undo(Action undo) : IDisposable
+    {
+        public void Dispose() => undo();
+    }
 
     /// <summary>The rare per-side limit for this item, or three/three when its base is unknown.</summary>
     public (int Prefix, int Suffix) RareMaxAffixes(Item item) =>
@@ -429,7 +481,13 @@ public sealed class ItemRolls
     /// gems, name). The original stays as it was; the caller puts the copy on the cursor.</summary>
     public Item? Mirror(Item item) =>
         item.SkinTransferSource is null && item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && MirrorTarget(type)
-            ? item with { Mirrored = true } : null;
+            ? item with { Mirrored = true, Sockets = ClearMirroredGemBindings(item.Sockets) } : null;
+
+    static IReadOnlyList<ItemSocket> ClearMirroredGemBindings(IReadOnlyList<ItemSocket> sockets) =>
+        sockets.Any(socket => socket.Gem?.SkillBarGemId is not null)
+            ? sockets.Select(socket => socket.Gem is { SkillBarGemId: not null } gem
+                ? socket with { Gem = gem with { SkillBarGemId = null } } : socket).ToArray()
+            : sockets;
 
     /// <summary>Vaal Orb, the documented LocalExile rule: a weapon, armour piece or jewellery (ring, amulet, belt)
     /// that is modifiable, not unique and not corrupted/mirrored is always corrupted. A normal or magic item becomes

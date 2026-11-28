@@ -67,7 +67,7 @@ public static partial class Game
     {
         if (FlameTouchedOf(player) is not { Source: not null } flame) return;
         flame.End(now);
-        player.Antiquarian.EndSustainedAdrenaline(flame.RemoveAdrenaline);
+        player.WardBreak.EndSustainedAdrenaline(flame.RemoveAdrenaline);
         player.Area.Buffs.Clear(player.Id, FlameTouchedBuffRow, player.Id);
         MarkPlayerStats(player, PlayerStatStep.Sources);
     }
@@ -76,16 +76,16 @@ public static partial class Game
     {
         if (owner.FlameTouched is { Source: not null } flame)
         {
-            player.Antiquarian.EndSustainedAdrenaline(flame.RemoveAdrenaline);
+            player.WardBreak.EndSustainedAdrenaline(flame.RemoveAdrenaline);
             player.Area.Buffs.Clear(player.Id, FlameTouchedBuffRow, player.Id);
             MarkPlayerStats(player, PlayerStatStep.Sources);
         }
         owner.FlameTouched = null;
     }
 
-    static async Task<bool> ToggleApproachingFlames(Player player, ushort skillId, Func<bool> current)
+    static async Task<(bool Accepted, bool Activated)> ToggleApproachingFlames(Player player, ushort skillId, Func<bool> current)
     {
-        bool toggled = false;
+        bool toggled = false, activated = false;
         await SendWorldRecord(player, player.Id, [], "Approaching Flames toggled", atGate: () =>
         {
             if (!current() || InTown(player) || SupportedSkill(player, skillId).WornGrant is not { EffectId: ApproachingFlamesEffect } source
@@ -99,11 +99,12 @@ public static partial class Game
             if (flame.Source is not null) EndFlameTouched(player, now);
             else
             {
+                activated = true;
                 var stats = CharacterPlayerStats(player);
                 flame.Start(source, now, stats.GetValueOrDefault(Stat.FireDamageTakenPerSecondWhileFlameTouched),
                     stats.GetValueOrDefault(Stat.LoseAdrenalineOnLosingFlameTouched) != 0);
                 if (stats.GetValueOrDefault(Stat.GainAdrenalineOnGainingFlameTouched) != 0)
-                    player.Antiquarian.SustainAdrenaline(now);
+                    player.WardBreak.SustainAdrenaline(now);
                 player.Area.Buffs.Set(player.Id, new(FlameTouchedBuffRow, player.Id));
                 MarkPlayerStats(player, PlayerStatStep.Sources);
             }
@@ -112,8 +113,8 @@ public static partial class Game
             toggled = true;
             return [];
         });
-        if (toggled) await SendAntiquarian(player);
-        return toggled;
+        if (toggled) await SendWardBreak(player);
+        return (toggled, activated);
     }
 
     static void AdvanceFlameTouchedDamage(Player player, double now, IReadOnlyDictionary<uint, int> stats)

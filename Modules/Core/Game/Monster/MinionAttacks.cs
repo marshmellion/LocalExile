@@ -15,7 +15,7 @@ public static partial class Game
 
     /// <summary>
     /// The monster a fighting minion goes for this AI step: the living hostile one nearest it within its aggro range, of it
-    /// and of the player (it does not leave him for a distant pack), not lurking unrisen. Null when there is none or the
+    /// and of the player (it does not leave him for a distant pack), one a minion may target (MinionMayTarget: a lurking one is). Null when there is none or the
     /// player is dead; it then follows him. In the area's frame.
     /// </summary>
     public static MinionTarget? MinionTargetLocked(Player player, uint id, SpawnedMonster m, (int X, int Y) at,
@@ -31,7 +31,7 @@ public static partial class Game
         double nearest = double.MaxValue;
         foreach (var (targetId, t) in player.Area.Monsters)
         {
-            if (targetId == id || !t.Hostile || t.Dead || t.Life == 0 || double.IsPositiveInfinity(t.BusyUntil)) continue;
+            if (targetId == id || !MinionMayTarget(t)) continue;
             var to = t.Walk.Position(now);
             double d = Dist(to, at);
             bool prey = stats is not null && IsPrey(player, stats, targetId, t, now);
@@ -98,6 +98,9 @@ public static partial class Game
             cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) return null;
         if (!t.Dead && damage > 0 && supported is not null && player.Beasts.Active is { } beast)
             MinionExposureOnHitLocked(beast.SkillStats, t, mitigated, now, random);
+        // The hit event with the minion as its actor, for a minion the player owns (a shrine's ally is not his).
+        if (damage > 0 && player.Minions.Owns(id, m))
+            HitLandedLocked(player, t, false, false, supported?.Stats, CombatActors.Minion, at: now, damage: mitigated, monsterId: targetId);
         return (hit, damage, HitCode(mitigated));
     }
 

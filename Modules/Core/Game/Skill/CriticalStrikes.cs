@@ -1,6 +1,23 @@
 
 public static partial class Game
 {
+    static void LoseLifeOnCriticalStrikeLocked(Player player, int percent, double now)
+    {
+        if (percent <= 0 || player.PlayerLife == 0) return;
+        uint before = player.PlayerLife;
+        uint lost = (uint)Math.Min(before, (long)player.PlayerMaxLife * percent / 100);
+        if (lost == 0) return;
+        player.PlayerLife = VaalImmortalCallLife(player, before - lost, now);
+        LeechOf(player).InstantLifeChanged |= player.PlayerLife != before;
+        if (player.PlayerLife != 0) return;
+        player.InvalidateIncomingHits();
+        ClearWardBreakOnDeath(player);
+        RecordHardcoreDeath(player);
+        int epoch = player.IncomingHitEpoch;
+        ProjectilesFor(player).Enqueue(() => RunOnAreaFrame(player,
+            () => PlayerDiedAtEpoch(player, "life lost on critical strike", epoch)));
+    }
+
     // "Your Critical Strikes do not deal extra Damage": the stat, and the two keystones whose text says the same
     // (Elemental Overload, Perfect Agony). Resolute and Precise Technique say "Never deal Critical Strikes", which is
     // CriticalProhibitedBy instead.
@@ -16,7 +33,11 @@ public static partial class Game
         : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
 
     public static int CriticalHitMultiplier(long ordinary, IReadOnlyDictionary<uint, int> player,
-        IReadOnlyDictionary<uint, int>? own = null) => CriticalHitMultiplier(ordinary,
+        IReadOnlyDictionary<uint, int>? own = null) =>
+        // "Critical Strikes deal no Damage" (Shade of Solaris).
+        player.GetValueOrDefault(Stat.CriticalStrikesDealNoDamage) != 0 ? 0 : CriticalHitMultiplier(
+            // "Your Critical Strike Multiplier is 300%" (Maligaro's Virtuosity): the total, whatever else adds to it.
+            player.GetValueOrDefault(Stat.CriticalStrikeMultiplierIs300) != 0 ? 300 : ordinary,
             CriticalHitsDealNoExtraDamage(player, own));
 
     static long ClawDaggerCriticalBonus(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> player,

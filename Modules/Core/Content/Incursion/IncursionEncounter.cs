@@ -84,13 +84,15 @@ public sealed class IncursionEncounter
     /// <summary>Whether the instance has incursions still to advance.</summary>
     public bool Has(Player player) => LiveOf(player) is { } live && live.Run.Current != IncursionRun.Stage.Over;
 
+    public bool IsActivePause(Player player) => LiveOf(player) is { Run.Current: IncursionRun.Stage.Inside };
+
     /// <summary>Alva's id in the instance, 0 when she is not there.</summary>
     public uint AlvaOf(Player player) => LiveOf(player)?.Alva ?? 0;
 
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
 
     static IEnumerable<Player> Clients(Player player) =>
-        InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && Current(c));
+        InGame.Keys.Where(c => c.HasClient && ReferenceEquals(c.Instance, player.Instance) && Current(c));
 
     static double Distance((int X, int Y) a, (int X, int Y) b) => double.Hypot(a.X - b.X, a.Y - b.Y);
 

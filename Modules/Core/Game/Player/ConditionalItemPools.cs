@@ -94,8 +94,8 @@ public static partial class Game
         flags["_while_wielding_staff"] = weapons.Staff;
         flags["_while_wielding_sword"] = weapons.Sword;
         bool flask = player.FlaskEffects.Any || player.UtilityFlaskEffects.ActiveAt(now)
-            || MagebloodBelt(player) is { } belt
-                && MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), MagebloodFlaskCount(belt)).Count > 0;
+            || MagebloodCount(player, activeItems) is { Count: > 0 } always
+                && MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), always).Count > 0;
         flags["_while_using_flask"] = flags["_during_flask_effect"] = flags[StatConditions.DuringAnyFlaskEffect] = flask;
         flags["_if_affected_by_no_flasks"] = !flask;
         flags["_while_bleeding"] = player.IncomingAilments.Bleeding(now);
@@ -112,6 +112,9 @@ public static partial class Game
         // key, so a pinnacle boss entering or leaving presence recomputes the sources.
         if (WornHasCelestialPresenceMod(player, activeItems))
             flags[StatConditions.CelestialBossInPresence] = alive && CelestialBossInPresenceLocked(player, now);
+        // "while a Unique Enemy is in your Presence": the same, for the mods with that condition stat.
+        if (WornHasPresenceMod(player, activeItems, Stat.LocalInfluenceModRequiresUniqueMonsterPresence))
+            flags[StatConditions.UniqueEnemyInPresence] = alive && UniqueInPresenceLocked(player, now);
         flags["_while_onslaught_is_active"] = onslaught;
         flags["_while_have_onslaught"] = onslaught;
         flags["_while_channelling"] = player.ChannelSkill != 0;
@@ -224,7 +227,19 @@ public static partial class Game
     // A named event is answerable only when a production commit records it. Other mechanics retain their dedicated
     // stat id until their owning subsystem supplies the event; an absent unsupported event is not evidence of false.
     // Each entry needs a production Record call; the slice that adds an event's recorder adds it here, never earlier.
-    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>(TrackedCurseCastEvents())
+    public static IReadOnlySet<string> TrackedItemRecentEvents => Volatile.Read(ref _trackedRecentEvents);
+
+    /// <summary>Events an effect rule records ("remember"): they are answerable from the moment the rule loads, as the
+    /// rule is their recorder. A rule records for the characters it is live for, so every stat that asks for such an
+    /// event is one of that rule's sources.</summary>
+    public static void TrackRecentEvents(IEnumerable<string> events)
+    {
+        var current = Volatile.Read(ref _trackedRecentEvents);
+        var added = events.Where(e => !current.Contains(e)).ToArray();
+        if (added.Length > 0) Volatile.Write(ref _trackedRecentEvents, new HashSet<string>(current.Concat(added)));
+    }
+
+    static IReadOnlySet<string> _trackedRecentEvents = new HashSet<string>(TrackedCurseCastEvents())
     {
         StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.KilledCursedEnemy,
         StatConditions.Crit, StatConditions.BeenHit,
@@ -249,12 +264,16 @@ public static partial class Game
         public long Revision, Presented;
         public (int Movement, int Avoid) AppliedElusive;
         public int AppliedOnslaughtEffect;
+        // The poison count the pools were last built with (-1 before any build through PoolsFor).
+        // The sources sum never reads the count, so the cached key keeps the count from the last sum
+        // build; only this record can tell whether the pools still match the poison count now.
+        public int AppliedPoisonStacks = -1;
         public long CheckedInventoryMutations = -1;
         public int CheckedPassivesCount = -1;
         public int CheckedTattooRevision = -1;
         public int CheckedLevel;
         public bool CheckedGod;
-        public bool HasConditionalMods;
+        public bool HasConditionalPools;
         public bool HasBeastCompanions;
         public long ItemStatRevision = GameEvents.ItemStatSources.Revision;
     }
@@ -265,12 +284,15 @@ public static partial class Game
     /// <c>local_influence_mod_requires_celestial_boss_presence</c> (Stats 15802, IsLocal): the one
     /// question the pinnacle-presence flag needs, answered per item from the local-sum cache
     /// (<see cref="ItemModStats.LocalValue"/>), never a fresh mod scan or <c>ItemModStats.Sum</c>.</summary>
-    static bool WornHasCelestialPresenceMod(Player player, IEnumerable<Item>? activeItems)
+    static bool WornHasCelestialPresenceMod(Player player, IEnumerable<Item>? activeItems) =>
+        WornHasPresenceMod(player, activeItems, Stat.LocalInfluenceModRequiresCelestialBossPresence);
+
+    static bool WornHasPresenceMod(Player player, IEnumerable<Item>? activeItems, uint condition)
     {
         if (activeItems is null) return false;
         var mods = ItemsFor(player).Mods;
         foreach (var item in activeItems)
-            if (ItemModStats.LocalValue(item, mods, Stat.LocalInfluenceModRequiresCelestialBossPresence) != 0)
+            if (ItemModStats.LocalValue(item, mods, condition) != 0)
                 return true;
         return false;
     }
@@ -323,23 +345,31 @@ public static partial class Game
         int level = player.Pools.Level;
         bool god = player.God;
         var cached = player.StatSourcesCache;
+        // Read once for the fast path and both no-rebuild returns below: the cached key keeps the
+        // poison count from the last sum build, which a cache hit never refreshes.
+        int poisonStacks = player.IncomingAilments.PoisonStacks(AreaTime(player));
+        // -1: the pools were never built through PoolsFor, which as before this record means "no poison seen" (the old
+        // first-build shortcut required a zero count), not a change: a rebuild here would reset a fresh player's pools.
+        bool samePoison = state.AppliedPoisonStacks < 0 ? poisonStacks == 0 : poisonStacks == state.AppliedPoisonStacks;
         var elusive = ElusivePanelState(player);
         long itemStatRevision = GameEvents.ItemStatSources.Revision;
         bool providersChanged = state.ItemStatRevision != itemStatRevision;
         // Fast path: when equipment, passives, level, god mode, and StatSourcesCache are unchanged, and no worn item
-        // carries a conditional mod or beast companion, skip rebuilding EquipmentStatSources on every incoming hit.
+        // carries a conditional pool modifier or beast companion, skip rebuilding EquipmentStatSources on every incoming hit.
+        // The poison count is compared against the pools' own record (AppliedPoisonStacks), not the cached key:
+        // a cache hit never refreshes the key, so the key would fail this check forever once poison is nonzero.
         if (!providersChanged && cached is not null && ReferenceEquals(state.Applied, cached)
             && state.CheckedInventoryMutations == invMutations
             && state.CheckedPassivesCount == passivesCount
             && state.CheckedTattooRevision == tattooRevision
             && state.CheckedLevel == level
             && state.CheckedGod == god
-            && !state.HasConditionalMods
+            && !state.HasConditionalPools
             && !state.HasBeastCompanions
             && !HasAnyBeastCompanionState(player)
             && state.AppliedElusive == elusive
             && GameEvents.ExemptItems(player).Count == 0
-            && player.IncomingAilments.PoisonStacks(AreaTime(player)) == cached.Key.PoisonStacks)
+            && samePoison)
             return false;
         state.ItemStatRevision = itemStatRevision;
         EquipmentStatSources(player, EquipmentForStats(player));
@@ -352,7 +382,9 @@ public static partial class Game
             state.CheckedTattooRevision = tattooRevision;
             state.CheckedLevel = level;
             state.CheckedGod = god;
-            state.HasConditionalMods = current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+            state.HasConditionalPools = current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+                || current.Key.Flags?.ContainsKey(StatConditions.UniqueEnemyInPresence) == true
+                || current.Sources.GetValueOrDefault(Stat.MovementSpeedPlusPctWhileNotUsingFlask) != 0
                 || WornHasConditionalMods(player, current.Worn);
             state.HasBeastCompanions = HasAnyBeastCompanionState(player)
                 || AllWornGrantedSkillsOf(player).Any(g => BeastSourceEligible(player, g));
@@ -363,13 +395,18 @@ public static partial class Game
         int onslaughtEffect = Stat.OnslaughtEffectPlusPct is var effectKey
             ? current?.Sources.GetValueOrDefault(effectKey) ?? 0 : 0;
         bool sameOnslaughtEffect = state.AppliedOnslaughtEffect == onslaughtEffect;
-        if (current is null || !providersChanged && ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect) return false;
+        // ReferenceEquals(before, current) alone cannot tell a poison change apart: a cache hit returns
+        // the same result object, so the poison count has to be checked against the pools' own record.
+        if (current is null || !providersChanged && ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect
+            && samePoison) return false;
         state.Applied = current;
         state.AppliedElusive = elusive;
         state.AppliedOnslaughtEffect = onslaughtEffect;
         // After a Game-module reload the source marker is new but the connection's old final pools survive.
         // Rebuild conditional equipment on first observation instead of accepting an already-expired old bonus.
         bool conditionalEquipment = before is null && (current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+            || current.Key.Flags?.ContainsKey(StatConditions.UniqueEnemyInPresence) == true
+            || current.Sources.GetValueOrDefault(Stat.MovementSpeedPlusPctWhileNotUsingFlask) != 0
             || current.Worn.Any(w => w.Item.Mods.Any(m =>
             ItemsFor(player).Mods.ByHash(m.Hash)?.Stats.Any(s => !s.Local
                 && (StatConditions.Of(s.Name, default) != StatConditions.State.None
@@ -379,10 +416,10 @@ public static partial class Game
         bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
             == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
         if (!providersChanged && sameElusive && sameHerEmbrace && sameOnslaughtEffect
-            && (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
+            && samePoison
+            && (before is null && !conditionalEquipment
             || before is not null && before.Attributes == current.Attributes
             && before.Inactive.SetEquals(current.Inactive)
-            && before.Key.PoisonStacks == current.Key.PoisonStacks
             && before.Sources.Count == current.Sources.Count
             && before.Sources.All(p => current.Sources.TryGetValue(p.Key, out int value) && value == p.Value))) return false;
         player.Pools = PoolsFor(player, player.Pools.Level);

@@ -60,6 +60,7 @@ public static partial class Game
         int before = state.Active.Count;
         foreach (var (id, value) in state.Active.ToArray())
             if (player.PlayerLife == 0 || InTown(player) || AreaTime(player) >= value.Until
+                || value.Blessing && BlessingsDisabled(player)
                 || !player.Auras.TryGetValue(id, out var aura) || aura.Buff != value.Aura.Buff
                 || !SameTriggerSource(value.Source, SupportedSkill(player, id)))
                 RemoveTemporaryAura(player, state, id);
@@ -121,7 +122,7 @@ public static partial class Game
         if (!current()) return false;
         var skill = SupportedSkill(player, id);
         string effect = SkillsFor(player).EffectId(skill.Effect) ?? "";
-        if (!IsBlessing(skill) || !AuraCatalog.Supported(effect)) return false;
+        if (!IsBlessing(skill) || !AuraCatalog.Supported(effect) || BlessingsDisabled(player)) return false;
         double seconds = VaalAuraSeconds(GolemStat(skill.Stats, Stat.SupportAuraDurationBaseBuffDuration),
             CharacterPlayerStats(player), skill.Stats);
         if (seconds <= 0) return false;
@@ -215,6 +216,8 @@ public static partial class Game
         static bool Temporary(AuraCatalog.Aura aura) => aura.EffectId == "Smite" || TimedVaalAuraBuffRows.ContainsKey(aura.EffectId);
         if (!player.Auras.Values.Any(Temporary) && !player.ReceivedAuras.Values.Any(Temporary)) return;
         WithTemporaryAuraStats(AffectingAuras(player), player.Pools.AuraEffectPct, stats);
+        if (player.Auras.Values.Any(a => a.AffectsSelf && a.EffectId == "VaalGrace"))
+            stats[Stat.DamageTakenFromSuppressedHitsIsUnlucky] = 1;
     }
 
     static void WithTemporaryAuraStats(IEnumerable<AuraCatalog.Aura> auras, int effect, IDictionary<uint, int> stats)
@@ -245,7 +248,6 @@ public static partial class Game
             {
                 case "VaalClarity": stats[Stat.NoManaCost] = 1; break;
                 case "VaalDiscipline": stats[Stat.EnergyShieldRechargeNotDelayedByDamage] = 1; break;
-                case "VaalGrace": stats[Stat.DamageTakenFromSuppressedHitsIsUnlucky] = 1; break;
                 case "VaalImpurityOfFire": stats[Stat.BaseImmuneToIgnite] = stats[Stat.ImmuneToIgnite] = 1; break;
                 case "VaalImpurityOfIce":
                     stats[Stat.BaseImmuneToFreeze] = stats[Stat.ImmuneToFreeze] = 1;

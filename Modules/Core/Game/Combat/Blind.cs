@@ -16,13 +16,26 @@ public readonly record struct BlindHitInput(long GlobalChance, long AttackChance
     }
     public static BlindHitInput Capture(Func<uint, int> get) => new(
         get(Stat.GlobalChanceToBlindOnHitPct), get(Stat.AttacksChanceToBlindOnHitPct),
-        get(Stat.PctChanceToBlindOnCriticalStrike), get(Stat.BlindEffectPlusPct), Game.BlindSeconds(get));
+        get(Stat.PctChanceToBlindOnCriticalStrike), get(Stat.BlindEffectPlusPct), Game.BlindSeconds(get))
+        {
+            GlobalVsBleedingChance = get(Stat.GlobalChanceToBlindOnHitPctVsBleedingEnemies),
+            AttackVsBleedingChance = get(Stat.AttackChanceToBlindOnHitPctVsBleedingEnemies),
+        };
     public static BlindHitInput Capture(Func<uint, long> get) => new(
         get(Stat.GlobalChanceToBlindOnHitPct), get(Stat.AttacksChanceToBlindOnHitPct),
         get(Stat.PctChanceToBlindOnCriticalStrike), Saturate(get(Stat.BlindEffectPlusPct)),
-        Game.BlindSeconds(name => Saturate(get(name))));
-    public int Chance(bool spell, bool critical) => (int)Math.Clamp(GlobalChance
-        + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0), 0, 100);
+        Game.BlindSeconds(name => Saturate(get(name))))
+        {
+            GlobalVsBleedingChance = get(Stat.GlobalChanceToBlindOnHitPctVsBleedingEnemies),
+            AttackVsBleedingChance = get(Stat.AttackChanceToBlindOnHitPctVsBleedingEnemies),
+        };
+    public long GlobalVsBleedingChance { get; init; }
+    public long AttackVsBleedingChance { get; init; }
+    public int Chance(bool spell, bool critical) => Chance(spell, critical, bleeding: false);
+
+    public int Chance(bool spell, bool critical, bool bleeding) => (int)Math.Clamp(GlobalChance
+        + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0)
+        + (bleeding ? GlobalVsBleedingChance + (spell ? 0 : AttackVsBleedingChance) : 0), 0, 100);
 }
 
 public static partial class Game
@@ -85,6 +98,9 @@ public static partial class Game
     }
     static int BlindEffectLess(IReadOnlyDictionary<uint, int> stats) =>
         (int)Math.Clamp(20L * Math.Max(0L, 100L + (Stat.BlindEffectPlusPct is var key ? stats.GetValueOrDefault(key) : 0)), 0, 10000) / 100;
+    static bool HasAreaBlind(Player player, uint id) =>
+        player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id);
+
     static (int Less, double Until) MonsterBlindValue(Player player, uint id, SpawnedMonster target, double at, int smokeLess,
         bool? auraBlinded = null)
     {
@@ -100,14 +116,15 @@ public static partial class Game
         var value = owner.Targets.TryGetValue(id, out var entry) && ReferenceEquals(entry.Target, target)
             ? entry.Blind.Read(at, false) : (0, 0);
         if (target.RampageBlindUntil > at && value.Less < 20) value = (20, target.RampageBlindUntil);
-        bool external = auraBlinded ?? (player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id));
-        return external && smokeLess > value.Less ? (smokeLess, 0) : value;
+        bool external = auraBlinded ?? HasAreaBlind(player, id);
+        int areaLess = Math.Max(external ? smokeLess : 0, SandstormBlindLess(target));
+        return areaLess > value.Less ? (areaLess, 0) : value;
     }
     public static int MonsterBlindRating(Player player, uint id, SpawnedMonster target, int rating, double at,
         IReadOnlyDictionary<uint, int>? playerStats = null)
     {
         // The synchronous caller reuses its captured sources. Never build a full player panel for each target.
-        bool auraBlinded = player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id);
+        bool auraBlinded = HasAreaBlind(player, id);
         int smoke = !auraBlinded ? 0 : BlindEffectLess(playerStats ?? StatSourceValues(player));
         return TimedBlind.Apply(rating, MonsterBlindValue(player, id, target, at, smoke, auraBlinded).Less);
     }
@@ -119,12 +136,28 @@ public static partial class Game
         return (Math.Clamp(Get(Stat.GlobalChanceToBlindOnHitPct), 0, 100), Get(Stat.BlindEffectPlusPct),
             4 * Math.Max(0d, 1 + Get(Stat.BlindDurationPlusPct) / 100d));
     }
+
+    static void BlindOnElementalSkillUseLocked(Player player, int effect, double now, IReadOnlyDictionary<uint, int> sources)
+    {
+        int chance = sources.GetValueOrDefault(Stat.ElementalSkillChanceToBlindNearbyEnemiesPct);
+        if (chance <= 0) return;
+        var skills = SkillsFor(player);
+        if (!(skills.HasType(effect, "Fire") || skills.HasType(effect, "Cold") || skills.HasType(effect, "Lightning"))
+            || !RandomRolls.Chance(chance, 100, AreaRng(player))) return;
+        const int radius = 30;
+        var at = player.Walk.Position(now);
+        var input = (100, sources.GetValueOrDefault(Stat.BlindEffectPlusPct), BlindSeconds(sources.GetValueOrDefault));
+        foreach (var (id, enemy) in player.Area.MonstersNear(at, radius))
+            if (Dist(enemy.Walk.Position(now), at) <= radius) InflictMonsterBlind(player, id, enemy, now, input);
+    }
     public static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at,
         (int Chance, int Effect, double Seconds) input, Random? random = null)
         => InflictMonsterBlind(player, id, target, at, input.Chance, input.Effect, input.Seconds, random);
     public static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at,
         BlindHitInput input, bool spell, bool critical, Random? random = null)
-        => InflictMonsterBlind(player, id, target, at, input.Chance(spell, critical), input.Effect, input.Seconds, random);
+        => InflictMonsterBlind(player, id, target, at, input.Chance(spell, critical,
+                (input.GlobalVsBleedingChance > 0 || !spell && input.AttackVsBleedingChance > 0) && target.Bleeds.IgnitedAt(at)),
+            input.Effect, input.Seconds, random);
     static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at, int chance,
         int effect, double seconds, Random? random)
     {
@@ -158,7 +191,7 @@ public static partial class Game
         double now = ResourceEffectsTime(player);
         state.CollectRetiredTargets(player);
         bool hasFlaskBlind = player.FlaskGrounds.HasBlindedMonsters;
-        bool hasAuraBlind = player.BlindAura.Any;
+        bool hasAuraBlind = player.BlindAura.Any || player.ProjectileRuntime is ProjectileSession { HasBladestormBlind: true };
         bool hasAegisBlind = player.PhysicalAegis.Blind.Any;
         bool hasRampageBlind = player.StandingRampageWorld is { Blinds.Count: > 0 };
         // Each Blind's end shows again (a nearby presentation, PresentIn).
@@ -214,8 +247,8 @@ public static partial class Game
         {
             foreach (var (id, target) in player.Area.Monsters)
             {
-                if (!state.Targets.ContainsKey(id) && target.RampageBlindUntil <= now && !player.FlaskGrounds.Blinded(id)
-                    && !player.BlindAura.Blinded(id) && !player.PhysicalAegis.Blind.Blinded(id)) continue;
+                if (!state.Targets.ContainsKey(id) && target.RampageBlindUntil <= now
+                    && SandstormBlindLess(target) == 0 && !HasAreaBlind(player, id)) continue;
                 var value = MonsterBlindValue(player, id, target, now, smoke);
                 Present(id, state.TargetBlind(id, target), value,
                     target.Dead || target.Life == 0 || target.Mods.Effects[Stat.CannotBeBlinded] != 0, false);
@@ -234,7 +267,7 @@ public static partial class Game
     public static bool Blinded(Player player, uint monster, double at) =>
         player.Area.Monsters.TryGetValue(monster, out var target)
         && !target.Dead && target.Life > 0 && target.Mods.Effects[Stat.CannotBeBlinded] == 0
-        && (player.FlaskGrounds.Blinded(monster) || player.BlindAura.Blinded(monster) || PhysicalAegisBlinds(player, monster)
+        && (SandstormBlindLess(target) > 0 || HasAreaBlind(player, monster)
             || target.RampageBlindUntil > at
             || player.ResourceEffectsState is ResourceEffectsState owner && owner.Targets.TryGetValue(monster, out var value)
                 && ReferenceEquals(value.Target, target) && value.Blind.Read(at).Less > 0);
@@ -305,7 +338,8 @@ public static partial class Game
         AttackHand hand)
     {
         var weapon = WeaponProfileFor(player, activeSet: true);
-        return AttackBaseCriticalStrike.Chance(!weapon.Unarmed, hand == AttackHand.Main ? weapon.Critical : HandWeaponCritical(player, hand),
+        return AttackBaseCriticalStrike.Chance(!weapon.Unarmed,
+            hand == AttackHand.Main ? weapon.Critical : HandWeaponCritical(player, hand, playerStats),
             player.Pools.CriticalStrikeChancePct + extra,
             name => release && IsCriticalProhibition(name) ? 0 : StatOf(playerStats, name));
     }

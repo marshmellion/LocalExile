@@ -68,8 +68,9 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         get
         {
             if (Pending || Holds) return true;
-            for (int i = 0; i < ChargeGains.Periodics.Count; i++)
-                if (Observed(ChargeGains.Periodics[i].Stat) != 0) return true;
+            var periodics = ChargeGains.KnownPeriodics;
+            for (int i = 0; i < periodics.Count; i++)
+                if (Observed(periodics[i].Stat) != 0) return true;
             return false;
         }
     }
@@ -100,7 +101,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
             Record(Charges.ConversionFlag(type));
             Record(Charges.MinimumConversionFlag(type));
         }
-        foreach (var p in ChargeGains.Periodics) Record(p.Stat);
+        foreach (var p in ChargeGains.KnownPeriodics) Record(p.Stat);
         foreach (uint name in ChargeTriggers.Observed) Record(name);
         Record(Stat.KeystoneQuietMight);
         observed = seen;
@@ -206,6 +207,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     internal int Spend(ChargeType type, int count, double now)
     {
         SettleDegeneration(now);
+        if (State.Held(type) > 0 && now >= State.ExpiresAt(type)) State.Expire(now);
         if (count <= 0 || !CanSpend(type)) return 0;
         var (before, left) = State.Lose(type, count, limits[(int)type]);
         limits[(int)type] = ChargeMaxima.LimitsOf(type, Observed, left);
@@ -214,6 +216,9 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         if (spent > 0) Woken?.Invoke();
         return spent;
     }
+
+    /// <summary>The stats an effect rule is live for on this character: left to the rule (ChargeGains.Roll).</summary>
+    public Func<uint, bool>? Ruled { get; set; }
 
     void ApplyEvent(ChargeEvent e, double now, Func<uint, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)
     {
@@ -234,7 +239,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         if (e is ChargeEvent.Hit { Primary: true, Skill: { } skill }
             && skill(Stat.FrenzyConsumeChargesToOnslaughtForMsPerCharge) is > 0 and var perCharge)
             FrenzyOfOnslaughtHit(now, perCharge, rng, log);
-        foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng)) Apply(gain, now, rng, log);
+        foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng, Ruled)) Apply(gain, now, rng, log);
     }
 
     void FrenzyOfOnslaughtHit(double now, int perCharge, Random rng, List<string> log)
@@ -313,6 +318,11 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     {
         if (gain is { Type: ChargeType.Frenzy, Count: > 0 } && Observed(Stat.KeystoneQuietMight) != 0)
             gain = gain with { Type = ChargeType.Power };
+        if (gain.Count != 0 && State.Held(gain.Type) > 0 && now >= State.ExpiresAt(gain.Type))
+        {
+            ExpireCharges(now, log);
+            Settle(now, rng, log);
+        }
         var current = limits[(int)gain.Type];
         if (gain.Count < 0)
         {

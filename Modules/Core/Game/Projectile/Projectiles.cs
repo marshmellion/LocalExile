@@ -77,6 +77,7 @@ public static partial class Game
             // Where the object is created (the release point) and whether its first move has been sent from there.
             public ProjectileVector SpawnedAt;
             public bool Glided;
+            public float Orientation, PendingOrientation;
             // The move the client has to make to follow the flight as it stands now, and whether one intent is already
             // queued to write it. A redirect replaces the pending move instead of being dropped as superseded.
             public byte[][]? PendingGlide;
@@ -234,9 +235,13 @@ public static partial class Game
                     try
                     {
                         DrainPendingExplosiveDetonations();
+                        DrainEarthshatterDetonations();
                         DrainInfernalBlowDeaths();
+                        DrainInfernalCryDeaths();
                         TickChannelTriggers(Player, this, AreaTime(Player));
                         Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
+                        ReconcileBladestorms();
+                        ReconcileTrarthus();
                     }
                     finally
                     {
@@ -257,8 +262,12 @@ public static partial class Game
                 try
                 {
                     DrainPendingExplosiveDetonations();
+                    DrainEarthshatterDetonations();
                     DrainInfernalBlowDeaths();
+                    DrainInfernalCryDeaths();
                     Runtime.AdvanceTo(at);
+                    ReconcileBladestorms();
+                    ReconcileTrarthus();
                 }
                 finally
                 {
@@ -308,11 +317,22 @@ public static partial class Game
         /// <summary>Releases a resolved use at the runtime's current instant. Call in the area's frame.</summary>
         public long ReleaseNow(ProjectileUse use)
         {
+            if (use.Payload is ProjectileOffense { Fusillade: { } cast } shot)
+            {
+                QueueFusillade(use, shot, cast);
+                SacredWispsOnRelease(use);
+                return 0;
+            }
+            return ReleaseFlight(use, notifyWisps: true);
+        }
+
+        long ReleaseFlight(ProjectileUse use, bool notifyWisps)
+        {
             var seeded = use with { Seed = ++seed };
             long useId = Runtime.Release(seeded);
             if (seeded.Payload is ProjectileOffense { ForbiddenRite: { } rite } shot)
                 ReleaseForbiddenRite(seeded, shot, rite);
-            SacredWispsOnRelease(seeded);
+            if (notifyWisps) SacredWispsOnRelease(seeded);
             if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
                     + $"skill={PayloadLabel(seeded.Payload)} metadata={seeded.Profile.Id} count={seeded.Profile.Count} "
@@ -332,13 +352,24 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
+            ClearEarthshatterSpikes();
             ClearProjectileBladeSources();
+            ClearBladeVortices();
             ClearPlacedVolatileOrbs();
             ClearCremationGeysers();
             ClearEnsnares();
+            ClearElectrocutionArrows();
+            ClearVenomGyre();
+            ClearStormRain();
+            ClearThunderstorms();
+            ClearFusillades();
+            ClearConflagration();
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
             ClearDivineBlastOrbs();
+            ClearConvictionWaves();
+            ClearBladestorms();
+            ClearTrarthus();
             kineticAnomalies?.Clear();
             while (somaticShells is { Count: > 0 }) RemoveSomaticShell(somaticShells[^1]);
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
@@ -775,9 +806,12 @@ public static partial class Game
         TerrainHeights.Area? heights;
         int heightsAsOf = -1;
 
-        bool Wall(int x, int y) => x < 0 || y < 0 || Player.Layout.GridW > 0 && x >= Player.Layout.GridW
+        bool Wall(int x, int y) => Wall(x, y, 1);
+
+        bool Wall(int x, int y, int clearance) => x < 0 || y < 0 || Player.Layout.GridW > 0 && x >= Player.Layout.GridW
             || Player.Layout.GridH > 0 && y >= Player.Layout.GridH
-            || (blocking ??= ProjectileGrid.Of(Player.Layout.Id, Player.Seed))?.Blocks(x, y) == true || Player.ProjectileWalls.Contains((x, y));
+            || (blocking ??= ProjectileGrid.Of(Player.Layout.Id, Player.Seed))?.Blocks(x, y, clearance) == true
+            || Player.ProjectileWalls.Contains((x, y)) || Player.SightBarrier.Contains((x, y));
 
         int? Height(int x, int y)
         {
@@ -810,17 +844,28 @@ public static partial class Game
             if (flightRays.TryGetValue(p.Id, out var existing)) return existing;
             if (p.ParentId != 0 || p.Phase > 0 || p.Use.Team != 1 || p.Profile.Lobbed || IsTerrainFollowingProjectile(p))
                 return null;
-            if (ProjectileAimHeight.Primary(p.Use.Origin, p.Use.Aim, LaunchStepsFor(p, PresentationFor(p)), Height) is not { } primary)
+            var origin = p.Use.Origin;
+            ProjectileAimHeight.Ray? primary = p.Profile.TerrainSteps is { } steps
+                ? Height((int)Math.Round(origin.X), (int)Math.Round(origin.Y)) is int ground
+                    ? new(origin, p.Direction, ground + steps.LaunchHeight, 0) : null
+                : ProjectileAimHeight.Primary(origin, p.Use.Aim, LaunchStepsFor(p, PresentationFor(p)), Height);
+            if (primary is not { } launch)
                 return null;
-            var ray = primary.WithLeg(p.Position, p.Direction);
+            var ray = launch.WithLeg(p.Position, p.Direction);
             flightRays[p.Id] = ray;
             return ray;
         }
 
-        public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to) =>
-            FlightRayFor(p) is { } ray
+        public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to)
+        {
+            var rayForFlight = FlightRayFor(p);
+            if (p.Phase == 0 && p.Profile.TerrainSteps is { } steps && p.TerrainLeg is { } leg)
+                return ProjectileGeometry.TraceTerrainSteps(leg.Start, leg.Target, from, to,
+                    (x, y) => Wall(x, y, steps.Clearance) || rayForFlight?.Blocks(x, y, Height) == true);
+            return rayForFlight is { } ray
                 ? ProjectileGeometry.TraceGrid(from, to, (x, y) => Wall(x, y) || ray.Blocks(x, y, Height))
                 : TraceTerrain(from, to);
+        }
 
         public ProjectileHitResult Hit(ProjectileDamage contact)
         {
@@ -835,8 +880,14 @@ public static partial class Game
                 return ProjectileHitResult.Miss;
             if (!Player.Area.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0 || target.WorldHidden || ArenaHazards.Untargetable(Player, target)
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
+            if (contact.Stage == SoulrendPulseStage && shot.Soulrend is { } soulrend)
+                return ApplySoulrendDamage(Player, contact.Target.Id, target, soulrend,
+                    contact.At / (double)ProjectileRuntime.QuantaPerSecond);
+            if (contact.Stage == FleshrendPulseStage && shot.Fleshrend is { } fleshrend)
+                return ApplyFleshrendDamage(contact, target, fleshrend);
             if (contact.Phase == 0 && shot.ExcludedTarget == contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
+            if (MonsterAvoidsProjectile(target, random)) return ProjectileHitResult.Miss;
             if (shot.RampageEpoch is long ownedEpoch)
             {
                 if (!RampageEffectCurrent(Player, ownedEpoch) || !target.Hostile || target.OwnerId is not null)
@@ -881,7 +932,17 @@ public static partial class Game
             }
             if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
             // Select the profile only for an accepted contact, before this hit can apply Blind or other ailments.
-            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats, spider.Local) : default;
+            TargetContact conditional = default;
+            if (shot.Spider is { } spider)
+            {
+                conditional = ContactDamage(Player, target, at, spider.Stats, spider.Local);
+                long trajectoryIncrease = (long)shot.DamageIncreasePerChain * contact.Projectile.CompletedChains
+                    + (long)shot.DamageIncreasePerPierce * contact.Projectile.EnemiesPierced;
+                conditional = conditional with
+                {
+                    HitIncrease = conditional.HitIncrease + trajectoryIncrease,
+                };
+            }
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
@@ -905,7 +966,10 @@ public static partial class Game
                 chainsMore *= Math.Max(0, 1 + (double)shot.CompletedChainDamagePercent
                     * (contact.Projectile.Profile.Chain - contact.Projectile.ChainsRemaining) / 100);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
-            double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
+            double elementalMore = shot.DamageMorePerElementalAilment == 0 ? 1
+                : ElementalHitDamageMore(shot.DamageMorePerElementalAilment, ElementalHitAilmentsOn(target, at));
+            double ailmentMore = chainsMore * returnMore * elementalMore
+                * ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
             if (ailmentMore != 1)
                 shot = shot with
                 {
@@ -915,32 +979,42 @@ public static partial class Game
                 };
             if (shot.DamageMorePerGroundBounce != 0 && contact.Projectile.GroundBounces > 0)
                 shot = shot.ScaleDamage(Math.Max(0, 1 + shot.DamageMorePerGroundBounce * (double)contact.Projectile.GroundBounces / 100));
-            double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
+            if (shot.DamageMoreAfterPierce != 0 && contact.Projectile.EnemiesPierced > 0)
+                shot = shot.ScaleDamage(Math.Max(0, 1 + shot.DamageMoreAfterPierce / 100d));
+            double more = contact.Multiplier * returnMore * elementalMore;
             if (ReferenceEquals(shot.BrandedTarget, target))
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
-            if (!shot.Spell && shot.FarShot) more *= AntiquarianEffects.FarShot(contact.Projectile.Distance);
-            if (!shot.Spell && shot.PointBlank) more *= AntiquarianEffects.PointBlank(contact.Projectile.Distance);
+            if (!shot.Spell && shot.FarShot) more *= WardBreakEffects.FarShot(contact.Projectile.Distance);
+            if (!shot.Spell && shot.PointBlank) more *= WardBreakEffects.PointBlank(contact.Projectile.Distance);
             if (shot.ShatteringSteelAmmoHitBonus > 0)
                 more *= 1 + shot.ShatteringSteelAmmoHitBonus * Math.Clamp((70 - contact.Projectile.Distance) / 60, 0, 1);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
             var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more * chainsMore);
-            var gambler = GamblerFor(player);
+            var hitRolls = HitRollsFor(player);
+            var damageRoll = WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
+                .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
+                    finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted).ForWeapon(shot.WeaponLocal);
+            long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(player, shot.SkillStats);
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
-                GameEvents.WithOutgoingDamage(Player, player, target, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
-                    .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
-                        finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
-                    .ForWeapon(shot.WeaponLocal).RollOutgoingHit(packet, random)), at);
-            rolled = WithOverexertion(rolled, shot.SkillStats, shot.IntimidatingCryExerted);
-            int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
+                GameEvents.WithOutgoingDamage(Player, player, target,
+                    damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
+            rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
+            bool secondForm = contact.Projectile.Form > 0;
+            var formCrit = secondForm ? shot.SecondFormOptions : null;
+            int chance = secondForm && shot.SecondFormCriticalChance is int second
+                ? CriticalChanceOn(Player, contact.Target.Id, second, formCrit?.VsBlinded, formCrit?.VsGround)
                 : CriticalChanceOn(Player, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
                     shot.VsGroundCriticalChance);
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Player, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll, playerStats: player)
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Player.AttackAccuracyRandom));
+            rolled = damageRoll.CompleteCriticalMultiplier(rolled, random, critical, criticalDoubleDamage);
             var weaponLocal = shot.WeaponAttack ? shot.WeaponLocal : null;
-            int sourceMultiplier = CriticalMultiplierWithWeapon(shot.CriticalMultiplier, target, weaponLocal);
+            int criticalMultiplier = formCrit?.MultiplierPlus is int bonus and not 0
+                ? ActorScale.Saturate((long)shot.CriticalMultiplier + bonus) : shot.CriticalMultiplier;
+            int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplier, target, weaponLocal);
             int multiplier = CriticalMultiplierOn(target, sourceMultiplier, shot.TargetCritical, at, shot.NoExtraCriticalDamage);
             bool canBenefitResonance = !shot.FromTrapOrMine && (shot.ActualCaster is null || shot.Mirage);
             bool canGainResonance = canBenefitResonance && !shot.Mirage;
@@ -951,18 +1025,22 @@ public static partial class Game
             bool projectileAttack = !shot.Spell
                 && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
             int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
-            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, resonance.Mods,
-                resonance.Penetration, gambler.InvertsResistance(random, shot.SkillResistanceInversionChance),
+            bool ownHit = shot is { ActualCaster: null, FromTrapOrMine: false, FromTotem: false, Mirage: false }
+                && contact.Projectile.Use.Emitter.Id == Player.Id;
+            int witheredElemental = ownHit ? WitheredElementalHitTaken(target, Player.Id, at, player) : 0;
+            var (damage, _, mitigated, takenRules) = ResolveMonsterHit(target, rolled, critical, !shot.Spell, at, resonance.Mods,
+                resonance.Penetration, hitRolls.InvertsResistance(random, shot.SkillResistanceInversionChance),
                 random, trapOrMine: shot.FromTrapOrMine,
-                additionalTakenPct: additionalTaken);
+                additionalTakenPct: additionalTaken, additionalElementalTakenPct: witheredElemental);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
-            int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage,
-                additionalTakenPct: additionalTaken + (shot.FromTrapOrMine ? BearTrapDamageTaken(target, at) : 0));
+            int directDamage = damage;
+            int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage, takenRules);
             bool immune = target.Invulnerable;
             if (shot.FromMine)
-                LeechPlacedMineHitLocked(Player, target, mitigated, shot.Spell, damage, at, player, contact.Target.Id);
+                LeechPlacedMineHitLocked(Player, target, mitigated, shot.Spell, damage, at, player, contact.Target.Id, takenRules);
             else if (!shot.FromTrapOrMine)
-                LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
+                LeechOnHitTargetLocked(Player, target,
+                    MonsterTakenComponents(target, mitigated, shot.Spell, at, takenRules), damage,
                     shot.Leech, contact.Target.Id);
             if (!immune)
             {
@@ -977,8 +1055,9 @@ public static partial class Game
                 allyAt: shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y),
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell).WithWeapon(weaponLocal),
                 cullPlayer: null, chaosDamage: chaosDamage,
-                preventsShellBreak: shot.PreventsSomaticShellBreak);
+                bypassesShell: shot.BypassesSomaticShell, ownHit: ownHit && !immune);
             if (hit is null) return ProjectileHitResult.Miss;
+            if (shot.FromTotem && !immune) LeechFromTotemHitLocked(Player, target, directDamage, at, player);
             if (!immune) steel?.Targets.Add(contact.Target);
             if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
                 RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);
@@ -992,7 +1071,8 @@ public static partial class Game
                 CrueltyOnHitLocked(Player, shot.SourceSkill, damage, lifeBefore, target.MaxLife, shot.SkillStats, at);
             if (!shot.Spell) ReleaseCriticalTrigger(Player, this, shot.CriticalTrigger, critical, target.Hostile,
                 target.Walk.Position(at), at);
-            else ArcaneSurgeOnSpellHitLocked(Player, player, target);
+            else if (!shot.FromTrapOrMine)
+                ArcaneSurgeOnSpellHitLocked(Player, player, target);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
@@ -1016,24 +1096,44 @@ public static partial class Game
                 && shot.ActualCaster is null && !shot.Spell && !shot.FromTrapOrMine && !shot.FromTotem
                 && shot.SkillStats.GetValueOrDefault(Stat.SummonSacredWispsOnHit) > 0)
                 SacredWispsOnHit(shot);
+            // Who made the hit (HitLanded): a totem's or a placed skill's projectile is not the character's own hit.
+            // Trap or mine is read from the skill, and only while someone listens for hits.
+            string who = shot.FromTotem ? CombatActors.Totem : !shot.FromTrapOrMine ? CombatActors.Self
+                : HitListened(Player) && PlacedKind(SupportedSkill(Player, shot.SourceSkill)).Mine ? CombatActors.Mine : CombatActors.Trap;
             if (!immune && shot.SourceSkill == 0 && shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine)
                 CaptureEquippedHitExplosionLocked(target, player);
+            if (!immune && hit.Value.Life == 0 && !shot.Spell && shot.ActualCaster is null
+                && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage
+                && (shot.WeaponAttack || SkillsFor(Player).IsAttack(shot.Effect)))
+                CaptureAttackKillExplosionLocked(target, player);
             if (!immune)
             {
                 var emitterTotem = shot.FromTotem
                     ? Player.Totems.All.FirstOrDefault(t => t.Id == contact.Projectile.Use.Emitter.Id)
                     : null;
                 AilmentsOnHitLocked(Player, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
-                    shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
+                    WithWeaponAilmentStats(shot.SkillStats, weaponLocal, offHand: shot.OffHandWeapon),
+                    at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
                     sourceSkill: shot.SourceSkill, blind: shot.Blind, playerHit: !shot.FromTotem,
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
-                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
-                    areaHit: contact.IsArea);
+                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance, who: who,
+                    areaHit: contact.IsArea, sourceEffect: shot.Effect, ownHit: ownHit,
+                    weaponWitherChance: weaponLocal?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0);
+                if (critical && shot.DirectAttackContact && ownHit)
+                    TryDeathmarkedLocked(Player, target, at, player);
             }
+            else HitLandedLocked(Player, target, critical, shot.Spell, shot.SkillStats, who, shot.SourceSkill);
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
+            if (!immune && hit.Value.Life > 0)
+            {
+                if (shot.TrarthusBurn is { } burn)
+                    ApplyTrarthusBurn(Player, contact.Target.Id, target, burn, at);
+                if (shot.ConflagrationBurn is { } conflagration)
+                    ApplyConflagrationBurn(Player, contact.Target.Id, target, conflagration, at);
+            }
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)
                 TryMaimOnHitLocked(target, shot.MaimChance, 0, at, contact.Projectile.ReactionRandomSource);
             if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled))
@@ -1046,7 +1146,8 @@ public static partial class Game
             if (shot.ActualCaster is null)
                 RageOnHitWithWeaponLocked(Player, attack: !shot.Spell, melee: false, critical,
                     shot.FromTrapOrMine || shot.FromTotem ? null : shot.WeaponClass, shot.SkillStats,
-                    contact.Projectile.ReactionRandomSource, player);
+                    contact.Projectile.ReactionRandomSource, player,
+                    target: !shot.FromTrapOrMine && !shot.FromTotem ? target : null);
             if (shot.ActualCaster is null) ChargesOnHit(Player, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false,
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
@@ -1085,6 +1186,9 @@ public static partial class Game
                 LeaveKnifeBlade(value);
                 ExplosiveArrowAtEnd(value);
                 EnsnaringArrowAtEnd(value);
+                ElectrocutionAtEnd(value);
+                if (value.Reason == ProjectileEndReason.Returned && p.Use.Payload is ProjectileOffense { VenomGyre: { } caught })
+                    CatchVenomGyre(p.Use, caught);
                 if (value.Reason == ProjectileEndReason.Landing && p.Use.Payload is ProjectileOffense { Unearth: { } corpse })
                     LandUnearth(corpse, (x, y));
             }
@@ -1128,8 +1232,8 @@ public static partial class Game
             else if (value.Kind == ProjectileEventKind.Redirect && flightRays.TryGetValue(p.Id, out var prevRay))
             {
                 double currentSteps = prevRay.StepsAt(p.Position);
-                if (p.Phase > 0 && p.Use.ReturnAnchor is { } anchorKey && Actor(anchorKey, value.At) is { } anchor)
-                    flightRays[p.Id] = ProjectileAimHeight.Return(p.Position, anchor.Position(value.At), currentSteps, Height)
+                if (p.Phase > 0 && p.Use.ReturnPosition(this, value.At) is { } destination)
+                    flightRays[p.Id] = ProjectileAimHeight.Return(p.Position, destination, currentSteps, Height)
                         ?? prevRay.WithLeg(p.Position, p.Direction);
                 else
                     flightRays[p.Id] = new ProjectileAimHeight.Ray(p.Position, p.Direction.Unit, currentSteps, 0);
@@ -1167,8 +1271,11 @@ public static partial class Game
                     // The first glide starts here too; the visual trails the simulation by the output delay and catches
                     // up at its stop.
                     var at = visual.SpawnedAt;
+                    float angle = (float)Math.Atan2(p.Direction.X, -p.Direction.Y);
+                    visual.Orientation = angle;
+                    visual.PendingOrientation = angle;
                     var obj = new ProjectileObject(p.Profile.Id, (int)Math.Round(at.X), (int)Math.Round(at.Y),
-                        (float)Math.Atan2(p.Direction.X, -p.Direction.Y),
+                        angle,
                         Team: p.Use.Team == 1 ? (ushort)0 : (ushort)1,
                         Height: (visual.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : visual.Height).ObjectHeight)
                         { AnimatedObject = flightVisual };
@@ -1252,10 +1359,11 @@ public static partial class Game
             }
         }
 
-        void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
+        void Effect(int x, int y, string ao, long? lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
             float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null,
-            float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null, Action<Action>? captureRemoval = null)
+            float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null, Action<Action>? captureRemoval = null,
+            Action<Action<int, int, float>>? captureMovement = null)
         {
             // startClip: the clip the art is created playing (Animated bit 3), for art without a default animation or
             // with several; thenClip: the clip that follows it (a ground's loop after its fade-in).
@@ -1281,15 +1389,20 @@ public static partial class Game
                 visual.Created = true;
                 return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
             }, wake: true);
-            if (thenClip is { } next && next.After < lifetime)
+            if (thenClip is { } next && (lifetime is null || next.After < lifetime))
                 Runtime.Schedule(Runtime.Now + next.After, () => WorldRecords(id, () => visual.Created && !visual.Ended
                     ? [InstanceProtocol.AnimationUpdate(id, 0, next.Clip, 1)] : null));
             // endClip: a clip the art plays when its time is up (a ground's fade-out); the object goes after it.
-            if (endClip is { } ending)
-                Runtime.Schedule(Runtime.Now + lifetime, () => WorldRecords(id, () => visual.Created && !visual.Ended
-                    ? [InstanceProtocol.AnimationUpdate(id, 0, ending.Clip, 1)] : null));
-            Runtime.Schedule(Runtime.Now + lifetime + (endClip?.Length ?? 0), Remove);
+            if (lifetime is { } duration)
+            {
+                if (endClip is { } ending)
+                    Runtime.Schedule(Runtime.Now + duration, () => WorldRecords(id, () => visual.Created && !visual.Ended
+                        ? [InstanceProtocol.AnimationUpdate(id, 0, ending.Clip, 1)] : null));
+                Runtime.Schedule(Runtime.Now + duration + (endClip?.Length ?? 0), Remove);
+            }
             captureRemoval?.Invoke(Remove);
+            captureMovement?.Invoke((toX, toY, seconds) => World(id, () => visual.Created && !visual.Ended
+                ? InstanceProtocol.MoveTo(id, toX, toY, seconds, InstanceProtocol.FollowTerrain) : null));
             void Remove()
             {
                 if (visual.Ended) return;
@@ -1300,7 +1413,7 @@ public static partial class Game
                     return visual.Created ? [InstanceProtocol.RemoveObject(id)] : null;
                 }, remove: true);
             }
-            if (attach is not { } child) return;
+            if (attach is not { } child || lifetime is not { } childLifetime) return;
             // The art attached to the effect's bone: the client carries it along with the parent's animation.
             uint childId = Player.TakeObjectId();
             // The official split-arrow art sends kind 0 and mask 3 (the base record of the Animated component), which
@@ -1316,7 +1429,7 @@ public static partial class Game
                 return InstanceEntities.CreateObject(childId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), childEffect.Blob());
             });
             World(childId, () => childVisual.Created ? InstanceProtocol.EnterWakeZone(childId) : null);
-            Runtime.Schedule(Runtime.Now + lifetime, () =>
+            Runtime.Schedule(Runtime.Now + childLifetime, () =>
             {
                 childVisual.Ended = true;
                 WorldRecords(childId, () =>
@@ -1399,7 +1512,11 @@ public static partial class Game
         // The pending move as it is projected: the next one built stops at the simulated position first.
         static byte[][]? Projected(Visual visual)
         {
-            if (visual.PendingGlide is not null) visual.Glided = true;
+            if (visual.PendingGlide is not null)
+            {
+                visual.Glided = true;
+                visual.Orientation = visual.PendingOrientation;
+            }
             return visual.PendingGlide;
         }
 
@@ -1416,7 +1533,7 @@ public static partial class Game
                 startHeight = arc.Height(fraction);
             }
             if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceFlight(p, p.Position, end) is { } wall)
-                end = p.Position + (end - p.Position) * wall.Fraction;
+                end = wall.StopPosition ?? p.Position + (end - p.Position) * wall.Fraction;
             if (visual.Arc is { } path) endHeight = path.Height(path.Fraction(p.Distance + (end - p.Position).Length));
             // The first move starts where the object was created (the release point), without a stop there and with
             // the whole way's duration, so it flies at the projectile's speed. Later moves (arc segments, redirects)
@@ -1434,8 +1551,20 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile glide object={visual.Id} entity={p.Id}"
                     + $" from={start} to={end} duration={duration:0.###}"
                     + $" speed={p.Speed:0.##} first={first}");
-            return first ? [move]
-                : [startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y)), move];
+            if (first)
+            {
+                if (p.Direction.Length > 0) visual.PendingOrientation = (float)Math.Atan2(p.Direction.X, -p.Direction.Y);
+                return [move];
+            }
+            var stop = startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y));
+            if (p.Direction.Length <= 0) return [stop, move];
+            float angle = (float)Math.Atan2(p.Direction.X, -p.Direction.Y);
+            visual.PendingOrientation = angle;
+            float delta = MathF.Abs(angle - visual.Orientation);
+            if (delta > MathF.PI) delta = MathF.Tau - delta;
+            if (delta <= 1e-4f) return [stop, move];
+            var orient = InstanceProtocol.Orientation(visual.Id, angle);
+            return [stop, orient, move];
         }
         public static ProjectileVector Vector((int X, int Y) p) => new(p.X, p.Y);
         static string? PayloadLabel(object? payload) => payload switch

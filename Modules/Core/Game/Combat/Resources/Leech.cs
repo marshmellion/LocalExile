@@ -121,6 +121,10 @@ public static partial class Game
                 GainOnHit = (sources.GainOnHit.Life + target.Curses[Stat.LifeGrantedWhenHitByAttacks],
                     sources.GainOnHit.Mana + target.Curses[Stat.ManaGrantedWhenHitByAttacks], sources.GainOnHit.EnergyShield) };
         }
+        double now = ProjectileWorldTime(player);
+        if (sources.LifeLeechVsBleeding is > 0 and var leechVsBleeding && target.Bleeds.IgnitedAt(now))
+            sources = sources with { Life = sources.Life.Add(DamagePacket.Empty.Select((_, _) => new(leechVsBleeding, leechVsBleeding))) };
+        sources = WithStateLeech(player, target, sources);
         var amounts = sources.Amounts(taken, directDamage);
         // Called before the hit's damage is applied, so the target's Life is what the hit has to overkill.
         amounts.Life += sources.OverkillLife(directDamage, target.Life);
@@ -135,7 +139,6 @@ public static partial class Game
                 if (session.ConvertsLifeToEnergyShield) amounts.Life = 0;
             }
         }
-        double now = ProjectileWorldTime(player);
         session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
         double powerInstant = sources.InstantLeechPerEnemyPower == 0 ? 0
             : (double)sources.InstantLeechPerEnemyPower * WarcryPower(target.Rarity);
@@ -144,6 +147,8 @@ public static partial class Game
             sources.Attack, sources.Melee, sources.WeaponLifeLeechInstant, powerInstant);
         if (instant.Life > 0 && RecoverVampiricMinions(player, instant.Life, now)) instant.Life = 0;
         var gain = sources.GainOnHit;
+        if (sources.LifeOnBleedingHit > 0 && target.Bleeds.IgnitedAt(now))
+            gain.Life = ActorScale.Saturate((long)gain.Life + sources.LifeOnBleedingHit);
         if (sources.LifeOnBlindedHit > 0)
         {
             if (targetId == 0) targetId = player.Area.Monsters.FirstOrDefault(entry => ReferenceEquals(entry.Value, target)).Key;
@@ -165,6 +170,54 @@ public static partial class Game
         TrimLeechLocked(player);
     }
 
+    // Single uniques' leech against an enemy in a state: "1% of Damage Leeched as Life against Shocked Enemies"
+    // (Berek's Grip, Valako's Sign), "... as Energy Shield against Frozen Enemies", "... against Cursed Enemies", and
+    // for attacks against Bleeding, Maimed, Chilled (life) and Poisoned (mana) enemies. Hundredths of a percent of
+    // the damage of every type, added to the hit's own leech.
+    static readonly uint[] StateLeechStats =
+    [
+        Stat.BaseLifeLeechPermyriadVsShockedEnemies, Stat.EnergyShieldLeechPermyriadVsFrozenEnemies, Stat.LifeLeechPermyriadVsCursedEnemies,
+        Stat.LifeLeechFromAttackDamagePermyriadVsBleedingEnemies, Stat.LifeLeechFromAttackDamagePermyriadVsMaimedEnemies,
+        Stat.BaseLifeLeechFromAttackDamagePermyriadVsChilledEnemies, Stat.ManaLeechFromAttackDamagePermyriadVsPoisonedEnemies,
+    ];
+
+    // A critical strike's own leech lines: "#% of Damage Leeched as Life on Critical Strike" (The Harvest) and
+    // "Cannot Leech Life from Critical Strikes" (Kondo's Pride). At the character's own hit only.
+    static LeechSources WithCriticalLeech(LeechSources sources, IReadOnlyDictionary<uint, int> stats)
+    {
+        if (stats.GetValueOrDefault(Stat.CannotLeechLifeFromCriticalStrikes) != 0) return sources with { Life = DamagePacket.Empty };
+        int onCrit = stats.GetValueOrDefault(Stat.LifeLeechPermyriadOnCrit);
+        if (onCrit == 0) return sources;
+        var every = DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty, (p, type) => p.Add(DamagePacket.Of(type, onCrit, onCrit)));
+        return sources with { Life = sources.Life.Add(every) };
+    }
+
+    static LeechSources WithStateLeech(Player player, SpawnedMonster target, LeechSources sources)
+    {
+        var stats = CharacterPlayerStats(player);
+        bool any = false;
+        for (int i = 0; i < StateLeechStats.Length && !any; i++) any = stats.GetValueOrDefault(StateLeechStats[i]) != 0;
+        if (!any) return sources;
+        double now = ProjectileWorldTime(player);
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        int life = 0, mana = 0, shield = 0;
+        if (Get(Stat.BaseLifeLeechPermyriadVsShockedEnemies) is int shocked and not 0 && AilmentOn(target, AilmentType.Shock, now)) life += shocked;
+        if (Get(Stat.LifeLeechPermyriadVsCursedEnemies) is int cursed and not 0 && target.Curses.All.Count > 0) life += cursed;
+        if (Get(Stat.EnergyShieldLeechPermyriadVsFrozenEnemies) is int frozen and not 0
+            && target.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0) shield += frozen;
+        if (sources.Attack)
+        {
+            // Life leech against Bleeding enemies is LeechSources.LifeLeechVsBleeding's (main's), above.
+            if (Get(Stat.LifeLeechFromAttackDamagePermyriadVsMaimedEnemies) is int maimed and not 0 && target.MaimedUntil > now) life += maimed;
+            if (Get(Stat.BaseLifeLeechFromAttackDamagePermyriadVsChilledEnemies) is int chilled and not 0 && AilmentOn(target, AilmentType.Chill, now)) life += chilled;
+            if (Get(Stat.ManaLeechFromAttackDamagePermyriadVsPoisonedEnemies) is int poisoned and not 0 && target.Poisons.Stacks(now) > 0) mana += poisoned;
+        }
+        if (life == 0 && mana == 0 && shield == 0) return sources;
+        static DamagePacket Every(int permyriad) => permyriad == 0 ? DamagePacket.Empty
+            : DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty, (p, type) => p.Add(DamagePacket.Of(type, permyriad, permyriad)));
+        return sources with { Life = sources.Life.Add(Every(life)), Mana = sources.Mana.Add(Every(mana)), EnergyShield = sources.EnergyShield.Add(Every(shield)) };
+    }
+
     internal static (double Life, double Mana, double EnergyShield) TakeLeechRecovery(Player player, double now,
         bool lifeFull, bool manaFull, bool shieldFull)
     {
@@ -183,11 +236,26 @@ public static partial class Game
             || target.Effects[Stat.MapMonstersCannotBeLeechedFrom] != 0) return;
         ownerStats ??= CharacterPlayerStats(player);
         int rate = ownerStats.GetValueOrDefault(Stat.LifeLeechFromMinionDamagePct);
-        if (rate <= 0) return;
+        LeechFromOwnedDamageLocked(player, target, damage * (rate / 100d), now);
+    }
+
+    static void LeechFromTotemHitLocked(Player player, SpawnedMonster target, int damage, double now,
+        IReadOnlyDictionary<uint, int> ownerStats)
+    {
+        int rate = ownerStats.GetValueOrDefault(Stat.TotemDamageLeechedAsLifeToYouPermyriad);
+        if (rate <= 0 || damage <= 0 || !target.Hostile || target.Invulnerable || player.PlayerLife == 0
+            || target.Effects[Stat.CannotHaveLifeLeechedFrom] != 0 || target.Effects[Stat.MapMonstersCannotBeLeechedFrom] != 0)
+            return;
+        LeechFromOwnedDamageLocked(player, target, damage * (rate / 10000d), now);
+    }
+
+    static void LeechFromOwnedDamageLocked(Player player, SpawnedMonster target, double amount, double now)
+    {
+        if (amount <= 0) return;
         var session = LeechOf(player);
         if (session.ConvertsLifeToEnergyShield && target.Effects[Stat.CannotHaveEnergyShieldLeechedFrom] != 0) return;
         session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
-        var instant = session.Hit(now, (damage * (rate / 100d), 0, 0),
+        var instant = session.Hit(now, (amount, 0, 0),
             player.PlayerLife >= LifeCap(player), player.PlayerMana >= UnreservedMana(player),
             player.EnergyShield.Current >= player.EnergyShield.Maximum);
         if (instant.Life > 0 && !RecoverVampiricMinions(player, instant.Life, now))

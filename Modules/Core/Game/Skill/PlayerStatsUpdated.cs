@@ -19,18 +19,21 @@ public static partial class Game
         // What the pools are built of (Adrenaline, Fortification, the aspects and aura reservations, conditional items):
         // a change rebuilds them, and the steps that read the pools run in the next phase.
         EnsureConditionalItemPools(player);
-        EnsureAntiquarianPools(player);
+        EnsureWardBreakPools(player);
         EnsureOwnAuraPools(player);
         EnsureFortificationPools(player);
         ConfigureFortificationRecovery(player, player.Pools.Life, Get);
         ConfigureLeech(player, Get, CriticalOnLowLife(player, stats));
-        ConfigureKillOnslaught(player, Get);
+        // A stat an effect rule drives is the rule's: the older Onslaught code reads it as 0.
+        ConfigureKillOnslaught(player, EffectRules.Unhandled(Get));
+        EffectRules.Configure(player, Get, RuleSources(player));
         ConfigureSoulEater(player, stats);
-        ObserveAntiquarian(player, stats);
+        ObserveWardBreak(player, stats);
         ReconcileRampageSource(player, stats);
         if (player.RageRetired || player.PlayerLife == 0) player.Rage.Clear();
         if (player.ResourceEffectsState is ResourceEffectsState state && ResourceEffectsCurrent(player, state))
-            state.Mana.Observe(RageStat(stats, ManaRecoveryRules.RagePer200));
+            state.Mana.Observe(RageStat(stats, ManaRecoveryRules.RagePer200),
+                Get(Stat.GainXFrenzyChargesAfterSpending200Mana), Get(Stat.LocalDisplayGainPowerChargeOnSpendingMana) > 0 ? 1 : 0);
         // A new immunity removes the ailments it rejects; the stats that read them follow.
         var ailments = player.ElementalAilments.Snapshot(AreaTime(player));
         player.ElementalAilments.Reconcile(Get);

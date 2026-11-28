@@ -17,6 +17,7 @@ public sealed class KillOnslaught
     public IReadOnlyList<(int Chance, double Seconds)> Rolls = [];
     // "You gain Onslaught for 4 seconds on Hit" (gain_onslaught_on_hit_duration_ms): every hit, no roll.
     public int HitMs;
+    public int TauntedKillMs;
     public double Until = double.NegativeInfinity;
     public double SentUntil = double.NegativeInfinity;
     public ushort Buff;
@@ -24,10 +25,14 @@ public sealed class KillOnslaught
     // otherwise remove and re-add it every tick (#849 review follow-up).
     const double RepresentSeconds = 1;
     public bool Applied => double.IsFinite(SentUntil);
+    /// <summary>Whether the client would be told something new now: the buff starts, or its shown end moved enough.
+    /// A gain on every hit otherwise waits for the player tick, which presents it anyway.</summary>
+    public bool PresentationDue => !Applied || Until - SentUntil >= RepresentSeconds;
 
     public static IReadOnlyList<(int Chance, double Seconds)> From(Func<uint, int> get)
     {
-        int ms = get(Stat.OnslaughtTimeGrantedOnKillMs), always = get(Stat.OnslaughtBuffDurationOnKillMs);
+        int ms = get(Stat.OnslaughtTimeGrantedOnKillMs);
+        int always = Math.Max(get(Stat.OnslaughtBuffDurationOnKillMs), get(Stat.GainOnslaughtOnKillMsWhileAffectedByHaste));
         return [.. new[]
         {
             (get(Stat.ChanceToGainOnslaughtOnKillPct), ms > 0 ? ms / 1000.0 : 4),
@@ -44,6 +49,15 @@ public sealed class KillOnslaught
         foreach (var (chance, s) in Rolls)
             if (RandomRolls.Chance(chance, 100, random)) seconds = Math.Max(seconds, s);
         return Gain(now, seconds);
+    }
+
+    /// <summary>A gain of <paramref name="seconds"/> at <paramref name="now"/> (an effect rule's): whether it started
+    /// or lengthened Onslaught. A gain never shortens the Onslaught running.</summary>
+    public bool Extend(double now, double seconds)
+    {
+        if (seconds <= 0 || now + seconds <= Until) return false;
+        Until = now + seconds;
+        return true;
     }
 
     /// <summary>One hit at <paramref name="now"/>: whether it started or lengthened Onslaught ("You gain Onslaught for
@@ -86,10 +100,13 @@ public static partial class Game
     // Read when the player stats are built, not per death: an area hit that kills a pack does not rebuild them per corpse.
     public static void ConfigureKillOnslaught(Player player, Func<uint, int> get)
     {
-        var rolls = KillOnslaught.From(get);
+        // The stats as its caller gives them: the stat build hands over EffectRules.Unhandled, where a stat an effect
+        // rule drives reads 0, so each gain is rolled once, by the row that replaced its line here (ours or main's).
+        var rolls = ItemEffectRules.Enabled ? ItemEffectRules.Current.OnslaughtRolls(get) : KillOnslaught.From(get);
         var onslaught = KillOnslaughtOf(player);
         onslaught.Rolls = rolls;
         onslaught.HitMs = get(Stat.GainOnslaughtOnHitDurationMs);
+        onslaught.TauntedKillMs = get(Stat.OnslaughtBuffDurationOnKillingTauntedEnemyMs);
     }
 
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): whether Onslaught started or lengthened.
@@ -103,10 +120,15 @@ public static partial class Game
         return true;
     }
 
-    public static bool OnslaughtOnKill(Player player)
+    public static bool OnslaughtOnKill(Player player) => OnslaughtOnKill(player, AreaTime(player), taunted: false);
+
+    static bool OnslaughtOnKill(Player player, double now, bool taunted)
     {
-        return player.PlayerLife > 0 && KillOnslaughtOf(player).Kill(AreaTime(player), AreaRng(player))
-            && Marked(player, PlayerStatStep.Onslaught);
+        if (player.PlayerLife == 0) return false;
+        var onslaught = KillOnslaughtOf(player);
+        bool gained = onslaught.Kill(now, AreaRng(player));
+        if (taunted) gained |= onslaught.Gain(now, onslaught.TauntedKillMs / 1000d);
+        return gained && Marked(player, PlayerStatStep.Onslaught);
     }
 
     // "You gain Onslaught for X seconds on Hit" (the Honoured Berserker tattoo and other sources): every player hit.

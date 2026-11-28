@@ -5,7 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Idols (Legacy of Phrecia): they drop in maps, the 41 unique ones too, can be gambled at Faustus, lie in the Atlas screen's side panel and add their modifiers to the maps opened.
+- Idols (Legacy of Phrecia; the mod `idols` in LocalExile-Mods): they drop in maps, the 41 unique ones too, can be gambled at Faustus, lie in the Atlas screen's side panel and add their modifiers to the maps opened.
   The 3.29.3 clients have no Idol panel, so the Idol inventory is the map device's storage grid: 4 by 5 cells, one loadout.
   Docs: [Idols](../docs/game/idols.md).
 - Heist Locker is placed in each hideout and opens its native window (0x7b kind 0x37).
@@ -32,7 +32,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [21](../docs/protocol/21-hideouts.md), Horticrafting Station.
 - Generic 3.29 maps, first slice (2026-10-27): `MapKeyTierN` items serialize their MapKey component and `/item Map
   (Tier N)` creates one; the map device accepts them and uses `MapKeys.dat` for the tier. The native hideout Atlas
-  window (S?C 0x7b kind 0x2b) shows the four starting layouts; a node click (C?S 0x00e7) selects one and Activate opens
+  window (S→C 0x7b kind 0x2b) shows the four starting layouts; a node click (C→S 0x00e7) selects one and Activate opens
   it. Every character has the epilogue quest flag `EndGameAvailable`, without which the client refuses Atlas activation
   (until Kitava earns it, only in a hideout and the maps, so the Epilogue's gates stay shut; checked offline).
   Live 2026-10-29: selecting Estuary opened Estuary; Cells is the default.
@@ -102,6 +102,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   its remaining portals and says so in chat, instead of spending a portal on a transfer that cannot arrive (2026-11-18);
   guests share that portal pool, map rules and return destination, and see the owner's saved furniture.
   Visiting another hideout preserves the visitor's own home; only the owner activates its device or edits its furniture.
+  A visitor sees the HUD's own Leave Hideout button (0x1d B20 = 11), which sends `/hideout`.
+  Code: `AreaInstance.UnownedHideoutKind`, Gateway (`UnownedHideout`).
   `C→S 0x17a` resolves named online targets for party members, friends and `0x179` invitees (live check pending).
   The instance keeps the map's level and mods for its whole life (after its last portal or another
   activation, and for guests); 0x1d sends the map's area stats (its mods, tier and atlas) and the Gateway generates
@@ -135,7 +137,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Rogue Harbour: NPCs and stashes at the room's cells; Heist screens open (0x34, 0x35, 0x36), no contract start yet.
 - Tier 17 Marked for Death follows rare/unique kills; monster impales detonate on the fifth stack (checked offline).
 - Rogue Harbour: PlanningNPCs, 0x27c/0x164, 0x279/0x27d–0x27f planning ([21](../docs/protocol/21-hideouts.md)).
-- Map Delirium Mirror: ruleset 0x66 fog/rewards and 0x260 skip button ([21](../docs/protocol/21-hideouts.md)).
+- Map Delirium Mirror: all five scarabs, Mania depth/counter growth, Paranoia types, Neuroses bosses/kill types,
+  Delusions found-map enchants, shared reload/reentry and single payout ([boundaries](../docs/game/league-encounters.md#delirium-scarabs)).
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
   The Tier 17 block, suppression, monster Energy Shield and recipient curse modifiers are checked offline.
@@ -147,7 +150,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   The client still refuses them: on their own Atlas node it shows "The device requires a map" and sends no 0x00d8, and an
   ordinary node does not take them (live 2026-11-22; a WorldAreas HASH16 in MapKey flag bit 1 did not change it).
   Their fixed unique modifiers are not applied.
-- Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
+- Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability, Terrors bosses,
+  Bestiary's additional red beasts/family lures/Shadowed Crow/capture copies and Sulphite's owner yield/Fumes.
+  Delirium, Shaper/Elder influence, Legion, Abyss and Mercenary inputs use their existing encounter paths
+  ([encounters](../docs/game/league-encounters.md)); remaining families still report provider diagnostics.
+  Terrors' boss kit skills inherit map damage, speed, projectile and area modifiers alongside their default attacks.
+  Bestiary captures persist per account and league; mission identities and claims survive module reload.
+  The Bestiary book, itemisation and Blood Altar remain unimplemented; capture storage alone does not expose those UIs.
+  Selection weights, party capture chance, full-store replacement and Fumes placement retain local approximations
+  ([encounter boundaries](../docs/game/league-encounters.md#bestiary-and-sulphite-scarab-boundaries)).
   Essence supports Vaal corruption, Adaptation transfers, low-life enrage, Decay, Toughness (damage-taken, not life),
   the imprisoned pack (mini monoliths release magic guards with the rare), encased preview monsters (+0x104 panel),
   the 3.29 Atlas cluster (CoreLeagues count, additional/higher-tier/max-tier/Remnant/Essence-Rare-Chance rolls, Crystal
@@ -185,6 +196,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Expedition in maps and Acts 6-10 supports placing explosives, detonating markers and opening excavated chests.
   The installed client produced chest loot in Forbidden Woods in Lockstep and on the Act 6 Coast in Predictive.
+- Expedition's faction leader (Tujen, Dannig) stands at an encounter and can be talked to; the other factions place
+  none yet (ExpeditionEncounter.cs).
 - Incursion (Alva, map master mission): per-instance spots, portal, timed room run; temple area pending.
 - Betrayal (Jun, map master mission): Transportation or Intervention, kneel, MakeChoice; board pending.
 
@@ -202,7 +215,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   seeds; Corpse-Grown (Faridun) seeds replace Tier 3 seeds wherever `map_harvest_%_chance_for_faridun_seed` is granted.
   Tier 4 bosses drop the Sacred Blossom, which opens `HarvestLeagueBoss`: the soul tree starts Oshabi's four colour
   phases (Sacred first) and their adds, the Root Wall cage held by the walls' bodies (sent unblocked); her death sets
-  `HarvestOshabiDefeated`, opens the Groveseed Altar (Oshabi Bloodline) and drops her world.db rewards. The opt-in Legacy module `HarvestHeartOfTheGrove` (3.13) rarely puts her in a map's grove.
+  `HarvestOshabiDefeated`, opens the Groveseed Altar (Oshabi Bloodline) and drops her world.db rewards. The 3.13 Heart of the Grove, which rarely puts her in a map's grove, is the mod `harvestheartofthegrove` in LocalExile-Mods.
   Live 2026-11-18 (tier 16 Cage): the gate labelled "The Sacred Grove" leads in and back; the grove needs the client's
   HarvestRules ruleset (S→C 0x1f), without which an Extractor crashes the client once targetable; a Collector shows its
   seed list, one click hatched 23 Vivid monsters and withered the pair, and their lifeforce reached the Horticrafting
@@ -212,11 +225,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Legion (partial): one or more Timeless Monoliths per area (`LegionInitiator` 7-state progression, General link
   `0xec72e38c`, `LegionFlashLight`, `LegionRules` `0x2c9` modes 0/1/5, `0xdf` world/battle/post-battle environments),
-  timer, two armies in stasis (`LegionBreakout` action with `present`/`owning_initiator`, not yet live-checked), full
+  timer, two armies in stasis (`LegionBreakout` action with `present`/`owning_initiator`), full
   combat damage break-out via a non-lethal life floor (hits, DoTs/Contagion, minions, totems, brands, traps, mines,
   culling), release wave, seamless wake, post-battle fade-out and war chests with floating 3D reward symbols opening at
-  release. Rewards (level-gated symbols, icons, rolled drops, splinters, Ruthless scaling) are built, not checked in the
-  client yet. The Domain, scarabs and Atlas are not built. Docs: [Legion](../docs/game/legion.md).
+  release. Scarab inputs, repeated breakouts and reward drops have native verification; retail reward weights and
+  difficulty need calibration. The Domain and remaining Atlas rules are separate work. Docs: [Legion](../docs/game/legion.md).
 
 - Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).
 
@@ -251,6 +264,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Decorations panel loads its list in the owner's hideout (0x21 own-hideout bit; it stayed on "Loading…" without it,
   live 2026-11-22). Placing (`C→S 0x59` by owned record, `0x5a` by hash), deleting (`0x5c` Delete key, `0x5d`) and
   resetting (`0x5e`) custom decorations, capped at 750, are saved per account; pets stand as ownerless pet objects.
+  Entry, placement, removal, layout import (`0x0213`), and reset emit `S→C 0x0214` in-use decoration record updates.
   A placed map device variant replaces the working device, with its button from MapDevices.dat, a blocker that stops
   short of the button, and its model's own portal places or ring radius; the Puzzle Cube is refused.
   `/save_hideout` (command 50), music box persistence (`0x255`, saved and reported in `/save_hideout`; no re-entry replay packet),
@@ -288,6 +302,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Faustus uses his native hideout NPC alongside them in every template, with the existing dialogue and saved editor placement.
   Kirac's hideout row has no dialogue of its own and uses the main Kirac's (`NpcCatalog.TalkSource`);
   Purchase Items sells maps. Kirac marks a conversation heard when chosen (NPCTalk column 15 league flags), which opens his next ones.
+  His first Karui Shores conversation plays Introduction and offers Enter the Atlas and Take Map in sequence.
+  The normal reward inventory grants one tier-one map per account league.
   Niko's Delve options need quest flag ThisIsMyHideout (sent in hideouts and the Mine Encampment) and league quest
   flag 68 DelveEncounterComplete (every character): NPCTalk columns 15-18 are league quest flag ids.
   See [21](../docs/protocol/21-hideouts.md).
@@ -469,8 +485,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Not working yet
 
-- Hideouts: changing a placed decoration's appearance and the Puzzle Cube map device are not implemented.
-  Personal template selection, saved home login and functional furniture placement are implemented
+- Hideouts: changing a placed decoration's appearance and the Puzzle Cube map device are not implemented
   ([21](../docs/protocol/21-hideouts.md)).
 - Without a generated layout or walk-map capture, a map can place the player at an arbitrary cell.
   Such a map gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed

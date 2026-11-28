@@ -4,6 +4,13 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    static int SpendCharacterChargesOnFlaskUse(Player player, ChargeType type, int count, double now)
+    {
+        var charges = ChargesOf(player);
+        return !charges.Converted(type) && now < charges.State.ExpiresAt(type)
+            ? charges.Spend(type, count, now) : 0;
+    }
+
     // C→S 0x70 on a utility flask (13-items.md §8a): it spends its charges (S→C 0xbf), puts its buff on the player with
     // its duration (S→C 0x1c1) and its stats count in the pools until the duration ends (UtilityFlasks), with the stats
     // and movement speed sent again at the start and the end. Refused while dead or with too few charges.
@@ -44,7 +51,7 @@ public static partial class Game
             return false;
         }
         var (stats, seconds, effectPower, selfChaosRate) = UtilityFlaskUseFor(player, (byte)slot, flask.Item, utility, local, Get, playerLevel);
-        bool gainedSouls = false;
+        bool gainedSouls = false, gainedOnslaught = false;
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
         // strand paid charges without their accepted snapshot, deadline, Adjacent edge and presentation.
@@ -79,7 +86,18 @@ public static partial class Game
             if (player.UtilityFlaskEffects.Of(flask.Id) is { } previous)
                 QueueUtilityFlaskEnd(player, state, previous, "refreshed");
             UtilityFlasks.Start(player, effect, () => RecomputePoolsAndSpeed(player));
-            gainedSouls = ApplyUtilityResourceEffectsLocked(player, local, charges.ChargesPerUse, now, effectPower);
+            // The rules: the flask was used (its own "when used" lines and the character's), and its "during Effect"
+            // lines hold from the next stat phase.
+            RaiseCombatEvent(player, new ChargeEvent.FlaskUse(flask.Id, "utility"));
+            if (EffectRules.HasCarrierRules(ItemCarrier)) TellStatsUpdated(player);
+            gainedSouls = ApplyUtilityResourceEffectsLocked(player, local, charges.ChargesPerUse, now, effectPower, Get);
+            if (local.GetValueOrDefault(Stat.LocalFlaskConsumesXFrenzyChargesOnUse) is > 0 and var frenzyCost)
+            {
+                int spentFrenzy = SpendCharacterChargesOnFlaskUse(player, ChargeType.Frenzy, frenzyCost, now);
+                double onslaughtSeconds = (double)spentFrenzy
+                    * local.GetValueOrDefault(Stat.LocalFlaskGainXSecondsOfOnslaughtPerFrenzyChargeConsumed);
+                gainedOnslaught = KillOnslaughtOf(player).Gain(now, onslaughtSeconds) && Marked(player, PlayerStatStep.Onslaught);
+            }
             ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
             if (UtilityFlasks.RestoreWardAfterPaidUse(player.Ward, name => local.GetValueOrDefault(name), now))
                 Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {player.Ward.Current}/{player.Ward.Maximum}");
@@ -87,10 +105,7 @@ public static partial class Game
                 string.Join(", ", stats.Select(s => $"{s.Stat} {s.Value}")) + $"; walk estimate {player.Walk.Speed:0.##} cells/s");
             state.Packets.Add(new([], $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s",
                 UtilityStart: effect));
-            // "Gain X Endurance/Frenzy/Power Charge(s) on use" (Replica Rumi's Concoction).
-            foreach (var (stat, charge) in ChargesOnFlaskUse)
-                if (local.GetValueOrDefault(stat) is int count and > 0)
-                    ChargesOf(player).Enqueue(new ChargeEvent.Grant(charge, count, $"{type.Name} on use"));
+            QueueFlaskUseCharges(player, type.Name, local);
             MakeFlaskGroundsLocked(player, local, seconds, now, character);
             TryGrantAlchemistsGenius(player);
             state.StatRevision++;
@@ -100,6 +115,7 @@ public static partial class Game
         if (CurrentGameWork && !player.Closed && !player.LeavingArea)
         {
             if (gainedSouls) await SendVaalSouls(player);
+            if (gainedOnslaught) await SendKillOnslaught(player);
             await EnemyDebuffsTick(player, AreaTime(player));
         }
         return true;
@@ -143,6 +159,13 @@ public static partial class Game
         (Stat.LocalFlaskGainFrenzyChargesOnUse, ChargeType.Frenzy),
         (Stat.LocalFlaskGainPowerChargesOnUse, ChargeType.Power),
     ];
+
+    static void QueueFlaskUseCharges(Player player, string name, IReadOnlyDictionary<uint, int> local)
+    {
+        foreach (var (stat, charge) in ChargesOnFlaskUse)
+            if (local.GetValueOrDefault(stat) is > 0 and var count)
+                ChargesOf(player).Enqueue(new ChargeEvent.Grant(charge, count, $"{name} on use"));
+    }
 
     // Innate monster IIQ/IIR baselines already represented by ItemDrops.Roll's rarity count ratios
     // (MonsterMagic3 +600%, MonsterRare3 +1400%, MonsterUnique3 +2850%) and RarityChances
@@ -259,6 +282,7 @@ public static partial class Game
             () => RecomputePoolsAndSpeed(player), out _);
         bool geniusEnded = EndAlchemistsGeniusIfDue(player, now, dead);
         if (ended.Count == 0 && !geniusEnded) return;
+        if (ended.Count > 0 && EffectRules.HasCarrierRules(ItemCarrier)) TellStatsUpdated(player);   // its "during Effect" rules end
         var state = Automation(player);
         foreach (var effect in ended)
         {

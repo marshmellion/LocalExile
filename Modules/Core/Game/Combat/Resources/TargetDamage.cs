@@ -8,9 +8,28 @@ public static partial class Game
     public const uint TinctureDamageVsLowLife = Stat.TincturedWeaponDamagePlusPctVsEnemiesThatAreOnLowLife;
     public static bool EnemyOnLowLife(SpawnedMonster target) => target.Hostile && MonsterOnLowLife(target);
 
+    // Use the target's life before this contact for both damage and the shared critical roll.
+    readonly record struct DualStrikeBonuses(int DamagePct, int CriticalPct)
+    {
+        internal static DualStrikeBonuses From(IReadOnlyDictionary<uint, int> skill) =>
+            new(skill.GetValueOrDefault(Stat.DualStrikeDamagePlusPctFinalAgainstEnemiesOnFullLife),
+                skill.GetValueOrDefault(Stat.DualStrikeCriticalStrikeChancePlusPctFinalAgainstEnemiesOnFullLife));
+
+        internal DualStrikeBonuses Against(SpawnedMonster target) =>
+            target.MaxLife > 0 && target.Life >= target.MaxLife ? this : default;
+
+        internal double DamageMore => DamageFactor(DamagePct);
+
+        internal int CriticalChance(int chance) => CriticalPct == 0 ? chance
+            : (int)Math.Clamp(chance * (100L + CriticalPct) / 100, 0, 10_000);
+    }
+
     const uint FireVsBleeding = Stat.FireDamagePlusPctVsBleedingEnemies;
 
+    // "#% increased Melee Physical Damage against Ignited Enemies" (Razor of the Seventh Sun).
+    const uint MeleePhysicalVsIgnited = Stat.MeleePhysicalDamagePlusPctVsIgnitedEnemies;
     static bool HasTypedTargetDamage(Func<uint, int> get) => get(PhysicalVsIgnited) != 0 || get(FireVsBleeding) != 0
+        || get(MeleePhysicalVsIgnited) != 0
         || get(DamageVsLowLifePerFrenzy) != 0
         || get(Stat.TinctureApplied) != 0 && get(TinctureDamageVsLowLife) != 0;
 
@@ -59,7 +78,13 @@ public static partial class Game
         || get(Stat.ColdHitDamagePlusPctVsShockedEnemies) != 0 || get(Stat.LightningHitDamagePlusPctVsChilledEnemies) != 0
         || get(Stat.DamagePlusPctAgainstEnemiesMarkedByYou) != 0
         || get(Stat.LeechMasteryHitDamagePlusPctFinalVsLeechImmune) != 0
-        || get(Stat.PassiveMasteryHitAilmentDamagePlusPctFinalVsEnemiesWith5PlusPoisons) != 0;
+        || get(Stat.PassiveMasteryHitAilmentDamagePlusPctFinalVsEnemiesWith5PlusPoisons) != 0
+        || HasStateDamage(get);
+
+    // Single uniques' "increased Damage against Frozen / Ignited / Shocked / Hindered Enemies" and "with Hits and
+    // Ailments against Bleeding / Chilled / Cursed Enemies".
+    static bool HasStateDamage(Func<uint, int> get) => get(Stat.FrozenMonstersTakeIncreasedDamage) != 0
+        || get(Stat.HitAndAilmentDamagePlusPctVsChilledEnemies) != 0;
 
     internal readonly record struct TargetContact(long HitIncrease, long AilmentIncrease, int ColdHitIncrease,
         int LightningHitIncrease, int OpportunisticMore, int PoisonMore, int LeechImmuneMore)
@@ -118,6 +143,13 @@ public static partial class Game
         if (poison != 0 && target.Poisons.Stacks(at) < 5) poison = 0;
         int leechImmune = Get(Stat.LeechMasteryHitDamagePlusPctFinalVsLeechImmune);
         if (leechImmune != 0 && target.Effects[Stat.CannotHaveLifeLeechedFrom] == 0) leechImmune = 0;
+        if (HasStateDamage(Get))
+        {
+            // "Enemies Frozen by you take 20% increased Damage" (Replica Windripper): a flag; the 20 is the line's own.
+            if (Get(Stat.FrozenMonstersTakeIncreasedDamage) != 0 && AilmentOn(target, AilmentType.Freeze, at)) hit += 20;
+            int chilledBoth = Get(Stat.HitAndAilmentDamagePlusPctVsChilledEnemies);
+            if (chilledBoth != 0 && AilmentOn(target, AilmentType.Chill, at)) ailment += chilledBoth;
+        }
         return new(hit + ailment, ailment, coldHit, lightningHit, opportunistic, poison, leechImmune);
     }
 
@@ -185,10 +217,13 @@ public static partial class Game
         bool attack = true) =>
         ActorScale.Saturate((long)get(name) + (name == Stat.PhysicalDamagePlusPct && ignited ? get(PhysicalVsIgnited) : 0)
             + (name == Stat.FireDamagePlusPct && bleeding ? get(FireVsBleeding) : 0)
+            + (name == Stat.MeleePhysicalDamagePlusPct && ignited ? get(MeleePhysicalVsIgnited) : 0)
             + (name == Stat.DamagePlusPct && lowLife
                 ? (long)Math.Max(0, get(Stat.CurrentFrenzyCharges)) * get(DamageVsLowLifePerFrenzy)
                     + (attack && get(Stat.TinctureApplied) != 0 ? get(TinctureDamageVsLowLife) : 0)
                 : 0));
+
+    static readonly uint[] TypedTargetNames = [Stat.PhysicalDamagePlusPct, Stat.FireDamagePlusPct, Stat.DamagePlusPct, Stat.MeleePhysicalDamagePlusPct];
 
     static IReadOnlyDictionary<uint, int> TypedTargetDamageStats(IReadOnlyDictionary<uint, int> stats,
         bool ignited, bool bleeding, bool lowLife = false, bool attack = true)
@@ -196,7 +231,7 @@ public static partial class Game
         int Get(uint name) => GolemStat(stats, name);
         if (!HasTypedTargetDamage(Get) || !ignited && !bleeding && !lowLife) return stats;
         var result = new Dictionary<uint, int>(stats);
-        foreach (uint name in new[] { Stat.PhysicalDamagePlusPct, Stat.FireDamagePlusPct, Stat.DamagePlusPct })
+        foreach (uint name in TypedTargetNames)
             result[name] = TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack);
         return result;
     }

@@ -34,6 +34,7 @@ public static partial class Game
         PlayerElementalAilments.HitSettings settings, uint? source = null)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
+        if (Get(Stat.AllDamageTakenCanIgnite) != 0) settings = settings with { AllDamageCanIgnite = true };
         // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped, and so does
         // physical damage taken as an element (PlayerDamageTaken.Shift).
         if (blocked || player.Immune || player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player)
@@ -309,10 +310,11 @@ public static partial class Game
     {
         double now = AreaTime(player);
         double extra = get(Stat.HasTailwind) == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get(Stat.TailwindEffectOnSelfPlusPct) / 100d)) - 8;
+        extra += get(Stat.ActionSpeedPlusPctWhileAffectedByHaste);
         int mapSpeed = MapSkillActionSpeedPerUse(player);
         if (mapSpeed != 0) extra += (double)mapSpeed * player.RecentEvents.Amount(StatConditions.UsedSkill, now);
         double factor = player.ElementalAilments.TotalActionFactor(now, get(Stat.ActionSpeedMinusPct) - extra)
-            * Math.Max(.01, 1 + get(Stat.TemporalChainsActionSpeedPlusPctFinal) / 100d);
+            * TemporalChainsActionFactor(get(Stat.TemporalChainsActionSpeedPlusPctFinal));
         if (get(Stat.ActionSpeedCannotBeReducedBelowBase) != 0) factor = Math.Max(1, factor);
         // Rakiata's Leadership: action speed cannot be modified below 100% + this value (the level 1 spirit's 10 is
         // the wiki's "at least 110% of base value").
@@ -321,4 +323,7 @@ public static partial class Game
         if (minimum != 0 && factor > 0) factor = Math.Max(factor, 1 + minimum / 100.0);
         return factor;
     }
+
+    // The client clamps the curse's own action-speed modifier at -75 before multiplying other slow effects.
+    static double TemporalChainsActionFactor(double modifier) => 1 + Math.Max(-75, modifier) / 100;
 }
