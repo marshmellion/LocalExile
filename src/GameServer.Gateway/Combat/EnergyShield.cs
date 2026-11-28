@@ -32,8 +32,13 @@ public sealed class EnergyShield
 
     public void SetMaximum(uint maximum, bool refill = false)
     {
+        uint previous = Maximum;
         Maximum = maximum;
-        Current = refill ? maximum : Math.Min(Current, maximum);
+        // A change between two non-zero maximums keeps the same percentage of maximum energy shield.
+        Current = refill ? maximum
+            : previous > 0 && maximum > 0 && maximum != previous
+                ? (uint)Math.Min(maximum, Math.Round((double)Current * maximum / previous))
+                : Math.Min(Current, maximum);
         if (Current == Maximum) { fraction = 0; StopRecharge(); }
     }
     public void Interrupt(double now)

@@ -224,7 +224,8 @@ public sealed record ProjectileProfile(string Id)
     public bool DirectDamage { get; init; } = true;
     public int Pierce { get; init; }
     public int Fork { get; init; }
-    public double ForkAngleRadians { get; init; } = Math.PI / 6;
+    /// <summary>Half of the client's fork fan: two children at center -/+ 45 degrees (Agents/docs/re/projectiles/continuation-and-memory.md §8).</summary>
+    public double ForkAngleRadians { get; init; } = Math.PI / 4;
     public bool PierceAllAfterFork { get; init; }
     /// <summary>"X% chance for an additional Projectile when Forking" (Greater Fork): the extra child flies straight
     /// ahead between the fork's two.</summary>

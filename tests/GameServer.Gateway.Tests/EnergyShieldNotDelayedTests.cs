@@ -110,6 +110,24 @@ public sealed class EnergyShieldNotDelayedTests
         Assert.False(plain.RechargeReady(11, Stats(false)));
         Assert.True(undelayed.RechargeReady(11, Stats(true)));
     }
+    // A change between two non-zero maximums keeps the same percentage of maximum energy shield.
+    [Fact]
+    public void Maximum_change_keeps_the_energy_shield_percentage()
+    {
+        var shield = new EnergyShield();
+        shield.SetMaximum(200, refill: true);
+        shield.SetMaximum(300);
+        Assert.Equal(300u, shield.Current);
+        Assert.False(shield.Recharging);
+
+        shield.Damage(150, false, 10);
+        shield.SetMaximum(150);
+        Assert.Equal(75u, shield.Current);
+
+        shield.SetMaximum(0);
+        shield.SetMaximum(150);
+        Assert.Equal(0u, shield.Current);
+    }
     [Fact]
     public void Forced_recharge_uses_the_event_time_and_can_be_interrupted()
     {
