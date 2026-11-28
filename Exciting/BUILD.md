@@ -12,6 +12,6 @@ Written by the publish step: what the branch `exciting` was made from.
 | `jewel-allocates` | `fcb236409` |
 | `piety-crash-fix` | `5be776900` |
 | `le-trade-patch` | `ceb76d31f` |
-| `exciting-kit` | `f6abc9ed5` |
+| `exciting-kit` | `95f41ad0a` |
 
 Published 2026-11-28.
