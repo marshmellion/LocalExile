@@ -32,6 +32,7 @@ $sdks = @(& dotnet --list-sdks 2>$null | Where-Object { $_ -match '^10\.' })
 if ($sdks.Count -eq 0) { Fail 'The .NET 10 SDK is missing (dotnet --list-sdks shows no 10.x): install it from https://dotnet.microsoft.com/download.' }
 if (-not (Has 'node')) { Fail 'Node.js is missing: install it from https://nodejs.org (the LTS version), then run this again.' }
 Ok "git, .NET $(($sdks[-1] -split ' ')[0]), Node $(& node --version)"
+if (-not ((Has 'py') -or (Has 'python'))) { Note 'Python 3 not found (optional: Body Auras and the new orbs'' art need it): https://www.python.org/downloads/windows/' }
 
 if ($Update) {
     Step 'Getting the newest build'
@@ -134,8 +135,10 @@ else {
 Step 'The mods'
 New-Item -ItemType Directory -Force -Path 'Mods\Binaries', 'Mods\Client' | Out-Null
 foreach ($mod in Get-ChildItem "$kit\mods" -Directory) {
-    # /MIR: a file the new version dropped goes too; saves\ (a mod's own records) stays.
-    & robocopy $mod.FullName "Mods\Binaries\$($mod.Name)" /MIR /XD saves /NFL /NDL /NJH /NJS /NP | Out-Null
+    # /MIR: a file the new version dropped goes too; saves\ (a mod's own records) stays, and so does what Body Auras
+    # made from your client (its content\ and lists).
+    $keep = if ($mod.Name -eq 'bodyauras') { @('/XD', 'saves', 'content', '/XF', 'auras.index.json', 'cosmeticdrops.json') } else { @('/XD', 'saves') }
+    & robocopy $mod.FullName "Mods\Binaries\$($mod.Name)" /MIR @keep /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { Fail "Copying the mod $($mod.Name) failed (robocopy code $LASTEXITCODE)." }
     Note "server mod: $($mod.Name)"
 }
@@ -150,6 +153,9 @@ if ($is3293d -and $NativeMods) {
     }
 }
 Ok 'their settings are kept in data\mods\ (Waypoint''s Mods panel edits them)'
+
+# The orbs' art and Body Auras' effects are made from your own client (client-art.ps1).
+& (Join-Path $kit 'client-art.ps1')
 
 Step 'Your login account'
 if (-not (Test-Path 'data\auth.db')) {
@@ -167,3 +173,5 @@ else { Ok 'you have one (data\auth.db)' }
 Write-Host ''
 Write-Host 'Done. Start the game with Exciting\play.cmd (or Waypoint). The first start builds the servers and the' -ForegroundColor Green
 Write-Host 'game data (a few minutes), then puts the mods'' content into the game.' -ForegroundColor Green
+
+exit 0
