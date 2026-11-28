@@ -27,6 +27,19 @@ Everything runs on your own computer. You need your own copy of the game.
    client already on your PC (and offers to move or copy it instead of downloading), and can turn a LocalExile you
    installed from Git (Waypoint's "Source code" install) into this build, keeping your characters.
 
+## Keeping it up to date: `update-all.cmd`
+
+Every so often (or when we post an update), close the game and the servers and double-click
+**`Exciting\update-all.cmd`** in your install. It updates everything at once:
+
+- **this build**: LocalExile with our changes, and the mods that come with it (Exciting Items, Cosmetic Drops, Body
+  Auras, Quality of Life, Harvest Crafts, Minion Unnerf);
+- **every other mod you added** from [our mods repository](https://github.com/marshmellion/LocalExile-Mods) (for
+  example State Control, or one you installed through Waypoint), whenever the repository has a newer version.
+
+Your characters, accounts, keys and mod settings are never touched. It keeps you on the build you chose (released or
+testing, see [The testing build](#the-testing-build)).
+
 The rest of this page is the same thing by hand, and what to do when something goes wrong.
 
 ## With Waypoint

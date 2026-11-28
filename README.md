@@ -1,3 +1,9 @@
+> **This is the Exciting build of LocalExile** (marshmellion's copy, with our mods and the changes they need).
+> **Install:** download [`Exciting/install.cmd`](https://github.com/marshmellion/LocalExile/blob/exciting/Exciting/install.cmd)
+> and double-click it: it walks you through everything. **Update:** double-click `Exciting\update-all.cmd` in your
+> install: it updates the build and every mod. **Guide:** [Exciting/README.md](Exciting/README.md).
+> **Mods:** https://github.com/marshmellion/LocalExile-Mods
+
 [Join Discord](https://discord.gg/pd2Fd5M6Hd)
 
 # LocalExile
