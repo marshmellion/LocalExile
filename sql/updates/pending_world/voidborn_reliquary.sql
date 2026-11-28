@@ -452,7 +452,7 @@ INSERT INTO voidborn_reliquary_outcomes (reward, foil, entries, weight) VALUES (
 INSERT INTO voidborn_reliquary_outcomes (reward, foil, entries, weight) VALUES ('Loreweave', 6, 1, 0.0258866);
 INSERT INTO voidborn_reliquary_outcomes (reward, foil, entries, weight) VALUES ('Loreweave', 5, 1, 0.0258866);
 INSERT INTO voidborn_reliquary_outcomes (reward, foil, entries, weight) VALUES ('Lori''s Lantern', 6, 1, 0.338983);
-INSERT INTO voidborn_reliquary_outcomes (reward, foil, entries, weight) VALUES ('Maelström of Chaos', 5, 1, 0.142248);
+INSERT INTO voidborn_reliquary_outcomes (reward, foil, entries, weight) VALUES ('Maelstrom of Chaos', 5, 1, 0.142248);
 INSERT INTO voidborn_reliquary_outcomes (reward, foil, entries, weight) VALUES ('Mageblood', 1, 4, 0.00448853);
 INSERT INTO voidborn_reliquary_outcomes (reward, foil, entries, weight) VALUES ('Mageblood', 6, 6, 0.0067328);
 INSERT INTO voidborn_reliquary_outcomes (reward, foil, entries, weight) VALUES ('Mageblood', 4, 1, 0.00112213);

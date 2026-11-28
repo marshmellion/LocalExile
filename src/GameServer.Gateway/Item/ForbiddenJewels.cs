@@ -23,15 +23,26 @@ public static class ForbiddenJewels
         "AscendancyChieftan12", "AscendancyTrickster14",
     };
 
-    static IReadOnlyDictionary<string, IReadOnlyList<int>>? byClass;
+    static IReadOnlyDictionary<string, IReadOnlyList<int>> byClass = new Dictionary<string, IReadOnlyList<int>>();
+    static IReadOnlyDictionary<int, int> classRowOf = new Dictionary<int, int>();
+
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens): each class's
+    /// eligible notables and each notable's class.</summary>
+    public static void LoadGameData()
+    {
+        var notables = Load();
+        classRowOf = notables.SelectMany(p => p.Value.Select(g => (Graph: g, Row: Array.FindIndex(Classes,
+                c => c.Equals(p.Key, StringComparison.OrdinalIgnoreCase)))))
+            .GroupBy(x => x.Graph).ToDictionary(g => g.Key, g => g.First().Row);
+        byClass = notables;
+    }
 
     public static bool Is(string uniqueName) => uniqueName is Flame or Flesh;
 
     public static bool IsClass(string name) => Classes.Contains(name, StringComparer.OrdinalIgnoreCase);
 
-    static IReadOnlyDictionary<string, IReadOnlyList<int>> Notables()
+    static IReadOnlyDictionary<string, IReadOnlyList<int>> Load()
     {
-        if (byClass is { } loaded) return loaded;
         var classOf = new Dictionary<int, string>();
         foreach (var row in ClientTables.TableOrEmpty("Ascendancy"))
             if (row.Text("Id") is { } id && id is not ("Reliquarian" or "Luminary")
@@ -50,14 +61,14 @@ public static class ForbiddenJewels
                 : row.Bool("IsNotable") && !row.Bool("IsMultipleChoice");
             if (pick && row.IntOrNull("PassiveSkillGraphId") is int graph and > 0) result[cls].Add(graph);
         }
-        return byClass = result.ToDictionary(p => p.Key, p => (IReadOnlyList<int>)p.Value, StringComparer.OrdinalIgnoreCase);
+        return result.ToDictionary(p => p.Key, p => (IReadOnlyList<int>)p.Value, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>A notable for a new jewel: of <paramref name="className"/> when given, else of a random class (each
     /// class equally likely, then each of its notables).</summary>
     public static int? Roll(string? className, Random random)
     {
-        var notables = Notables();
+        var notables = byClass;
         var classes = className is not null && notables.ContainsKey(className) ? [className]
             : notables.Where(p => p.Value.Count > 0).Select(p => p.Key).ToArray();
         if (classes.Length == 0) return null;
@@ -65,17 +76,9 @@ public static class ForbiddenJewels
         return pool.Count == 0 ? null : pool[random.Next(pool.Count)];
     }
 
-    static IReadOnlyDictionary<int, int>? classRowOf;
-
     /// <summary>The Characters.dat row of the class whose ascendancy holds <paramref name="graph"/>; null for a node no
     /// Forbidden jewel can grant.</summary>
-    public static int? ClassRowOf(int graph)
-    {
-        classRowOf ??= Notables().SelectMany(p => p.Value.Select(g => (Graph: g, Row: Array.FindIndex(Classes,
-                c => c.Equals(p.Key, StringComparison.OrdinalIgnoreCase)))))
-            .GroupBy(x => x.Graph).ToDictionary(g => g.Key, g => g.First().Row);
-        return classRowOf.TryGetValue(graph, out int row) ? row : null;
-    }
+    public static int? ClassRowOf(int graph) => classRowOf.TryGetValue(graph, out int row) ? row : null;
 
     /// <summary>A socketed jewel's half of the pair: Flame (part 1) or Flesh (part 2) and the notable's graph id, or
     /// null when the item carries neither stat (or only the Mods row's unrolled placeholder).</summary>

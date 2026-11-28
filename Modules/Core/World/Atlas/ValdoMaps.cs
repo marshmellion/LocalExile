@@ -24,7 +24,8 @@ public static class ValdoMaps
     const string VoidModId = "MapSupporterVoidOnDeath";
     const string OublietteNodeId = "ValdoMap";
     const int Tier = 17, AreaLevel = 84;
-    const double ClearedFraction = 0.9;
+    /// <summary>The map is cleared with at most 1/10 of its monsters alive (90% killed).</summary>
+    const int ClearedDivisor = 10;
 
     sealed record Outcome(string MapName, string? AreaId, string Reward, byte Foil, double Weight);
     sealed record AreaRow(ushort Hash16, string Id, string Name);
@@ -58,13 +59,25 @@ public static class ValdoMaps
             .Where(m => m.Item2 > 0)];
     }
 
+    internal static void ClearTables()
+    {
+        Clears.Clear();
+        Chests.Clear();
+    }
+
     public static void Register(string owner)
     {
         GameEvents.ItemUse.Add(owner, OpenBox);
         GameEvents.MapOpening.Add(owner, Opening);
         GameEvents.ObjectUse.Add(owner, OpenChest);
+        GameEvents.CurrencyRefusal.Add(owner, RefuseCurrency);
         GameEvents.AreaTick.Add(owner, player => RewardOf(global::Game.MapRunOf(player)) is null ? null : TickClear);
     }
+
+    /// <summary>Valdo Maps cannot be modified with currency items (poewiki, Valdo Map): none is used on one. (Nightmare
+    /// Maps share the Unmodifiable base flag but take chisels, so the flag alone does not refuse them.)</summary>
+    static string? RefuseCurrency(Player player, Item target, uint currency) =>
+        ItemsFor(player).ByHash(target.TypeHash) is { Id: MapId } ? "a Valdo Map cannot be modified with currency" : null;
 
     static string? RewardOf(MapDevice.Run? run) =>
         run?.ContentData is { } data && data.TryGetValue(RewardKey, out string? reward) ? reward : null;
@@ -195,8 +208,7 @@ public static class ValdoMaps
         // The layout is fixed when the box opens, so the map names it ("Burial Chambers Map").
         AreaRow? layout = outcome.AreaId is { } areaId && _areas.TryGetValue(areaId, out var row) ? row : RandomLayout(random);
         if (layout is not null) content[AreaKey] = layout.Id;
-        var uniques = UniquesFor(player);
-        uint? rewardWord = uniques.Find(outcome.Reward) is { } definition ? uniques.NameWord(definition) : null;
+        uint? rewardWord = FoilRewards.NameWord(player, outcome.Reward, random);
         return ItemCatalog.Create(type) with
         {
             ItemLevel = AreaLevel,
@@ -263,15 +275,27 @@ public static class ValdoMaps
             return;
         var state = Clears.GetValue(instance, _ => new ClearState());
         double now = AreaTime(player);
-        if (state.Rewarded || now < state.NextCheck) return;
-        state.NextCheck = now + 1;
         int living = LivingMonstersLocked(player);
-        state.Peak = Math.Max(state.Peak, living);
-        if (state.Peak == 0) return;
+        int peak;
+        // Every player of the instance ticks: one check a second, and the reward once.
+        lock (state)
+        {
+            if (state.Rewarded || now < state.NextCheck) return;
+            state.NextCheck = now + 1;
+            peak = state.Peak = Math.Max(state.Peak, living);
+        }
+        if (peak == 0) return;
+        // Rares and uniques must all be dead: those the area still holds back (far, not yet created) count as alive.
         bool eliteLeft = player.Area.Monsters.Values.Concat(player.Area.DormantMonsters.Values)
-            .Any(m => MonsterLiving(m) && m.Rarity >= MonsterRarity.Rare);
-        if (eliteLeft || living > state.Peak * (1 - ClearedFraction)) return;
-        state.Rewarded = true;
+                .Any(m => MonsterLiving(m) && m.Rarity >= MonsterRarity.Rare)
+            || HeldBackLocked(player).Any(m => m.Rarity >= MonsterRarity.Rare);
+        // At least 90% dead: at most a tenth of the most ever alive still living (integers: exactly 90% counts).
+        if (eliteLeft || (long)living * ClearedDivisor > peak) return;
+        lock (state)
+        {
+            if (state.Rewarded) return;
+            state.Rewarded = true;
+        }
         await Reward(player, run, reward);
     }
 
@@ -345,22 +369,32 @@ public static class ValdoMaps
     }
 
     /// <summary>A click on the Singular Reliquary: walk to it, open it, drop the foil unique.</summary>
+    const int ChestReach = 4;
+
     static async Task<bool> OpenChest(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (player.Instance is not { } instance || !Chests.TryGetValue(instance, out var chest) || use.TargetId != chest.Id) return false;
         if (chest.Opened) return true;
-        if (!TryBeginObjectWalk(player, requestedAt, chest.X, chest.Y, 4, out var walk)) return true;
+        if (!TryBeginObjectWalk(player, requestedAt, chest.X, chest.Y, ChestReach, out var walk)) return true;
         var (action, now, _, _, arrive) = walk;
         if (arrive > now) await AreaDelay(player, arrive - now);
-        if (!PlayerActionCurrent(player, action) || chest.Opened) return true;
-        chest.Opened = true;
-        await SendWorldRecord(player, chest.Id, InstanceProtocol.AnimationUpdate(chest.Id, 0, 0, 1),
-            $"0x02bc Singular Reliquary 0x{chest.Id:x} opens");
-        if (QuestObjectTypes.Find(ChestBasePath) is { } info)
+        if (!PlayerActionCurrent(player, action) || player.PlayerLife == 0 || player.Closed || player.LeavingArea
+            || !GameServer.Core.World.PlayerWalk.InWalkUpRange(player.Walk.Position(AreaTime(player)), (chest.X, chest.Y), ChestReach))
+            return true;
+        uint oldId;
+        lock (chest)
         {
-            await SendWorldRemoval(player, chest.Id, null);
-            await SendChest(player, info, chest, spawned: 1, "opened");
+            if (chest.Opened) return true;
+            chest.Opened = true;
+            // A Chest has no update reader: the opened one is a new object (CampaignChests.Open).
+            oldId = chest.Id;
+            chest.Id = player.TakeObjectId();
         }
+        await SendWorldRecord(player, oldId, InstanceProtocol.AnimationUpdate(oldId, 0, 0, 1),
+            $"0x02bc Singular Reliquary 0x{oldId:x} opens");
+        await SendWorldRemoval(player, oldId, null);
+        if (QuestObjectTypes.Find(ChestBasePath) is { } info)
+            await SendChest(player, info, chest, spawned: 1, "opened");
         await DropReward(player, chest);
         return true;
     }
@@ -368,7 +402,7 @@ public static class ValdoMaps
     static async Task DropReward(Player player, ChestState chest)
     {
         var peers = InGame.Keys.Where(c => ReferenceEquals(c.Instance, player.Instance) && !c.Closed && !c.LeavingArea).ToList();
-        if (UniquesFor(player).Create(chest.Reward, AreaRng(player)) is not { } unique)
+        if (FoilRewards.Create(player, chest.Reward, AreaRng(player)) is not { } unique)
         {
             Console.WriteLine($"[valdo] {player.Connection.Remote} reward {chest.Reward} is not a unique this server can create");
             foreach (var peer in peers) await PlayerOf(peer).Tell($"The reward ({chest.Reward}) is not available.");

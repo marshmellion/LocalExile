@@ -43,6 +43,8 @@ public static class VoidbornReliquary
             (string)r["reward"]!, (byte)Convert.ToInt64(r["foil"]), Convert.ToDouble(r["weight"])))];
     }
 
+    internal static void ClearTables() => Chests.Clear();
+
     public static void Register(string owner)
     {
         GameEvents.AreaGenerated.Add(owner, PlaceChest);
@@ -111,22 +113,32 @@ public static class VoidbornReliquary
             $"0x02bb Voidborn Relic Vault 0x{chest.Id:x} {what} at ({chest.X}, {chest.Y})", wake: true);
     }
 
+    const int ChestReach = 4;
+
     static async Task<bool> OpenChest(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (player.Instance is not { } instance || !Chests.TryGetValue(instance, out var chest) || use.TargetId != chest.Id) return false;
         if (chest.Opened) return true;
-        if (!TryBeginObjectWalk(player, requestedAt, chest.X, chest.Y, 4, out var walk)) return true;
+        if (!TryBeginObjectWalk(player, requestedAt, chest.X, chest.Y, ChestReach, out var walk)) return true;
         var (action, now, _, _, arrive) = walk;
         if (arrive > now) await AreaDelay(player, arrive - now);
-        if (!PlayerActionCurrent(player, action) || chest.Opened) return true;
-        chest.Opened = true;
-        await SendWorldRecord(player, chest.Id, InstanceProtocol.AnimationUpdate(chest.Id, 0, 0, 1),
-            $"0x02bc Voidborn Relic Vault 0x{chest.Id:x} opens");
-        if (QuestObjectTypes.Find(ChestPath) is { } info)
+        if (!PlayerActionCurrent(player, action) || player.PlayerLife == 0 || player.Closed || player.LeavingArea
+            || !GameServer.Core.World.PlayerWalk.InWalkUpRange(player.Walk.Position(AreaTime(player)), (chest.X, chest.Y), ChestReach))
+            return true;
+        uint oldId;
+        lock (chest)
         {
-            await SendWorldRemoval(player, chest.Id, null);
-            await SendChest(player, info, chest, "opened");
+            if (chest.Opened) return true;
+            chest.Opened = true;
+            // A Chest has no update reader: the opened one is a new object (CampaignChests.Open).
+            oldId = chest.Id;
+            chest.Id = player.TakeObjectId();
         }
+        await SendWorldRecord(player, oldId, InstanceProtocol.AnimationUpdate(oldId, 0, 0, 1),
+            $"0x02bc Voidborn Relic Vault 0x{oldId:x} opens");
+        await SendWorldRemoval(player, oldId, null);
+        if (QuestObjectTypes.Find(ChestPath) is { } info)
+            await SendChest(player, info, chest, "opened");
         var random = AreaRng(player);
         if (Roll(random) is not { } outcome || Create(player, outcome, random) is not { } item)
         {
@@ -155,8 +167,7 @@ public static class VoidbornReliquary
     /// <summary>The outcome's unique (a unique map by its name when it is one), foil, item level 75.</summary>
     static Item? Create(Player player, Outcome outcome, Random random)
     {
-        var uniques = UniquesFor(player);
-        var item = uniques.Create(outcome.Reward, random) ?? uniques.NamedMap(outcome.Reward);
+        var item = FoilRewards.Create(player, outcome.Reward, random);
         return item is null ? null : item with { RelicStyle = outcome.Foil, ItemLevel = ItemLevel };
     }
 }

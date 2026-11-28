@@ -1,8 +1,9 @@
 public static partial class Game
 {
     /// <summary>A map's stats that act on the players in it, as the player stats they are (GameEvents.PlayerStatSources):
-    /// movement speed, debuff expiry, actor size, culling, "cannot gain flask charges" (-100% charges gained) and "no
-    /// experience" (-100% experience gain). Outside a map, or with none of them, the sources come back untouched.</summary>
+    /// movement speed, debuff expiry and character size. ("Players cannot gain Flask Charges" and "no Experience" are hard
+    /// blocks where charges and experience are gained.) Outside a map, or with none of them, the sources come back
+    /// untouched.</summary>
     public static Dictionary<uint, int> MapPlayerStatSources(Player player, Dictionary<uint, int> sources)
     {
         if (MapModsOf(player) is not { } map) return sources;
@@ -16,9 +17,6 @@ public static partial class Game
         Add(Stat.BaseMovementVelocityPlusPct, map.Get(Stat.MapPlayerMovementVelocityPlusPct));
         Add(Stat.DebuffTimePassedPlusPct, map.Get(Stat.MapDebuffTimePassedPlusPct));
         Add(Stat.ActorScalePlusPct, map.Get(Stat.MapActorScalePlusPct));
-        Add(Stat.KillEnemyOnHitIfUnder20PctLife, map.Get(Stat.MapKillEnemyOnHitIfUnder20PctLife));
-        if (map.Get(Stat.MapPlayersCannotGainFlaskCharges) > 0) Add(Stat.FlaskChargesGainedPlusPct, -100);
-        if (map.Get(Stat.MapNoExperienceGain) > 0) Add(Stat.ExperienceGainPlusPct, -100);
         return stats ?? sources;
     }
 

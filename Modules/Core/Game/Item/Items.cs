@@ -1987,6 +1987,11 @@ public static partial class Game
             await SendItemError(player, stateError);
             return;
         }
+        if (GameEvents.FirstCurrencyRefusal(player, target.Item, used.Item.TypeHash) is { } refusal)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use {type?.Name ?? "item"} on item {use.TargetId}: refused, {refusal}{where}");
+            return;
+        }
         bool isEssence = type is not null && EssencesFor(player).Contains(type.Hash);
         // Mirror of Kalandra: a mirrored copy of the target goes onto the (empty) cursor, as if picked up, for the player to
         // place; the target stays as it was and its place gets no message.

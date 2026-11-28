@@ -57,7 +57,7 @@ INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES 
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Glimmering Hold', 'MapWorldsMuseum', 'Perandus Signet', 7, 0.0561167);
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Glimmering Vine', 'MapWorldsJungleValley', 'Widowhail', 7, 0.5);
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Hate Realm', 'MapWorldsDungeon', 'Umbilicus Immortalis', 7, 0.212314);
-INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Haunted Frontier', 'MapWorldsVolcano', 'Cloak of Flames', 7, 0.01);
+INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Haunted Frontier', 'MapWorldsVolcano', 'Cloak of Flame', 7, 0.302115);
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Insane Turf', 'MapWorldsDunes', 'Haemophilia', 7, 0.144509);
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Mystic Spring', 'MapWorldsStrand', 'Voice of the Storm', 7, 0.157978);
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Nightmare Hollow', 'MapWorldsCoves', 'Hyrri''s Truth', 7, 0.124224);
@@ -612,7 +612,7 @@ INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES 
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Dread Court', 'MapWorldsTortureChamber', 'Usurper''s Penance', 12, 0.0669792);
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Dread Vault', 'MapWorldsCrimsonTownship', 'Sire of Shards', 12, 0.193424);
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Dream Lake', 'MapWorldsStrand', 'Sublime Vision', 12, 0.166667);
-INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Entrenched Sanctuary', 'MapWorldsFoundry', 'Fulcrum', 12, 0.01);
+INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Entrenched Sanctuary', 'MapWorldsFoundry', 'The Fulcrum', 12, 0.0874126);
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Entrenched Zone', 'MapWorldsCitySquare', 'Crystallised Omniscience', 12, 0.0819672);
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Eroding Bluff', 'MapWorldsMesa', 'Ghostwrithe', 12, 0.595238);
 INSERT INTO valdo_box_outcomes (map_name, area_id, reward, foil, weight) VALUES ('Evil Landscape', 'MapWorldsIceberg', 'Expedition''s End', 12, 0.090009);

@@ -21,6 +21,8 @@ public static partial class Game
         uint beforePenalty = Progression.MonsterExperience(baseExperience, multiplierPercent, rarity, playerLevel,
             monsterLevel, levelPenalty: false, partyMultiplier: partyMultiplier);
         var owner = PlayerOf(player);
+        // "Players gain no Experience" (map_no_experience_gain): a hard block, whatever increases experience gain.
+        if (MapModsOf(owner)?.Get(Stat.MapNoExperienceGain) > 0) return (0, 0);
         // "#% increased Experience gain": one stat read per kill per player.
         if (PlayerStat(owner, Stat.ExperienceGainPlusPct) is int gain and not 0)
         {

@@ -137,6 +137,17 @@ public sealed class AtlasModule : IModule
         VoidbornReliquary.LoadData();
     }
 
+    /// <summary>Empties the per-instance tables of the Valdo Maps and the Voidborn Reliquary when this module unloads, so
+    /// a hot reload of the Atlas module does not keep the old load's state (and assembly) alive.</summary>
+    sealed class FoilRewardTables : IDisposable
+    {
+        public void Dispose()
+        {
+            ValdoMaps.ClearTables();
+            VoidbornReliquary.ClearTables();
+        }
+    }
+
     sealed class DeferCrucibleScope : IDisposable
     {
         public void Dispose()
@@ -158,6 +169,7 @@ public sealed class AtlasModule : IModule
         AstrolabesAndVaults.Register(module.Manifest.Id);
         AtlasAnomalies.Register(module.Manifest.Id);
         ValdoMaps.Register(module.Manifest.Id);
+        module.Lifetime.Own(new FoilRewardTables());
         VoidbornReliquary.Register(module.Manifest.Id);
         ExtraPlayerMessages = player => AtlasFeature.Restore(player);
         GameEvents.MapOpening.Add(module.Manifest.Id, AtlasProgress.ApplyScry);
