@@ -707,10 +707,12 @@ $env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
 # The cached gateway list can point elsewhere even when the patch welcome says no download is needed.
 # Select the local Auth explicitly before the patch server or client opens the client files (the default stack only).
 # Play setup (modding-api branch): enabled mods' content packs go into this checkout's own client and client.db before
-# anything opens them; skipped when nothing changed since the last apply, and never on a shared (linked) client.
+# anything opens them; skipped when nothing changed since the last apply, and never on a shared (linked) client. A Steam
+# install's files are not changed: the content goes to Mods\Client\.merged-cache, which NativeMods hands the game.
 $contentPatch = Join-Path $repo 'tools\ContentPatch\ContentPatch.csproj'
 $clientFolder = Join-Path $repo 'Client'
-if (-not $NoClient -and -not $stack.Base -and (Test-Path $contentPatch) -and (Test-Path (Join-Path $clientFolder 'Content.ggpk')) -and
+$clientData = (Test-Path (Join-Path $clientFolder 'Content.ggpk')) -or (Test-Path (Join-Path $clientFolder 'Bundles2\_.index.bin'))
+if (-not $NoClient -and -not $stack.Base -and (Test-Path $contentPatch) -and $clientData -and
     -not ((Get-Item $clientFolder -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
     Step "applying mods' content packs to the client (only when they changed) ..."
     $contentLog = Join-Path $repo 'logs\content-patch.log'

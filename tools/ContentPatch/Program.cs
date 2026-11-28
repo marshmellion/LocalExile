@@ -2,7 +2,8 @@ using System.Buffers.Binary;
 using GameServer.Data.Ggpk;
 using LocalExile.ContentPatch;
 
-// LocalExile content patcher: puts mods' content packs (Mods/*/<id>/content/*.json) into a standalone client.
+// LocalExile content patcher: puts mods' content packs (Mods/*/<id>/content/*.json) into a standalone client, or, for a
+// Steam install, into Mods/Client/.merged-cache, the files NativeMods (Client\version.dll) hands the game.
 // Run from the repository root, with the client closed:
 //   inspect [client]                    what the client's index looks like (and whether it is patched)
 //   export  [client] <out> <path>...    copies files out of the client as it was before any patch (tables, art)
@@ -23,14 +24,23 @@ var rest = args.Skip(1).ToList();
 string client = rest.Count > 0 && !rest[0].StartsWith("--") && (File.Exists(rest[0]) || Directory.Exists(Path.Combine(rest[0], "Bundles2")) || File.Exists(Path.Combine(rest[0], "Content.ggpk")))
     ? Take() : "Client";
 string ggpk = File.Exists(client) ? client : Path.Combine(client, "Content.ggpk");
-if (!File.Exists(ggpk)) { Console.Error.WriteLine($"[content] {ggpk} not found: this patcher works on a standalone client (Content.ggpk)"); return 1; }
+// A Steam install has no Content.ggpk: its loose Bundles2\ files are read, never written, and the changed files go to
+// the folder NativeMods hands the game (Mods/Client/.merged-cache, or --out <folder>).
+string clientFolder = File.Exists(client) ? Path.GetDirectoryName(Path.GetFullPath(client))! : client;
+bool steam = !File.Exists(ggpk) && File.Exists(Path.Combine(clientFolder, "Bundles2", "_.index.bin"));
+int outAt = rest.IndexOf("--out");
+string mergedCache = outAt >= 0 ? rest[outAt + 1] : Path.Combine("Mods", "Client", ".merged-cache");
+if (!File.Exists(ggpk) && !steam) { Console.Error.WriteLine($"[content] neither {ggpk} nor {Path.Combine(clientFolder, "Bundles2", "_.index.bin")} found"); return 1; }
 void Log(string s) => Console.WriteLine($"[content] {s}");
+Patcher Open(ServerMirror? mirror = null, Func<string, long>? rows = null) => steam
+    ? new Patcher(new DirectoryInfo(clientFolder), mergedCache, Schema, Log, mirror, rows)
+    : new Patcher(ggpk, Schema, Backup, Log, mirror, rows);
 
 try
 {
     switch (command)
     {
-        case "inspect": return Inspect();
+        case "inspect": if (steam) { Log($"a Steam install: its files are not changed; content goes to {mergedCache}"); return 0; } return Inspect();
         case "paths":
         {
             string outFile = Take();
@@ -45,8 +55,8 @@ try
         case "export":
         {
             string outFolder = Take();
-            using var p = new Patcher(ggpk, Schema, Backup, Log);
-            foreach (string path in rest)
+            using var p = Open();
+            foreach (string path in rest.Where(r => r != "--out" && r != mergedCache))
             {
                 var data = p.ReadOriginal(path);
                 if (data is null) { Log($"{path}: not in the client"); continue; }
@@ -73,7 +83,8 @@ try
                 {
                     Log("no content packs any more: restoring the client and client.db");
                     if (File.Exists(ClientDb)) new ServerMirror(ClientDb).Restore(Log);
-                    if (Patcher.Restore(ggpk, Backup, Log) is { } back) SaveRootHash(back);
+                    if (steam) { if (Directory.Exists(mergedCache)) Directory.Delete(mergedCache, true); }
+                    else if (Patcher.Restore(ggpk, Backup, Log) is { } back) SaveRootHash(back);
                     if (File.Exists(stamp)) File.Delete(stamp);
                     return 0;
                 }
@@ -83,12 +94,12 @@ try
             Log($"{packs.Count} content pack(s) in {mods}");
             byte[] root;
             var mirror = new ServerMirror(ClientDb);
-            using (var p = new Patcher(ggpk, Schema, Backup, Log, mirror, ServerRows))
+            using (var p = Open(mirror, ServerRows))
             {
                 foreach (var pack in packs) p.Apply(pack);
                 root = p.Commit();
             }
-            SaveRootHash(root);
+            if (!steam) SaveRootHash(root);
             Directory.CreateDirectory(Backup);
             File.WriteAllText(stamp, print);
             return 0;
@@ -97,7 +108,8 @@ try
             if (File.Exists(Path.Combine(Backup, "applied.txt"))) File.Delete(Path.Combine(Backup, "applied.txt"));
             Log(ClientHooks.Apply(PatchedExe(), []));
             if (File.Exists(ClientDb)) new ServerMirror(ClientDb).Restore(Log);
-            if (Patcher.Restore(ggpk, Backup, Log) is { } restored) SaveRootHash(restored);
+            if (steam) { if (Directory.Exists(mergedCache)) Directory.Delete(mergedCache, true); Log($"{mergedCache} removed"); }
+            else if (Patcher.Restore(ggpk, Backup, Log) is { } restored) SaveRootHash(restored);
             return 0;
         default:
             Console.Error.WriteLine($"[content] unknown command {command}");
@@ -127,7 +139,7 @@ static long ServerRows(string table)
 string Take() { string v = rest[0]; rest.RemoveAt(0); return v; }
 
 // The copy of the client LocalExile starts (GameServer.Auth patch), beside Content.ggpk.
-string PatchedExe() => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(ggpk))!, "Game.patched.exe");
+string PatchedExe() => Path.Combine(Path.GetFullPath(clientFolder), "Game.patched.exe");
 
 // Every pack's "itemSymbols": [{ "mod": <Mods Id of an enchantment>, "sprite": <UI image name> }], in pack order.
 static List<ClientHooks.ItemSymbol> ItemSymbols(List<ContentPack> packs) =>
@@ -135,7 +147,7 @@ static List<ClientHooks.ItemSymbol> ItemSymbols(List<ContentPack> packs) =>
         .Select(n => new ClientHooks.ItemSymbol(n!["mod"]!.GetValue<string>(), n["sprite"]!.GetValue<string>()))];
 
 // Whether the client's index is one this patcher wrote: raw blocks (GGG's never are) naming our bundle.
-bool IsPatched() => ClientFiles.TryReadFile(ggpk, ClientFiles.Index) is { } raw && RawBundle.TryReadRaw(raw) is { } index
+bool IsPatched() => steam ? Directory.Exists(mergedCache) : ClientFiles.TryReadFile(ggpk, ClientFiles.Index) is { } raw && RawBundle.TryReadRaw(raw) is { } index
     && index.AsSpan().IndexOf(System.Text.Encoding.UTF8.GetBytes(Patcher.OurBundle)) >= 0;
 
 // The packs, every file in their content folders, and this patcher's own code: what an apply depends on.

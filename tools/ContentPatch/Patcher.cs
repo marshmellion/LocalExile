@@ -19,7 +19,10 @@ public sealed class Patcher : IDisposable
     const string OurBundleFile = "Bundles2/" + OurBundle + ".bundle.bin";
     readonly string _ggpkPath;
     readonly string _backup;
-    readonly GGPK _ggpk;
+    readonly GGPK? _ggpk;
+    // A Steam install (loose Bundles2\ files): nothing in it is written; the changed files go to this folder, which
+    // NativeMods hands the game in place of its own (Mods/Client/.merged-cache).
+    readonly string? _steam, _outFolder;
     readonly IReadOnlyDictionary<string, SchemaTable> _schema;
     readonly Oodle _oodle = new();
     readonly Dictionary<int, byte[]> _bundleCache = [];
@@ -46,14 +49,33 @@ public sealed class Patcher : IDisposable
         LoadOriginalIndex();
     }
 
+    /// <summary>A Steam install (its folder holds Bundles2\_.index.bin): read only; <see cref="Commit"/> writes the
+    /// changed files into <paramref name="outFolder"/> (emptied first).</summary>
+    public Patcher(DirectoryInfo steamFolder, string outFolder, string schemaFile, Action<string> log, ServerMirror? mirror = null,
+        Func<string, long>? serverRows = null)
+    {
+        _mirror = mirror;
+        _serverRows = serverRows;
+        _ggpkPath = "";
+        _backup = "";
+        _steam = steamFolder.FullName;
+        _outFolder = outFolder;
+        _schema = DatSchema.LoadFile(schemaFile);
+        _log = log;
+        byte[] content = Decompress(ReadGgpk(ClientFiles.Index));
+        _original = GameIndex.Parse(content);
+        _index = IndexEditor.Parse(content);
+    }
+
     public void Dispose()
     {
-        _ggpk.Dispose();
+        _ggpk?.Dispose();
         _oodle.Dispose();
     }
 
-    byte[] ReadGgpk(string path) =>
-        _ggpk.Root.TryFindNode(path, out var node) && node is FileRecord fr ? fr.Read() : throw new FileNotFoundException(path);
+    byte[] ReadGgpk(string path) => _steam is not null
+        ? File.ReadAllBytes(Path.Combine(_steam, path.Replace('/', Path.DirectorySeparatorChar)))
+        : _ggpk!.Root.TryFindNode(path, out var node) && node is FileRecord fr ? fr.Read() : throw new FileNotFoundException(path);
 
     void LoadOriginalIndex()
     {
@@ -374,6 +396,21 @@ public sealed class Patcher : IDisposable
     public byte[] Commit()
     {
         foreach (var (name, table) in _tables) _files[$"Data/{_schema[name].Name}.datc64"] = table.Write();
+        if (_outFolder is not null)
+        {
+            if (Directory.Exists(_outFolder)) Directory.Delete(_outFolder, recursive: true);
+            long bytes = 0;
+            foreach (var (path, data) in _files)
+            {
+                string to = Path.Combine(_outFolder, path.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+                File.WriteAllBytes(to, data);
+                bytes += data.Length;
+            }
+            _log($"wrote {_files.Count} file(s), {bytes:N0} bytes, into {_outFolder} (NativeMods gives them to the game)");
+            _mirror?.Commit(_log);
+            return [];
+        }
         using var blob = new MemoryStream();
         var places = new List<(string Path, int Offset, int Size)>();
         foreach (var (path, data) in _files.OrderBy(f => f.Key, StringComparer.Ordinal))
@@ -389,7 +426,7 @@ public sealed class Patcher : IDisposable
         byte[] ourBundle = RawBundle.Write(blob.ToArray());
         byte[] index = RawBundle.Write(_index.Write());
 
-        if (!_ggpk.Root.TryFindNode(OurBundleFile, out var node))
+        if (!_ggpk!.Root.TryFindNode(OurBundleFile, out var node))
         {
             _ggpk.Root.FindOrAddDirectory("Bundles2", out var bundles);
             bundles.FindOrAddDirectory("LocalExile", out var ours);
@@ -405,7 +442,7 @@ public sealed class Patcher : IDisposable
 
     byte[] RootHash()
     {
-        _ggpk.Dispose();
+        _ggpk!.Dispose();
         GgpkMaintenance.RepairRootHash(_ggpkPath);
         return GgpkMaintenance.RootHash(_ggpkPath);
     }
