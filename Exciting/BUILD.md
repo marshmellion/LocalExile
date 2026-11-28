@@ -6,12 +6,12 @@ Written by the publish step: what the branch `exciting` was made from.
 |---|---|
 | LocalExile main (pinned) | `60fb08af9` |
 | `effect-rules-tables` | `40a5ffda8` |
-| `modding-api` | `fe4640989` |
+| `modding-api` | `42fc1e307` |
 | `private-hooks` | `583ca8a97` |
-| `local-hooks` | `70cdb7ffe` |
+| `local-hooks` | `3fbbeb8b0` |
 | `jewel-allocates` | `fcb236409` |
 | `piety-crash-fix` | `5be776900` |
 | `le-trade-patch` | `ceb76d31f` |
 | `exciting-kit` | `f4afea44a` |
 
-Published 2026-11-28.
+Published 2026-11-27.
