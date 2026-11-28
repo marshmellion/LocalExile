@@ -22,6 +22,60 @@ public sealed partial class ExcitingItemsMod
     Dictionary<string, (string[] Classes, HashSet<string> Ids)> _customSlots = [];
     IDisposable? _customRules;
 
+    /// <summary>The effect rules engine (EffectRules, from the effect-rules branch of the build), found at run time: a build
+    /// without it still loads the mod, with the custom implicits off.</summary>
+    static class Engine
+    {
+        static readonly Type? Rules = AppDomain.CurrentDomain.GetAssemblies()
+            .Select(a => { try { return a.GetType("EffectRules"); } catch { return null; } }).FirstOrDefault(t => t is not null);
+        static readonly Type? NewRuleType = Rules?.GetNestedType("NewRule");
+
+        public static object NewRule(string id, string title, List<(string, string)> sources, List<(string, string)> when,
+            List<(int, string, bool, string)> conditions, List<(string, string, string, string, string, string)> actions)
+        {
+            if (NewRuleType is null) throw new InvalidOperationException("this build has no effect rules engine (EffectRules)");
+            var ctor = NewRuleType.GetConstructors().OrderByDescending(c => c.GetParameters().Length).First();
+            var parameters = ctor.GetParameters();
+            object?[] args = new object?[parameters.Length];
+            object[] given = [id, title, sources, when, conditions, actions];
+            for (int i = 0; i < parameters.Length; i++)
+                args[i] = i < given.Length ? Convert(given[i], parameters[i].ParameterType)
+                    : parameters[i].HasDefaultValue ? parameters[i].DefaultValue : null;
+            return ctor.Invoke(args);
+        }
+
+        // A list of tuples into the engine's own parameter type (an array or a list of the same tuple shape).
+        static object Convert(object value, Type target)
+        {
+            if (target.IsInstanceOfType(value)) return value;
+            if (value is not System.Collections.IList list) return value;
+            Type element = target.IsArray ? target.GetElementType()! : target.IsGenericType ? target.GetGenericArguments()[0] : typeof(object);
+            var array = Array.CreateInstance(element, list.Count);
+            for (int i = 0; i < list.Count; i++) array.SetValue(list[i], i);
+            if (target.IsAssignableFrom(array.GetType())) return array;
+            var typed = (System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(element))!;
+            foreach (var x in array) typed.Add(x);
+            return typed;
+        }
+
+        public static IDisposable? Add(List<object> rules)
+        {
+            if (Rules is null || NewRuleType is null) throw new InvalidOperationException("this build has no effect rules engine (EffectRules)");
+            var add = Rules.GetMethods().First(m => m.Name == "Add" && m.GetParameters().Length == 1);
+            var typed = (System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(NewRuleType))!;
+            foreach (var r in rules) typed.Add(r);
+            object arg = add.GetParameters()[0].ParameterType.IsArray ? ToArray(typed, NewRuleType) : typed;
+            return add.Invoke(null, [arg]) as IDisposable;
+        }
+
+        static Array ToArray(System.Collections.IList list, Type element)
+        {
+            var a = Array.CreateInstance(element, list.Count);
+            list.CopyTo(a, 0);
+            return a;
+        }
+    }
+
     void LoadCustomImplicits(IModContext mod)
     {
         _customRules?.Dispose();
@@ -35,7 +89,7 @@ public sealed partial class ExcitingItemsMod
             _customSlots = (root["slots"] as JsonObject ?? []).ToDictionary(kv => kv.Key, kv => (
                 (kv.Value?["classes"] as JsonArray ?? []).Select(x => (string)x!).ToArray(),
                 (kv.Value?["implicits"] as JsonArray ?? []).Select(x => (string)x!).ToHashSet()));
-            var rules = new List<EffectRules.NewRule>();
+            var rules = new List<object>();
             foreach (var n in (root["implicits"] as JsonArray ?? []).OfType<JsonObject>())
             {
                 var tiers = (n["tiers"] as JsonArray ?? []).OfType<JsonObject>()
@@ -48,7 +102,7 @@ public sealed partial class ExcitingItemsMod
                 var ruleNodes = n["rules"] is JsonArray many ? many.OfType<JsonObject>().ToList() : [n["rule"]!.AsObject()];
                 int part = 0;
                 foreach (var rule in ruleNodes)
-                rules.Add(new EffectRules.NewRule("excitingitems_custom_" + c.Id + (part++ == 0 ? "" : "_" + part), c.Text.Replace("{0}", "#"),
+                rules.Add(Engine.NewRule("excitingitems_custom_" + c.Id + (part++ == 0 ? "" : "_" + part), c.Text.Replace("{0}", "#"),
                     [((string?)rule["source"] ?? "stat", (string?)rule["key"] ?? c.Stat)],
                     [.. (rule["when"] as JsonArray ?? []).Select(w => ((string)w!["trigger"]!, J(w["args"])))],
                     [.. (rule["if"] as JsonArray ?? []).Select(i => ((int)i!["group"]!, (string)i["condition"]!, (bool)i["negate"]!, J(i["args"])))],
@@ -58,7 +112,7 @@ public sealed partial class ExcitingItemsMod
             // Their modifiers come from content/customimplicits.json; with that pack off there are none, and nothing rolls.
             if (_custom.Count > 0 && Program.Items.Mods.ById(_custom[0].Tiers[0].Mod) is null)
                 throw new InvalidOperationException("their modifiers are not in the game data (content/customimplicits.json is off)");
-            _customRules = EffectRules.Add(rules);
+            _customRules = Engine.Add(rules);
             mod.Log($"{_custom.Count} custom implicits in {_customSlots.Count} gear slots, their {rules.Count} effect rules added");
         }
         catch (Exception e)

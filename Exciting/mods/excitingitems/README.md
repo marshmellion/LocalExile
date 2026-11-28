@@ -127,6 +127,9 @@ chances; `settings.json` describes each one.
 
 ## What it needs from LocalExile
 
+The custom implicits need the effect rules engine (`EffectRules`, the build's effect-rules branch). The mod looks for it
+when it starts: on a server without it, it loads everything else and logs "custom implicits off".
+
 Changing one skill's stats, a currency used on an item and the Imprint item are not handed to mods by LocalExile yet.
 This mod uses three hand-overs a local copy of the server adds (`LocalHooks`: a skill's stats, its supports, a currency
 used on an item) and the Imprint item's data; without them it loads with its drops only and says so in `/exciting legacy`.
