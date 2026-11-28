@@ -3300,6 +3300,11 @@ public static partial class Game
         int lifeDamage = DamagePlayerHitFrom(player, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage,
             now, stats, ailmentTaken, attacker: id);
         player.PlayerLife = (uint)Math.Max(0, lifeBefore - lifeDamage);
+        // Culling Strike from the monster: map_kill_enemy_on_hit_if_under_20%_life ("Monsters Kill things with 20% or
+        // lower Life on Hit", MapModApply) kills a player the hit leaves at 20% of maximum Life or lower.
+        if (!blocked && player.PlayerLife > 0 && m.Effects[Stat.KillEnemyOnHitIfUnder20PctLife] > 0
+            && (long)player.PlayerLife * 5 <= player.PlayerMaxLife)
+            player.PlayerLife = 0;
         if (!blocked)
         {
             ApplyEqualisingHitLocked(player, m);

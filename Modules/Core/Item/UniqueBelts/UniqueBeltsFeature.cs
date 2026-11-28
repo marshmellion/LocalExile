@@ -33,10 +33,17 @@ static class UniqueBeltsFeature
                 Magic.GetValue(player, _ => new()).Mods.Steal(m.Mods, catalog, now);
             return;
         }
+        var random = AreaRng(player);
         if (stats.GetValueOrDefault(StolenMods.SourceStat) > 0)
             player.StolenMods.Steal(m.Mods, catalog, now);
+        // A map's "Players gain the Modifiers of Rare Monsters they kill for 20 seconds" (Valdo Maps' MapSupporter mod).
+        else if (MapModsOf(player) is { } map && map.Get(Stat.MapPlayersGainRareMonsterModsOnKillPctChance) is int mapChance and > 0
+            && RandomRolls.Chance(mapChance, 100, random))
+        {
+            int ms = map.Get(Stat.MapPlayersGainRareMonsterModsOnKillMs);
+            player.StolenMods.Steal(m.Mods, catalog, now, ms > 0 ? ms / 1000.0 : 20);
+        }
         int randomCount = stats.GetValueOrDefault(StolenMods.RandomSourceStat);
-        var random = AreaRng(player);
         if (RandomRolls.Chance(stats.GetValueOrDefault(Stat.Gain1RareMonsterModsOnKillFor20SecondsPct), 100, random))
             randomCount = ActorScale.Saturate((long)randomCount + 1);
         player.StolenMods.StealRandom(m.Mods, catalog, randomCount, now, random);

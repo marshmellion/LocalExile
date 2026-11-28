@@ -801,6 +801,9 @@ public static class GameEvents
     /// <summary>A currency orb is about to craft a target item: return a replacement crafted item to override the default roll,
     /// or null to leave the default crafting roll unchanged.</summary>
     public static readonly GameEvent<Func<Player, Item, uint, Random, Task<Item?>>> CurrencyCrafting = new();
+    /// <summary>Why this currency (its type HASH32) may not be used on the target item, for the log; null for no
+    /// objection. The first objection wins, before anything is spent.</summary>
+    public static readonly GameEvent<Func<Player, Item, uint, string?>> CurrencyRefusal = new();
     /// <summary>Adjust the death experience penalty percentage (0..100) before XP is deducted.</summary>
     public static readonly GameEvent<Func<Player, decimal, Task<decimal>>> DeathPenaltyPct = new();
     /// <summary>Fired after player death presentation has been sent.</summary>
@@ -1038,6 +1041,18 @@ public static class GameEvents
     {
         foreach (var run in ItemUse.For(player)) if (await run(player, row, item, type)) return true;
         return false;
+    }
+
+    public static string? FirstCurrencyRefusal(Player player, Item target, uint currencyTypeHash)
+    {
+        if (!CurrencyRefusal.Any) return null;
+        foreach (var (owner, run) in CurrencyRefusal.Subscribers(player))
+        {
+            string? answer = null;
+            GameEventOwners.Guard(owner, nameof(CurrencyRefusal), () => answer = run(player, target, currencyTypeHash));
+            if (answer is not null) return answer;
+        }
+        return null;
     }
 
     public static async Task<Item?> ResolveCurrencyCrafting(Player player, Item target, uint currencyTypeHash, Random random)
