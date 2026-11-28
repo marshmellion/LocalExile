@@ -46,10 +46,14 @@ if ($Update) {
         Fail 'Put them back first (git checkout -- <file>, or git stash), or ask for help: the update would mix them with the new build.'
     }
     if ($Branch) {
-        & git fetch origin $Branch
+        # The remote the current branch follows: origin for a clone of our fork, exciting for a LocalExile install the guided
+        # install turned into the Exciting build.
+        $remote = & git config "branch.$(& git rev-parse --abbrev-ref HEAD).remote"
+        if (-not $remote) { $remote = 'origin' }
+        & git fetch $remote $Branch
         if ($LASTEXITCODE -ne 0) { Fail "Getting the branch $Branch failed: read what git printed above." }
         & git switch $Branch 2>$null
-        if ($LASTEXITCODE -ne 0) { & git switch -c $Branch --track "origin/$Branch" }
+        if ($LASTEXITCODE -ne 0) { & git switch -c $Branch --track "$remote/$Branch" }
         if ($LASTEXITCODE -ne 0) { Fail "Switching to $Branch failed: read what git printed above. Your checkout is unchanged." }
         Ok "now on $(if ($Branch -eq 'exciting') { 'the released build' } else { 'the testing build' }) ($Branch)"
     }

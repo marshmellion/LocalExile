@@ -23,6 +23,9 @@ Everything runs on your own computer. You need your own copy of the game.
 3. Do what it says. It checks each program you need and opens its download page when one is missing, downloads this
    build, walks you through getting the 3.29.3d client from your own Steam account, sets everything up, explains
    Waypoint, and starts the game. Stopped halfway? Run it again: it skips what is done.
+   Have some of it already? It lists its six steps first and you can start at any of them. It also finds a 3.29.3d
+   client already on your PC (and offers to move or copy it instead of downloading), and can turn a LocalExile you
+   installed from Git (Waypoint's "Source code" install) into this build, keeping your characters.
 
 The rest of this page is the same thing by hand, and what to do when something goes wrong.
 
