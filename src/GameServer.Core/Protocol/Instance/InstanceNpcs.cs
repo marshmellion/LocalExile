@@ -68,10 +68,10 @@ public static class InstanceNpcs
 
     public const ushort TalkTextId = 0x87;
 
-    /// <summary>S?C 0x87: u32 reward inventory id (manager 1), u16 QuestRewardOffers row, with bit 15 an optional flag.
+    /// <summary>S→C 0x87: u32 reward inventory id (manager 1), u16 QuestRewardOffers row, with bit 15 an optional flag.
     /// Send 0xc0 for that inventory before opening it. The first field is NOT the NPC object id: a missing inventory
     /// crashes the reward window at 0x140c2ff60. Live verified 2026-10-25 with offers 0 and 8, inventory 0x600.
-    /// Selecting a reward uses C?S 0x88 (or Ctrl+click 0x8a), as with a shop.</summary>
+    /// Selecting a reward uses C→S 0x88 (or Ctrl+click 0x8a), as with a shop.</summary>
     public static byte[] OpenQuestReward(uint inventoryId, ushort offer, bool flag = false) =>
         new LoginWriter().U16(TalkTextId).U32(inventoryId).U16((ushort)((offer & 0x7fff) | (flag ? 0x8000 : 0))).ToArray();
 
@@ -310,9 +310,9 @@ public static class InstanceNpcs
 /// An NPC (Agents/docs/protocol/17-npcs.md): a 0x2bb object of an NPCs.dat type such as <c>Metadata/NPC/Act1/Tarkleigh</c>.
 /// <c>Metadata/NPC/NPC</c> deserializes Positioned, Animated, BaseEvents, InteractionAction, NPC and MinimapIcon (client
 /// Render + Targetable); 190 NPC types have exactly that list, others add Transitionable, StateMachine, Stats (written as a
-/// monster's), Functions or ControlZone. Brackets is not written.
+/// monster's), Functions, ControlZone or Brackets (0 wire bytes).
 /// <para>NPC (slot 17 0x141e7b6e0) reads two u8 (→ +0x20 has dialogue, +0x21 a component index or 0xff). BaseEvents,
-/// Functions and ControlZone read nothing (slot 17 0x1400f1180: ret).</para>
+/// Functions, ControlZone and Brackets read nothing (slot 17 0x1400f1180: ret).</para>
 /// <para><paramref name="Model"/>: an .ao for Animated when the type's own is missing or not the one the town room places
 /// (Irasha's type is <c>Metadata/NPC/NPC</c>); <paramref name="Height"/>: a fixed world z (Positioned flags0 bit2), as the
 /// room's record gives it.</para>
@@ -324,7 +324,7 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
     /// <summary>Deserialized components of <c>Metadata/NPC/NPC</c> in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents = ["Positioned", "Animated", "BaseEvents", "InteractionAction", "NPC", "MinimapIcon"];
 
-    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine", "Stats", "Functions", "ControlZone"];
+    static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine", "Stats", "Functions", "ControlZone", "Brackets"];
 
     /// <summary>Whether <see cref="Blob"/> can serialize a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>

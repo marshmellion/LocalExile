@@ -51,6 +51,7 @@ public sealed class AreaFrames
         public bool Framed => !double.IsNaN(First);
         // The message batch its handler is on: one at a time, in the order sent.
         public Task Handling = Task.CompletedTask;
+        public Action? OnFirstFrame;
         public bool Detached;
     }
 
@@ -249,7 +250,7 @@ public sealed class AreaFrames
     {
         lock (gate)
             foreach (var m in members)
-                if (ReferenceEquals(m.Player, player)) m.Detached = true;
+                if (ReferenceEquals(m.Player, player)) { m.Detached = true; m.OnFirstFrame = null; }
     }
 
     /// <summary>The connection's message batch running now, if any.</summary>
@@ -296,6 +297,30 @@ public sealed class AreaFrames
     {
         foreach (var m in members) if (ReferenceEquals(m.Player, player)) return m.Order;
         return int.MaxValue;
+    }
+
+    /// <summary>True while <paramref name="player"/> is an attached member whose first area frame has not ended yet.</summary>
+    public bool WaitingFirstFrame(Player player)
+    {
+        lock (gate)
+            return members.FirstOrDefault(m => !m.Detached && ReferenceEquals(m.Player, player)) is { LastEnded: var ended }
+                && double.IsNaN(ended);
+    }
+
+    /// <summary>Runs <paramref name="action"/> once <paramref name="player"/>'s first area frame has ended (or now if it
+    /// already ended or is not attached to an area driver).</summary>
+    public void AfterFirstFrame(Player player, Action action)
+    {
+        lock (gate)
+        {
+            var member = members.FirstOrDefault(m => !m.Detached && ReferenceEquals(m.Player, player));
+            if (member is not null && double.IsNaN(member.LastEnded))
+            {
+                member.OnFirstFrame += action;
+                return;
+            }
+        }
+        action();
     }
 
     // ---- the frame's work ----
@@ -479,9 +504,10 @@ public sealed class AreaFrames
                     continue;
                 }
                 // Woken at the next frame end, on the Gateway's 1 ms timer (WindowsTimerResolution): a poll of a third of a
-                // frame landed just before a boundary often enough to send frames 22 and 44 ms apart.
+                // frame landed just before a boundary often enough to send frames 22 and 44 ms apart. Truncating to whole ms
+                // avoids adding a systematic +0.5..1 ms bias on top of OS timer slack (and any sub-ms early wake loops once).
                 double wait = next - watch.Elapsed.TotalSeconds;
-                if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
+                if (wait > 0) await Task.Delay(Math.Max(1, (int)(wait * 1000)));
                 double now = watch.Elapsed.TotalSeconds;
                 if (now < next) continue;
                 // A frame missed by a late timer goes out now; each one ends after the loops stepped at its start ran.
@@ -490,6 +516,8 @@ public sealed class AreaFrames
                     long t0 = Stopwatch.GetTimestamp();
                     // What the last step's work still had to do, before its frame ends.
                     Pump();
+                    // The pump can detach the last member during catch-up. Stop before stepping an empty area.
+                    if (Prune() == 0) return;
                     long t1 = Stopwatch.GetTimestamp();
                     BeginBudget();
                     double boundary = next;
@@ -501,31 +529,57 @@ public sealed class AreaFrames
                     // A member's first frame: the game puts what its client is missing in the area's frame, and its player
                     // for the others (Program.Joining).
                     var snap = Snapshot();
-                    bool anyDue = false;
+                    List<Member>? dueMembers = null;
                     foreach (var m in snap)
                         if (m.Framed && boundary >= m.First + frame - 1e-9)
                         {
-                            anyDue = true;
-                            if (double.IsNaN(m.LastEnded) && Program.Joining is { } joining)
-                                OnFrame(() => joining(m.Player));
+                            (dueMembers ??= []).Add(m);
+                            if (double.IsNaN(m.LastEnded))
+                            {
+                                if (Program.Joining is { } joining) OnFrame(() => joining(m.Player));
+                                double firstStart = m.Player.Connection.LockstepFrame?.Start ?? (boundary - frame);
+                                OnFrame(() => m.Player.ApplyMovementSpeedAt(firstStart));
+                            }
                         }
+                    // Start this ending frame's lockstep actions right after Input() and BEFORE EndWorldFrame so clicks
+                    // and 0x0192 updates parsed above emit their 0x01ab + 0x01b1 in THIS frame's 0x02b7 instead of waiting
+                    // an extra 33 ms frame.
+                    if (Program.GameLogicOrNull is { } rules && dueMembers is { Count: > 0 })
+                    {
+                        OnFrame(() =>
+                        {
+                            foreach (var m in dueMembers)
+                            {
+                                double frameStart = m.Player.Connection.LockstepFrame?.Start ?? (boundary - frame);
+                                _ = Logged(rules.WorldFrameEnded(m.Player, frameStart));
+                            }
+                        });
+                        Pump();
+                    }
                     // The frame's changes, made once, go to every member with its end. Never drain Area.Delta when no
                     // member is due to receive this frame (e.g. catch-up frames while a slow entry's First is ahead of
                     // boundary), or creates queued into Area.Delta during those frames are lost before the first frame.
-                    List<Member>? ended = null;
-                    if (anyDue)
+                    if (dueMembers is { Count: > 0 })
                     {
                         if (Area is { } components) OnFrame(() => { components.Buffs.Publish(); components.Stats.Publish(); components.Life.Publish(); });
                         var delta = Area?.Delta.Take() ?? [];
-                        foreach (var m in snap)
+                        foreach (var m in dueMembers)
                         {
-                            if (!m.Framed || boundary < m.First + frame - 1e-9) continue;
                             if (delta.Count > 0 && Program.GameLogicOrNull is { } logic)
                                 OnFrame(() => logic.WritingWorldDelta(m.Player, delta));
                             if (await Pumping(Guard(m, () => Program.EndWorldFrame(m.Player, (boundary, boundary + frame), delta))))
                             {
-                                m.LastEnded = boundary;
-                                (ended ??= []).Add(m);
+                                Action? onFirstFrame = null;
+                                lock (gate)
+                                {
+                                    if (double.IsNaN(m.LastEnded))
+                                    {
+                                        onFirstFrame = m.OnFirstFrame;
+                                        m.OnFirstFrame = null;
+                                    }
+                                    m.LastEnded = boundary;
+                                }
+                                if (onFirstFrame is not null) OnFrame(onFirstFrame);
                             }
                         }
                     }
@@ -536,16 +590,6 @@ public sealed class AreaFrames
                     long t4 = Stopwatch.GetTimestamp();
                     OnFrame(() => Step(due));
                     Pump();
-                    // Start each frame's lockstep actions immediately after its step so catch-up frames never go out empty
-                    // or drop LockstepTrail samples.
-                    if (Program.GameLogicOrNull is { } rules && ended is { Count: > 0 })
-                    {
-                        OnFrame(() =>
-                        {
-                            foreach (var m in ended) _ = Logged(rules.WorldFrameEnded(m.Player, boundary));
-                        });
-                        Pump();
-                    }
                     // A frame whose steps took 100 ms or more, by stage: what the client waited for.
                     if (Stopwatch.GetElapsedTime(t0).TotalMilliseconds >= 100)
                         Console.WriteLine($"[frames] slow frame {Frame}: settle {Ms(t0, t1):0} ms, input {Ms(t1, t2):0} ms" +
@@ -603,15 +647,33 @@ public sealed class AreaFrames
     // Leaves the closed members; with none left the driver ends (running off under the same lock, so a Join starts a new one).
     int Prune()
     {
+        static bool Departed(Member m) => m.Detached
+            || m.Inbox is null && (m.Player.Closed || m.Player.Connection.WorldOutput.Closed);
+
         Member[] gone;
         int count;
         lock (gate)
         {
-            gone = [.. members.Where(m => m.Detached || m.Inbox is null && (m.Player.Closed || m.Player.Connection.WorldOutput.Closed))];
+            if (members.Count > 0 && !members.Exists(Departed)) return members.Count;
+            gone = [.. members.Where(Departed)];
             foreach (var m in gone) members.Remove(m);
-            if (members.Count == 0) { running = false; if (Area is { } area) area.Driven = false; }
+            if (members.Count == 0)
+            {
+                // Nobody remains to receive pending frame deltas; discard them before releasing the driver so a returning
+                // player (e.g. hideout re-entry) starts from Join's authoritative snapshot instead of stale departure records.
+                Area?.Delta.DiscardPending();
+                running = false;
+                if (Area is { } area) area.Driven = false;
+            }
+            else if (gone.Length > 0 && gone.Any(m => m.Framed) && members.All(m => !m.Framed))
+            {
+                // A newcomer attached during the inter-frame sleep before Prune drained the departed occupant's deltas.
+                Area?.Delta.DiscardPending();
+            }
             count = members.Count;
         }
+        if (gone.Length > 0 && Area is { } owned)
+            foreach (var m in gone) owned.Delta.RemoveViewer(m.Player);
         return count;
     }
 

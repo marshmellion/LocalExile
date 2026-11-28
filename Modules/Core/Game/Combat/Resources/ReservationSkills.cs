@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -73,9 +74,7 @@ public static partial class Game
             {
                 double now = AreaTime(player);
                 var at = target.Walk.Position(now);
-                player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, 14,
-                    now + 8, QueueGroundArtLocked(player, FlaskGrounds.Kind.ConsecratedGround, at, 14),
-                    OwnConsecratedGroundCreatedLocked(player, playerStats)));
+                player.FlaskGrounds.Add(CreateOwnConsecratedGroundLocked(player, at, 14, now + 8, playerStats));
                 PresentNearby(player);
             }
         }
@@ -119,10 +118,10 @@ public static partial class Game
         var stats = MergeSkillStats(playerStats, skill.Stats);
         int Get(uint n) => GolemStat(stats, n);
         var raw = SkillsFor(player).SecondaryHitDamage(aura.Effect, aura.Level, aura.Quality);
+        double effectiveness = AddedEffectiveness(player, aura.Effect, aura.Level);
         foreach (var type in DamageTypes.ConversionOrder)
         {
             string slug = type.ToString().ToLowerInvariant();
-            double effectiveness = AddedEffectiveness(player, aura.Effect, aura.Level);
             raw = raw.Add(type, new(Get(Stat.Of($"global_minimum_added_{slug}_damage")) * effectiveness,
                 Get(Stat.Of($"global_maximum_added_{slug}_damage")) * effectiveness));
         }
@@ -137,14 +136,16 @@ public static partial class Game
             int HitStat(uint name) => TargetHitStat(name, TargetStat(name), contact);
             var target = TargetModifiers(Get, lowLife, contact: contact);
             increased += herald + SpiderDamageIncrease(Get, webs);
-            var woven = SpiderRawDamage(raw, Get, webs, AddedEffectiveness(player, aura.Effect, aura.Level));
-            var hit = PlayerHitDamage.Resolve(woven, HitStat, conversion,
+            var woven = SpiderRawDamage(raw, Get, webs, effectiveness);
+            var hitRaw = contact.AddedPhysical.IsZero ? woven
+                : woven.Add(DamageType.Physical, contact.AddedPhysical.Scale(effectiveness));
+            var hit = PlayerHitDamage.Resolve(hitRaw, HitStat, conversion,
                 spell: false, area: aura.EffectId != "HeraldOfThunder", secondary: true,
                 supportModifiers: modifiers, skillTypes: types, additionalIncreased: increased + target.HitIncrease);
             var rows = AilmentPanelStats.Compute(new("secondary", Spell: false), woven, conversion, TargetStat,
                 increased + target.AilmentIncrease);
-            var ignite = MonsterIgnites.Settings.From(rows, "secondary", TargetStat);
-            var poison = MonsterPoisons.Settings.From(rows, "secondary", TargetStat);
+            var ignite = IgniteSettingsFrom(rows, "secondary", TargetStat);
+            var poison = PoisonSettingsFrom(rows, "secondary", TargetStat);
             if (target.HitMore != 1) hit = hit.Scale(target.HitMore);
             return target.AilmentMore == 1 ? new(hit, ignite, MonsterIgnites.Settings.None, poison)
                 : new(hit, RepeatAilment(ignite, target.AilmentMore), MonsterIgnites.Settings.None,
@@ -171,6 +172,7 @@ public static partial class Game
         using var statScope = new PlayerStatScope(player, fresh: true);
         var skill = SupportedSkill(player, aura.SkillId);
         bool thunder = aura.EffectId == "HeraldOfThunder";
+        bool tempest = aura.EffectId == "TempestShield";
         if (!skill.RequirementsMet || skill.Effect != aura.Effect
             || SkillsFor(player).EffectId(skill.Effect) != aura.EffectId)
         {
@@ -192,7 +194,7 @@ public static partial class Game
         ReservationDamageProfile normalProfile, blindedProfile;
         Func<long, int, bool, bool, bool, TargetContact, ReservationDamageProfile> targetProfile;
         bool contactDamage = HasContactDamage(playerStats.GetValueOrDefault);
-        if (aura.EffectId == "TempestShield")
+        if (tempest)
         {
             if (SupportedHitInputsFor(player, aura.SkillId, capturedGem: skill) is not { } inputs) return false;
             ReservationDamageProfile Profile(long increased) => new(
@@ -205,10 +207,12 @@ public static partial class Game
                     capturedInputs: inputs));
             normalProfile = Profile(0);
             blindedProfile = additionalIncreased == 0 ? normalProfile : Profile(additionalIncreased);
-            var spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, aura.Effect, aura.Level), context: true);
+            var spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, aura.Effect, aura.Level),
+                context: true, local: null, bow: false, offHand: false, forMarkedTarget: true);
             targetProfile = (increase, webs, ignited, bleeding, lowLife, contact) =>
             {
-                if (spider is null) return increase == 0 ? normalProfile : blindedProfile;
+                if (spider is null || !spider.HasTargetConditions && contact.AddedPhysical.IsZero)
+                    return increase == 0 ? normalProfile : blindedProfile;
                 var woven = SpiderDamageProfile(spider, webs, increase != 0, ignited, bleeding, lowLife,
                     maimed: false, contact: contact);
                 return new(woven.Hit, woven.Ignite, woven.Bleed, woven.Poison);
@@ -221,60 +225,116 @@ public static partial class Game
             blindedProfile = additionalIncreased == 0 ? normalProfile : secondary(additionalIncreased, 0, false, false, false, default);
             targetProfile = secondary;
         }
-        double radius = ReservationRadius(player, aura, aura.EffectId == "TempestShield" ? 60 : 32, skill, playerStats);
-        var candidates = player.Area.MonstersNear(at, radius).Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                && !MonsterAsleep(player, p.Key) && Dist(p.Value.Walk.Position(now), at) <= radius)
-            .OrderBy(p => target != 0 && p.Key == target ? -1 : Dist(p.Value.Walk.Position(now), at)).ToArray();
-        if (thunder) candidates = candidates.Take(1).ToArray();
-        else if (aura.EffectId == "TempestShield") candidates = candidates.Take(1 + Math.Max(0, GolemStat(skill.Stats, Stat.NumberOfChains))).ToArray();
+        double radius = ReservationRadius(player, aura, tempest ? 60 : 32, skill, playerStats);
+        bool Available(uint id, SpawnedMonster monster) => monster is
+            { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
+            && !MonsterAsleep(player, id);
+        var candidates = tempest ? TempestContacts() : AreaContacts();
+
+        IEnumerable<(uint Id, SpawnedMonster Monster, (int X, int Y) Origin)> AreaContacts()
+        {
+            var nearby = player.Area.MonstersNear(at, radius)
+                // Walls block the bolt and the explosions, as for other area hits (MeleeArcSight from the hit's centre).
+                .Where(p => Available(p.Key, p.Value) && Dist(p.Value.Walk.Position(now), at) <= radius
+                    && MeleeArcSight(player, at, p.Value.Walk.Position(now)))
+                .OrderBy(p => target != 0 && p.Key == target ? -1 : Dist(p.Value.Walk.Position(now), at));
+            foreach (var (id, monster) in thunder ? nearby.Take(1) : nearby)
+                yield return (id, monster, at);
+        }
+
+        IEnumerable<(uint Id, SpawnedMonster Monster, (int X, int Y) Origin)> TempestContacts()
+        {
+            if (target == 0 || !player.Area.Monsters.TryGetValue(target, out var first) || !Available(target, first))
+                yield break;
+            int chains = Math.Max(0, GolemStat(skill.Stats, Stat.NumberOfChains));
+            var centre = first.Walk.Position(now);
+            yield return (target, first, player.Walk.Position(now));
+            if (chains == 0) yield break;
+            var hit = new HashSet<uint> { target };
+            for (int chain = 0; chain < chains; chain++)
+            {
+                uint nextId = 0;
+                SpawnedMonster? next = null;
+                double nearest = radius;
+                foreach (var (id, monster) in player.Area.MonstersNear(centre, radius))
+                {
+                    if (hit.Contains(id) || !Available(id, monster)) continue;
+                    double distance = Dist(centre, monster.Walk.Position(now));
+                    if (distance > nearest || distance == nearest && next is not null && id >= nextId) continue;
+                    nextId = id;
+                    next = monster;
+                    nearest = distance;
+                }
+                if (next is null) yield break;
+                hit.Add(nextId);
+                var origin = centre;
+                centre = next.Walk.Position(now);
+                yield return (nextId, next, origin);
+            }
+        }
+
+        bool spell = tempest;
+        bool herald = IsHeraldAura(aura.EffectId);
+        int Player(uint n) => GolemStat(playerStats, n);
+        int Own(uint n) => GolemStat(skill.Stats, n);
+        var hitRolls = HitRollsFor(playerStats).ForSkill(Own, spell);
         player.Reservations.Secondary = true;
         try
         {
-            foreach (var (id, m) in candidates)
+            foreach (var (id, m, origin) in candidates)
             {
                 if (m.Hostile != true || m.Dead || m.Life == 0 || m.Invulnerable || m.Asleep
                     || MonsterAsleep(player, id)
                     || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                 // Select the target profile before any RNG, outgoing effects, or this contact's own Blind.
                 bool targetWasBlinded = Blinded(player, id, now);
+                var contact = contactDamage ? ContactDamage(player, m, now, playerStats) : default;
+                contact = contact with { AddedPhysical = PoachersAddedPhysical(m, now) };
                 var profile = targetProfile(targetWasBlinded ? additionalIncreased : 0, m.SpiderWebs.Count(now),
-                    m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), contactDamage ? ContactDamage(player, m, now, playerStats) : default);
+                    m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), contact);
                 var targetPacket = profile.Hit;
-                bool spell = aura.EffectId == "TempestShield";
-                int Player(uint n) => GolemStat(playerStats, n);
-                int Own(uint n) => GolemStat(skill.Stats, n);
                 List<byte[]>? ignited = null;
                 string? igniteLog = null;
                 int criticalChance = spell ? SupportedCriticalChance(player, aura.SkillId)
                     : Player(Stat.GlobalCannotCrit) != 0 || Own(Stat.GlobalCannotCrit) != 0 ? 0
-                    : CriticalChanceFinal.Project((long)Player(AddedBaseCriticalStrike.Generic) + Own(AddedBaseCriticalStrike.Generic),
+                    : CriticalChanceFinal.Project((long)Player(AddedBaseCriticalStrike.Generic) + Own(AddedBaseCriticalStrike.Generic)
+                        + (herald ? Player(Stat.AdditionalCriticalStrikeChancePermyriadWithHeraldSkills) : 0),
                         (long)Player(Stat.CriticalStrikeChancePlusPct) + Own(Stat.CriticalStrikeChancePlusPct), Player, Own);
                 bool critical = RandomRolls.Chance(criticalChance + BrittleCriticalChance(m, now), 10000, AreaRng(player));
                 int multiplier = spell ? SupportedCriticalMultiplier(player, aura.SkillId)
                     : CriticalHitMultiplier(150L + Player(Stat.BaseCriticalStrikeMultiplierPlus)
                         + Own(Stat.BaseCriticalStrikeMultiplierPlus), playerStats, skill.Stats);
                 var rolled = targetPacket.Roll(AreaRng(player)).Scale(critical ? multiplier / 100.0 : 1);
+                rolled = hitRolls.ForCriticalStrike(critical, playerStats, skill.Stats)
+                    .ApplyDamageMultiplier(rolled, AreaRng(player));
                 var mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
-                    Math.Max(Player(Stat.CannotPenetrateOrIgnoreElementalResistances), Own(Stat.CannotPenetrateOrIgnoreElementalResistances)));
-                int damage = MonsterTakesMitigated(m, mitigated, spell, now, random: AreaRng(player));
-                if (ApplyTypedMonsterHitLocked(player, m, damage, MonsterHitChaosDamage(m, mitigated, spell, now, damage)) is not { } hit) continue;
+                    Math.Max(Player(Stat.CannotPenetrateOrIgnoreElementalResistances), Own(Stat.CannotPenetrateOrIgnoreElementalResistances)),
+                    elementalUsesLowestResistance: Player(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
+                int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, playerStats);
+                int damage = MonsterTakesMitigated(m, mitigated, spell, now, random: AreaRng(player),
+                    additionalElementalTakenPct: witheredElemental);
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage,
+                    new HitTakenRules(0, witheredElemental, false));
+                if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage) is not { } hit) continue;
+                if (critical && herald) player.RecentEvents.Record(StatConditions.CritWithHerald, now);
                 if (hit.StageStarts)
                 { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 {
                     var own = new Dictionary<uint, int>(skill.Stats);
                     if (thunder) own[Stat.NeverShock] = 1;
                     AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, 100, playerStats, own, now,
-                        AreaRng(player), poison: profile.Poison,
+                        AreaRng(player), sourceEffect: skill.Effect, poison: profile.Poison,
                         blind: BlindHitInput.Capture(playerStats, own));
                     if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
                         && IgniteOnHitLocked(player, id, m, profile.Ignite, critical, now) is { } packets)
                         (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, now));
                 }
                 var to = m.Walk.Position(now);
+                if (thunder) ShowHeraldOfThunderStrikeLocked(player, aura, to, id);
                 // Immediate kind 3 before the life update reaches the client's result consumer; 0xffff has no consuming action.
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(player.Id, 0xffff, id,
                     flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
-                    angle: HitAngle(to.X - at.X, to.Y - at.Y)), aura.Name + " triggered hit", id, m, WorldId: player.Id));
+                    angle: HitAngle(to.X - origin.X, to.Y - origin.Y)), aura.Name + " triggered hit", id, m, WorldId: player.Id));
                 CommitAcceptedHitLocked(player, id, m, hit, damage, now, aura.Name, playerKill: true);
                 if (selfDamage > 0)
                 {
@@ -300,7 +360,7 @@ public static partial class Game
         // Overkill is already final hit damage. Only burning/DoT (including typed DoT multipliers) scales this burn.
         double dps = overkill * ReservationStat(player, aura, Stat.HeraldOfAshBurningPctOverkillDamagePerMinute) / 6000.0
             * Math.Max(0, 1 + (Get(Stat.BurnDamagePlusPct) + Get(Stat.DamageOverTimePlusPct)
-                + Get(Stat.DamagePlusPctWithHeraldSkills)) / 100.0)
+                + Get(Stat.DamagePlusPctWithHeraldSkills) + Get(Stat.DamageOverTimePlusPctWithHeraldSkills)) / 100.0)
             * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100.0)
             * Math.Max(0, 1 + ReservationStat(player, aura, Stat.HeraldOfAshBurningDamagePlusPctFinal) / 100.0)
             * DamageStats.ElementalMore(Get(Stat.CombinedElementalDamagePlusPctFinal))
@@ -344,6 +404,11 @@ public static partial class Game
                 if (!player.Auras.TryGetValue(proc.Skill, out var aura) || player.PlayerLife == 0) continue;
                 if (aura.EffectId == "HeraldOfPurity") summons.Add(aura);
                 else if (aura.EffectId == "HeraldOfAsh") ReservationAshLocked(player, aura, proc.At, proc.Target, now);
+                else if (aura.EffectId == "HeraldOfIce")
+                {
+                    ShowHeraldOfIceExplosionLocked(player, aura, proc.At);
+                    ReservationDamageLocked(player, aura, proc.At, now, proc.Target);
+                }
                 else ReservationDamageLocked(player, aura, proc.At, now, proc.Target);
             }
             if (ReservationAura(player, "HeraldOfThunder") is { } thunder && now < state.ThunderUntil && now >= state.NextThunder)
@@ -379,6 +444,7 @@ public static partial class Game
         if (catChanged) await SendOwnAuraChanges(player);
         await TickCooldownTriggers(player, now);
         TickBanner(player, now);
+        await TickInstantBuffSkills(player, now);
         await DrainTwisterGains(player);
         await DrainCatCryLosses(player);
         await PresentSiphoningCharges(player);
@@ -418,6 +484,52 @@ public static partial class Game
         foreach (var m in player.Area.Monsters.Values)
             if (m is { Hostile: true, Dead: false, Life: > 0 } && state.Trail.Any(t => Dist(t.At, m.Walk.Position(now)) <= t.Radius))
                 InflictedLocked(player, m, m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .3, now, _ => 0, n => m.Mods.Effects[n], stated: 10));
+    }
+
+    // Herald of Ice's shatter explosion: the worn skin's herald_of_ice_impact (MiscAnimatedArtVariations by
+    // skill_art_variation), drawn at the explosion's radius where the shattered monster stood.
+    static void ShowHeraldOfIceExplosionLocked(Player player, AuraCatalog.Aura aura, (int X, int Y) at)
+    {
+        var skill = SupportedSkill(player, aura.SkillId);
+        double radius = ReservationRadius(player, aura, 12, skill, CharacterPlayerStats(player));
+        int variation = SkillArtVariation(player, GemSkillEffects(player).FirstOrDefault(g => g.Id == aura.SkillId).Gem);
+        string? art = Art.Animated("herald_of_ice_impact", variation) ?? Art.Animated("herald_of_ice_impact", 0);
+        if (ServerTrace.Skills)
+            Console.WriteLine($"[gateway] {player.Connection.Remote} herald of ice explosion at ({at.X}, {at.Y}), radius {radius:0.#} (base {ReservationStat(player, aura, Stat.ActiveSkillBaseAreaOfEffectRadius)}, "
+                + $"+{skill.Stats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus)}, area {skill.Stats.GetValueOrDefault(Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal)}% radius), "
+                + $"skin variation {variation}: art {art ?? "none"}");
+        if (art is null) return;
+        ShowReservationArtLocked(player, at, art, AreaArtScale(radius, art), 2.0);
+    }
+
+    // Herald of Thunder's bolt (also the storms Storm Secret starts, which run the same storm): the worn skin's
+    // herald_of_thunder_strike (MiscAnimatedArtVariations by skill_art_variation) on the struck monster. The art has no
+    // art radius (MiscAnimated __col4 0): a single-target strike drawn at its own size.
+    static void ShowHeraldOfThunderStrikeLocked(Player player, AuraCatalog.Aura aura, (int X, int Y) at, uint target)
+    {
+        int variation = SkillArtVariation(player, GemSkillEffects(player).FirstOrDefault(g => g.Id == aura.SkillId).Gem);
+        string? art = Art.Animated("herald_of_thunder_strike", variation) ?? Art.Animated("herald_of_thunder_strike", 0);
+        if (ServerTrace.Skills)
+            Console.WriteLine($"[gateway] {player.Connection.Remote} herald of thunder bolt on 0x{target:x} at ({at.X}, {at.Y}), "
+                + $"skin variation {variation}: art {art ?? "none"}");
+        if (art is null) return;
+        ShowReservationArtLocked(player, at, art, 1f, 1.5);
+    }
+
+    // A short-lived server-drawn effect at a point, removed after its lifetime unless the area changed.
+    static void ShowReservationArtLocked(Player player, (int X, int Y) at, string art, float scale, double seconds)
+    {
+        uint obj = player.TakeObjectId();
+        player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            new EffectObject(at.X, at.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
+            $"0x02bb create effect 0x{obj:x} {art} at ({at.X}, {at.Y}), scale {scale:0.###}", WorldId: obj, CreatesObject: true));
+        player.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null, WorldId: obj));
+        int epoch = player.ProjectileEpoch;
+        SendAfter(player, seconds, async () =>
+        {
+            if (player.Closed || player.LeavingArea || player.ProjectileEpoch != epoch) return;
+            await SendWorldRemoval(player, obj, null);
+        });
     }
 
     static void AddChilledGroundLocked(Player player, (int X, int Y) at, double until, int radius, string artPath)

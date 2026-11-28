@@ -8,6 +8,22 @@ public static partial class Game
     public const uint TinctureDamageVsLowLife = Stat.TincturedWeaponDamagePlusPctVsEnemiesThatAreOnLowLife;
     public static bool EnemyOnLowLife(SpawnedMonster target) => target.Hostile && MonsterOnLowLife(target);
 
+    // Use the target's life before this contact for both damage and the shared critical roll.
+    readonly record struct DualStrikeBonuses(int DamagePct, int CriticalPct)
+    {
+        internal static DualStrikeBonuses From(IReadOnlyDictionary<uint, int> skill) =>
+            new(skill.GetValueOrDefault(Stat.DualStrikeDamagePlusPctFinalAgainstEnemiesOnFullLife),
+                skill.GetValueOrDefault(Stat.DualStrikeCriticalStrikeChancePlusPctFinalAgainstEnemiesOnFullLife));
+
+        internal DualStrikeBonuses Against(SpawnedMonster target) =>
+            target.MaxLife > 0 && target.Life >= target.MaxLife ? this : default;
+
+        internal double DamageMore => DamageFactor(DamagePct);
+
+        internal int CriticalChance(int chance) => CriticalPct == 0 ? chance
+            : (int)Math.Clamp(chance * (100L + CriticalPct) / 100, 0, 10_000);
+    }
+
     const uint FireVsBleeding = Stat.FireDamagePlusPctVsBleedingEnemies;
 
     static bool HasTypedTargetDamage(Func<uint, int> get) => get(PhysicalVsIgnited) != 0 || get(FireVsBleeding) != 0
@@ -18,6 +34,7 @@ public static partial class Game
         bool bleeding, bool lowLife, bool maimed, TargetContact contact)
     {
         if (contact != default) return true;
+        if (!source.HasTargetConditions) return false;
         int Get(uint key) => source.Stats.GetValueOrDefault(key);
         bool attack = source.Attack && !source.Secondary;
         return blinded && Get(PlayerHitDamage.VsBlindedDamageStat) != 0
@@ -64,6 +81,7 @@ public static partial class Game
     internal readonly record struct TargetContact(long HitIncrease, long AilmentIncrease, int ColdHitIncrease,
         int LightningHitIncrease, int OpportunisticMore, int PoisonMore, int LeechImmuneMore)
     {
+        internal DamageRange AddedPhysical { get; init; }
         internal double AilmentMore => DamageFactor(OpportunisticMore) * DamageFactor(PoisonMore);
         internal double HitMore => AilmentMore * DamageFactor(LeechImmuneMore);
     }
@@ -104,7 +122,9 @@ public static partial class Game
         if (isIgnited) ailment += ignited;
         int hindered = Get(Stat.DamagePlusPctVsHinderedEnemies);
         if (hindered != 0 && (target.HinderedUntil > at || target.TotemHinderedUntil > at
-            || target.Effects[Stat.IsHindered] != 0 || SpiderHinder(target, at) > 0))
+            || target.Effects[Stat.IsHindered] != 0 || SpiderHinder(target, at) > 0 || StormbindHinder(player.Area, target, at) > 0
+            || WitherHinder(target, at) > 0 || BlightHinder(target, at).Slow > 0
+            || VoidSphereHinder(player.Area, target, at) > 0 || TornadoHinder(player.Area, target, at) > 0))
             ailment += hindered;
         int bleeding = Get(Stat.HitAndAilmentDamagePlusPctVsBleedingEnemies);
         if (bleeding != 0 && AilmentOn(target, AilmentType.Bleed, at)) ailment += bleeding;

@@ -3,6 +3,11 @@
 ## Resolution
 
 `GemSupports` reads native GrantedEffects, ActiveSkills and GrantedEffectsPerLevel tables.
+
+Fissure and Crystalfall publish the active companion from `GemEffects.GrantedEffect2`. The native trigger uses
+`0x01ce` and the companion's skill ID. Fissure's `VolcanicSlam` uses behaviour variation 2. Its detached parent
+(ID 1) calls `0x141bee4b0` to seed the radial cracks from the sequence, actor and crack count. Falling Crystal's
+`CrystalFallSlam` uses `0x1414b3ad0` to start the 0.95-second fall and `0x1414b37a0` to land it at the hit's position.
 Physical support gems only affect usable gems in the same equipped item and link group.
 Item mods also contribute the support effects referenced by their `GrantedEffectsPerLevelKeys` to gems in that item.
 `SupportsGemsOnly` is retained from GrantedEffects. It excludes meta supports from item-granted non-gem actives while
@@ -163,9 +168,10 @@ hit and attack rate. Invoking those calculators with a fixed 100-damage hit at t
 100 average damage and 200 DPS with zero, two or three repeats and their 22/44/66% bonuses. The server's
 panel preserves that per-hit convention for both hands.
 
-Melee Splash hits the enemies around each struck one for the
-support's less damage; its radius is the 14-unit base (poewiki) grown by the area modifier and
-`melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
+Melee Splash hits the enemies around each struck one of a Melee Strike skill (from `melee_splash` such as Tribal Fury,
+a support gem, an item/enchant, or a tincture), applying any splash damage multiplier (`support_melee_splash_damage_+%_final_for_splash`,
+none for Tribal Fury); its radius is the 14-unit base (poewiki) grown by increased area (including
+`melee_splash_area_of_effect_+%`) and more area multipliers (including `melee_splash_area_of_effect_+%_final`) (`MeleeSplash`).
 
 Spell Cascade repeats a supported area spell in a line: one extra area per side along the caster-to-target
 direction (`support_spell_cascade_number_of_cascades_per_side`, 1) and, with `support_spell_cascade_sideways`
@@ -342,6 +348,7 @@ The server estimates lance hitboxes, ring spacings, cascade spacings and the fir
 The base Cascade knocks enemies along the burst axis.
 
 The catalogue combines repeated per-level stat entries, including the cold adjustment for Vortex of Projection.
-Its ground can replace nearby Frostbolts. Manabond's cost uses maximum Mana, while its wing reach and added Lightning
-Damage read the filled and missing portions of unreserved Mana respectively.
+Its ground can replace nearby Frostbolts. Manabond pays a share of maximum Mana and reads unreserved Mana at contact.
+The client action 0x7dad uses an 18-cell base centre radius (3.29.3c, 0x141c90950). Each full quarter of unreserved Mana
+adds six cells to the reach of its four extensions. Mana-less proxies use full reach and gain zero missing-Mana damage.
 Triggered Firestorm uses the same storm and impact objects as the placed release.

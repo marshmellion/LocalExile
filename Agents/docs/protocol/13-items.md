@@ -16,7 +16,10 @@ the item on the wire the hash of the new Id let it drop and stack (2026-11-20).
 
 Components come from the `.it` files, merged like `.ot` files ([04](04-player-entity.md), `scripts/re/ot_components.py`)
 with two differences: nothing is prepended (no Positioned), and most leaf rows have no `.it` of their own, so their
-chain is the row's `InheritsFrom`. `client { }` blocks (RenderItem) are never read. Generate every row's list with:
+chain is the row's `InheritsFrom`. For `QuestItems.dat` rows with a non-empty `Script` (the nine `AtlasSkillBook*`
+items and `Sentinel/Controller`), the client overrides `InheritsFrom` to `Metadata/Items/QuestItems/AbstractUsableQuestItem`
+(`Base, Quest, Usable, Stack`), adding the 2-byte `Stack` count on the wire (`ItemCatalog.cs`, `ot_components.py`).
+`client { }` blocks (RenderItem) are never read. Generate every row's list with:
 
 ```bash
 python -I scripts/re/ot_components.py --items --json data/item-types.json
@@ -517,7 +520,7 @@ Headhunter mechanics count those as an exception to "you"; Replica Headhunter is
 totems, totem projectiles) mark the monster first; a Mirage Archer's kills and an ownerless damage-over-time death are
 not marked.
 
-**Paradoxica** (`GamblerModifiers.ForWeapon`): `local_double_damage_with_attacks` is weapon-local (Stats `IsWeaponLocal`;
+**Paradoxica** (`HitRollModifiers.ForWeapon`): `local_double_damage_with_attacks` is weapon-local (Stats `IsWeaponLocal`;
 its hand aliases are `base_main_hand_number_of_times_damage_is_doubled` and the off-hand one). Every hit of an attack
 made with that weapon doubles, before the triple-damage roll can override it. The server's attack hits are the main
 hand's (a shield skill's are the shield's), so a Paradoxica in the off hand doubles nothing: dual-wield swings do not

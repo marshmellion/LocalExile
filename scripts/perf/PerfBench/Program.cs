@@ -9,10 +9,11 @@ using GameServer.Modding;
 
 
 // The Gateway's repeatable in-process measurements (Agents/docs/dev/performance.md), run from the repository root:
-//   dotnet run -c Release --project scripts/perf/PerfBench -- <catalogue|area|busy|planner|single|idle|sweep>
+//   dotnet run -c Release --project scripts/perf/PerfBench -- <catalogue|area|busy|planner|single|idle|sweep|statflips>
 // The first-player catalogue loads, an area instance's creation (server level generation, layout, monster population),
 // a busy instance's monster AI with its swings and projectiles, the AI planner alone, one player's memory through the
-// town, a combat area and a boss area, and one idle player's per-connection loops. One scenario per process
+// town, a combat area and a boss area, and one idle player's per-connection loops, and one player's stat builds
+// while poison and movement flip. One scenario per process
 // (catalogues load once per process). Results go to stdout and as JSON lines to artifacts/perf/bench.jsonl
 // (Game_PERF_LABEL names the run). The level generation needs the client in Client/ (either layout) and Node (Tools/ooz), as the
 // Gateway's own. Not a test: it waits on real time and measures this machine.
@@ -43,13 +44,16 @@ static class PerfBenchMain
                 case "area": await PerfBench.Area_instance_creation(); break;
                 case "busy": await PerfBench.Busy_instance_ticks(); break;
                 case "planner": await PerfBench.Monster_planner(); break;
+                case "kits": await PerfBench.Multi_skill_kits(); break;
                 case "single": await PerfBench.Single_player_memory(); break;
                 case "idle": await PerfBench.Idle_player_cpu(); break;
                 case "sweep": await PerfBench.Area_sweep(); break;
                 case "stats": PerfBench.Player_stat_builds(); break;
+                case "statflips": PerfBench.Statflips_stat_builds(); break;
                 case "pause": await PerfBench.Pause_and_resume(); break;
                 case "rf": await PerfBench.Righteous_fire_toggles(); break;
-                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|single|idle|sweep|stats|pause|rf"); return 2;
+                case "charges": ChargeRollsBench.Run(PerfBench.Record); break;
+                default: Console.Error.WriteLine("usage: PerfBench catalogue|area|busy|planner|kits|single|idle|sweep|stats|statflips|pause|rf|charges"); return 2;
             }
         }
         // The run's save database (EnsureSaves), deleted here: a ProcessExit handler ran too late to let go of it.
@@ -65,7 +69,7 @@ static class PerfBench
     // The results go to the real stdout: the scenarios' own logging goes to a file (ConsoleLog).
     static readonly TextWriter Out = Console.Out;
 
-    static void Record(string scenario, string metric, double value, string unit)
+    internal static void Record(string scenario, string metric, double value, string unit)
     {
         Out.WriteLine($"{scenario,-24} {metric,-48} {value,12:0.###} {unit}");
         Directory.CreateDirectory(Path.Combine("artifacts", "perf"));
@@ -764,6 +768,92 @@ static class PerfBench
         player.Closed = true;
     }
 
+    // S4 multi-skill kit benchmark: 60 chasing + 140 idle ordinary >5-skill varieties, measuring both spawn cost
+    // (H4 cached GrantedSkill templates) and PlanMonsterAi hot-path CPU/allocations (H1-H3).
+    public static async Task Multi_skill_kits()
+    {
+        _ = ConsoleLog.Value;
+        using var wire = new Wire();
+        const string id = "1_1_2";
+        const int Crowd = 60, Idle = 140, Steps = 2000;
+        ushort hash = AreaTransitionCatalog.HashOf(id)!.Value;
+        var layout = AreaLayouts.For(hash, 1);
+        var player = Player(layout, 1, wire);
+
+        // Deterministically pick up to 16 supported non-boss, non-emerge ordinary varieties whose uncapped kit has > 5 skills.
+        var kinds = new List<MonsterCatalog.Variety>();
+        foreach (var v in Game.Monsters.All)
+        {
+            if (!v.Supported || v.BossHealthBar || BossKits.IsCampaignBoss(v) || Game.IsBossControllerVariety(v)) continue;
+            if (v.GrantedEffects is not { Count: > 5 }) continue;
+            if (Game.Emerges.Kind(v, MonsterRarity.Normal) != EmergeKind.None) continue;
+            var tpl = MonsterKits.TemplateFor(player, v, 70);
+            if (tpl.BaseKit.Count <= 5) continue;
+            kinds.Add(v);
+            if (kinds.Count >= 16) break;
+        }
+        if (kinds.Count == 0) throw new InvalidOperationException("no >5-skill ordinary monster kinds found for kits bench");
+
+        var random = new Random(7);
+        var (px, py) = (layout.SpawnX, layout.SpawnY);
+        var spawnPoints = new List<(int X, int Y)>(Crowd + Idle);
+        for (int attempt = 0; spawnPoints.Count < Crowd + Idle && attempt < (Crowd + Idle) * 50; attempt++)
+        {
+            int spread = spawnPoints.Count < Crowd ? 40 : 400;
+            int x = px + random.Next(-spread, spread + 1), y = py + random.Next(-spread, spread + 1);
+            if (spawnPoints.Count >= Crowd && Math.Max(Math.Abs(x - px), Math.Abs(y - py)) < 150) continue;
+            if (!layout.WalkableFor(x, y, 2)) continue;
+            spawnPoints.Add((x, y));
+        }
+
+        // Measure spawning 200 uncapped multi-skill monsters (templates already warmed above).
+        long spawnAllocBefore = Allocated();
+        var spawnClock = Stopwatch.StartNew();
+        for (int i = 0; i < spawnPoints.Count; i++)
+        {
+            var (x, y) = spawnPoints[i];
+            await Game.SpawnMonster(player, kinds[i % kinds.Count], 70, MonsterRarity.Normal, x, y, log: false);
+        }
+        double spawnMs = spawnClock.Elapsed.TotalMilliseconds;
+        double spawnMb = (Allocated() - spawnAllocBefore) / 1048576.0;
+
+        int totalKitSkills = 0, maxKitSkills = 0;
+        foreach (var m in player.Area.Monsters.Values)
+        {
+            totalKitSkills += m.Kit.Count;
+            if (m.Kit.Count > maxKitSkills) maxKitSkills = m.Kit.Count;
+        }
+        Record("kits", "monsters", player.Area.Monsters.Count, "");
+        Record("kits", "kinds", kinds.Count, "");
+        Record("kits", "avg kit skills", player.Area.Monsters.Count > 0 ? totalKitSkills / (double)player.Area.Monsters.Count : 0, "");
+        Record("kits", "max kit skills", maxKitSkills, "");
+        Record("kits", "spawn 200 monsters ms", spawnMs, "ms");
+        Record("kits", "spawn 200 monsters MB", spawnMb, "MB");
+
+        var path = new[] { (px + 12, py), (px, py + 12), (px - 12, py), (px, py - 12) }
+            .Where(p => layout.WalkableFor(p.Item1, p.Item2, 0)).DefaultIfEmpty((px, py)).ToArray();
+
+        var cadence = new MonsterAiCadence();
+        double now = player.Clock.Elapsed.TotalSeconds;
+        for (int i = 0; i < 50; i++) Game.PlanMonsterAi(player, cadence, now += 0.05);
+        long planAllocated = GC.GetAllocatedBytesForCurrentThread();
+        using var self = Process.GetCurrentProcess();
+        var cpuBefore = self.TotalProcessorTime;
+        var clock = Stopwatch.StartNew();
+        for (int i = 0; i < Steps; i++)
+        {
+            if (i % 14 == 0) { var (x, y) = path[i / 14 % path.Length]; player.Walk.Order(x, y, now); }
+            var plan = Game.PlanMonsterAi(player, cadence, now += 0.05);
+            foreach (var (_, m, action) in plan.Swings) cadence.CompleteSwing(m, action);
+        }
+        Record("kits", "PlanMonsterAi us per step", clock.Elapsed.TotalMilliseconds * 1000 / Steps, "us");
+        self.Refresh();
+        Record("kits", "PlanMonsterAi process CPU us per step", (self.TotalProcessorTime - cpuBefore).TotalMilliseconds * 1000 / Steps, "us");
+        Record("kits", "PlanMonsterAi allocated KB per step", (GC.GetAllocatedBytesForCurrentThread() - planAllocated) / 1024.0 / Steps, "KB");
+        Record("kits", "aggro monsters", player.Area.Monsters.Values.Count(m => m.Aggro), "");
+        player.Closed = true;
+    }
+
     // One Ice Nova (level 20, in a body armour socket) on N monsters inside its radius: the real AreaSkillHit with every
     // packet encrypted and sent, at 100, 300 and 500 monsters, and the per-call cost of the inputs its loop reads.
     // The monsters keep a huge life pool, so the sweeps measure hits (no deaths, loot or experience).
@@ -784,6 +874,180 @@ static class PerfBench
         while (clock.Elapsed.TotalSeconds < seconds) { Game.CharacterPlayerStats(player); calls++; }
         Record("stats", "CharacterPlayerStats us per call", clock.Elapsed.TotalMilliseconds * 1000 / calls, "us");
         Record("stats", "CharacterPlayerStats KB per call", (Allocated() - a0) / 1024.0 / calls, "KB");
+        player.Closed = true;
+    }
+
+    // One player's stat builds while one input flips at a time: poison stacks on and off in the
+    // poison stage (never moving), and moving on and off in the moving stage (never poisoned).
+    // Splitting the two apart is the point: the old shape flipped both together, so a fix for one
+    // input could not show -- its misses hid behind the other's. One CharacterPlayerStats call per
+    // build, as a frame's Sources step would run it: StepPlayerStats cannot be driven per call from
+    // here (it needs the area's frames, which would take the graph over and stop
+    // CharacterPlayerStats rebuilding). The sources sum's cache is what is measured: a rebuild
+    // replaces StatSourcesCache, a hit keeps it, so its identity counts the rebuilds (no counter
+    // for them exists in the materials). Run before and after the fixes: the misses should fall
+    // from one per flip to near zero in the stage the fix covers. Plain gear only (this robe, or
+    // Game_PERF_CHARACTER's): no conditional stat may read either input, or the flip must rebuild
+    // by design. The key's own view of both inputs is read back on every rebuild, so a flip that
+    // never reached the key shows up in the counts instead of silently measuring nothing.
+    // Game_PERF_STATFLIPS_STAGE picks the stages: poison, moving, or both (default).
+    public static void Statflips_stat_builds()
+    {
+        _ = ConsoleLog.Value;
+        using var wire = new Wire();
+        var layout = AreaLayouts.For(AreaTransitionCatalog.HashOf("1_1_2")!.Value, 1);
+        var player = Player(layout, 1, wire);
+        if (Environment.GetEnvironmentVariable("Game_PERF_CHARACTER") is not { Length: > 0 })
+        {
+            // One plain item, so the sources sum has something to fold and a miss costs more than a hit;
+            // a bare robe carries no conditional stat, so neither flipped input is read by the build.
+            var items = Game.ItemsFor(player);
+            var robe = items.Find("Simple Robe") ?? throw new InvalidOperationException("no Simple Robe");
+            var inventories = Game.ItemsOf(player);
+            inventories.Put(PlayerInventories.BodyArmour, new InventoryItem(inventories.NewItemId(), 0, 0,
+                ItemCatalog.Create(robe)));
+        }
+        for (int i = 0; i < 300; i++) Game.CharacterPlayerStats(player);
+        int cycles = int.TryParse(Environment.GetEnvironmentVariable("Game_PERF_CYCLES"), out int c) ? c : 10;
+        cycles = Math.Max(cycles, 1);
+        string stage = Environment.GetEnvironmentVariable("Game_PERF_STATFLIPS_STAGE") ?? "both";
+        const int BuildsPerPhase = 200;
+        const double PoisonSeconds = 1.0;
+        Out.WriteLine($"statflips: looping, pid {Environment.ProcessId}");
+        using var self = Process.GetCurrentProcess();
+
+        bool WaitUntil(Func<bool> done)
+        {
+            var deadline = Stopwatch.StartNew();
+            while (!done())
+            {
+                if (deadline.Elapsed > TimeSpan.FromSeconds(10)) return false;
+                Thread.Sleep(10);
+            }
+            return true;
+        }
+
+        // One stage: one input flips, the other stays put for the whole stage. The live inputs
+        // before the stage's first measured build, so it is not counted as a flip. The miss
+        // reasons are counted per stage (the Difference of the two keys on a rebuild), so each
+        // stage names the input its own misses come from.
+        void RunStage(string name, bool poisonStage)
+        {
+            long allocatedBefore = Allocated();
+            var cpuBefore = self.TotalProcessorTime;
+            var clock = Stopwatch.StartNew();
+            long builds = 0, misses = 0, flipBuilds = 0, flipMisses = 0, steadyMisses = 0;
+            var missReasons = new Dictionary<string, int>();
+            double flipMs = 0, steadyMs = 0;
+            long poisonedBuilds = 0, movingBuilds = 0, stillBuilds = 0;
+            long noMovingFlagBuilds = 0, keyPoisonDisagrees = 0, keyMovingDisagrees = 0;
+            long poisonAppliesFailed = 0, poisonExpiriesMissed = 0, movingStopsMissed = 0;
+            int lastPoison = player.IncomingAilments.PoisonStacks(Game.AreaTime(player));
+            bool lastWalking = player.Walk.Moving(Game.AreaTime(player));
+
+            // One build: the snapshot, and whether the sources sum was rebuilt for it.
+            void Build()
+            {
+                double now = Game.AreaTime(player);
+                int poison = player.IncomingAilments.PoisonStacks(now);
+                bool walking = player.Walk.Moving(now);
+                bool flip = poison != lastPoison || walking != lastWalking;
+                (lastPoison, lastWalking) = (poison, walking);
+                var before = player.StatSourcesCache;
+                long started = Stopwatch.GetTimestamp();
+                Game.CharacterPlayerStats(player);
+                double took = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                var cached = player.StatSourcesCache;
+                bool miss = !ReferenceEquals(before, cached);
+                builds++;
+                if (flip)
+                {
+                    flipBuilds++;
+                    flipMs += took;
+                    if (miss) flipMisses++;
+                }
+                else
+                {
+                    steadyMs += took;
+                    if (miss) steadyMisses++;
+                }
+                if (miss) misses++;
+                if (miss && before is not null && cached is not null)
+                {
+                    string why = (flip ? "flip: " : "steady: ") + before.Key.Difference(cached.Key);
+                    missReasons[why] = missReasons.GetValueOrDefault(why) + 1;
+                }
+                if (poison > 0) poisonedBuilds++;
+                if (walking) movingBuilds++; else stillBuilds++;
+                // On a rebuild the stored key is fresh: check it saw the same inputs this build did.
+                // On a hit it is the old build's key, stale by design, so there is nothing to check.
+                if (miss && cached is not null)
+                {
+                    if (cached.Key.PoisonStacks != poison) keyPoisonDisagrees++;
+                    if (cached.Key.Flags is null) noMovingFlagBuilds++;
+                    else if (!(cached.Key.Flags is Game.ReadFlags kept ? kept.TryGetValueUnrecorded("_while_moving", out bool keyMoving) : cached.Key.Flags.TryGetValue("_while_moving", out keyMoving))) noMovingFlagBuilds++;
+                    else if (keyMoving != walking) keyMovingDisagrees++;
+                }
+            }
+
+            // The walk targets, as the busy instance's path: 12 away from the spawn, walkable ones only.
+            var (px, py) = (layout.SpawnX, layout.SpawnY);
+            var steps = new[] { (px + 12, py), (px, py + 12), (px - 12, py), (px, py - 12) }
+                .Where(p => layout.WalkableFor(p.Item1, p.Item2, 0)).DefaultIfEmpty((px, py)).ToArray();
+            for (int cycle = 0; cycle < cycles; cycle++)
+            {
+                double now = Game.AreaTime(player);
+                if (poisonStage)
+                {
+                    // Poison on, standing still: one poison that expires, and no walk order.
+                    if (!player.IncomingAilments.ApplyPoison(now, 200.0, PoisonSeconds)) poisonAppliesFailed++;
+                    for (int i = 0; i < BuildsPerPhase; i++) Build();
+                    // Poison off: wait for the poison to expire, then build.
+                    if (!WaitUntil(() => player.IncomingAilments.PoisonStacks(Game.AreaTime(player)) == 0)) poisonExpiriesMissed++;
+                    for (int i = 0; i < BuildsPerPhase; i++) Build();
+                }
+                else
+                {
+                    // Moving on, never poisoned: a walk to the cycle's point.
+                    var (tx, ty) = steps[cycle % steps.Length];
+                    player.Walk.Order(tx, ty, now);
+                    for (int i = 0; i < BuildsPerPhase; i++) Build();
+                    // Moving off: wait for the walk to arrive, then build.
+                    if (!WaitUntil(() => !player.Walk.Moving(Game.AreaTime(player)))) movingStopsMissed++;
+                    for (int i = 0; i < BuildsPerPhase; i++) Build();
+                }
+            }
+            double seconds = clock.Elapsed.TotalSeconds;
+            self.Refresh();
+            string scenario = "statflips-" + name;
+            Record(scenario, "builds", builds, "");
+            Record(scenario, "builds per second", builds / seconds, "/s");
+            foreach (var (why, n) in missReasons.OrderByDescending(p => p.Value))
+                Record(scenario, "miss reason " + why, n, "");
+            Record(scenario, "cache misses", misses, "");
+            Record(scenario, "cache misses per 1000 builds", misses * 1000.0 / builds, "");
+            Record(scenario, "flip builds", flipBuilds, "");
+            Record(scenario, "misses on flip builds", flipMisses, "");
+            Record(scenario, "misses on steady builds", steadyMisses, "");
+            Record(scenario, "CharacterPlayerStats us per call", (flipMs + steadyMs) * 1000 / builds, "us");
+            Record(scenario, "us per call on flip builds", flipBuilds == 0 ? 0 : flipMs * 1000 / flipBuilds, "us");
+            Record(scenario, "us per call on steady builds", builds - flipBuilds == 0 ? 0 : steadyMs * 1000 / (builds - flipBuilds), "us");
+            Record(scenario, "allocated KB per call", (Allocated() - allocatedBefore) / 1024.0 / builds, "KB");
+            Record(scenario, "scenario CPU ms", (self.TotalProcessorTime - cpuBefore).TotalMilliseconds, "ms");
+            Record(scenario, "scenario allocated MB", (Allocated() - allocatedBefore) / 1048576.0, "MB");
+            Record(scenario, "builds with poison", poisonedBuilds, "");
+            Record(scenario, "builds moving", movingBuilds, "");
+            Record(scenario, "builds standing still", stillBuilds, "");
+            Record(scenario, "rebuilds with no _while_moving flag in the key", noMovingFlagBuilds, "");
+            Record(scenario, "rebuilds where the key poison disagrees with the live poison", keyPoisonDisagrees, "");
+            Record(scenario, "rebuilds where the key moving disagrees with the live moving", keyMovingDisagrees, "");
+            Record(scenario, "poison applies failed", poisonAppliesFailed, "");
+            Record(scenario, "poison expiries missed (10 s deadline)", poisonExpiriesMissed, "");
+            Record(scenario, "moving stops missed (10 s deadline)", movingStopsMissed, "");
+        }
+
+        if (stage is "both" or "poison") RunStage("poison", poisonStage: true);
+        if (stage is "both" or "moving") RunStage("moving", poisonStage: false);
         player.Closed = true;
     }
 
@@ -869,8 +1133,8 @@ static class PerfBench
         var rolledHit = hit.Roll(Random.Shared);
         Time("LeechOnHitLocked", () => Game.LeechOnHitLocked(player, first.Value, rolledHit, 10, leech), 200);
         Time("ApplyMonsterHitLocked", () => Game.ApplyMonsterHitLocked(player, first.Value, 1, null, null), 200);
-        Time("GamblerFor + WithOutgoingDamage", () => GameEvents.WithOutgoingDamage(player, playerStats, first.Value,
-            (Game.GamblerFor(playerStats) with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared)), 200);
+        Time("HitRollsFor + WithOutgoingDamage", () => GameEvents.WithOutgoingDamage(player, playerStats, first.Value,
+            (Game.HitRollsFor(playerStats) with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared)), 200);
         Time("NotifyMonsterHit (sends)", () => Game.NotifyMonsterHit(player, first.Key, first.Value,
             new(1_000_000, false), 1, "bench", log: true).GetAwaiter().GetResult(), 200);
         player.Closed = true;

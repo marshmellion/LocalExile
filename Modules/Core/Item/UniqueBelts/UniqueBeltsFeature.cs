@@ -33,9 +33,22 @@ static class UniqueBeltsFeature
                 Magic.GetValue(player, _ => new()).Mods.Steal(m.Mods, catalog, now);
             return;
         }
+        var random = AreaRng(player);
         if (stats.GetValueOrDefault(StolenMods.SourceStat) > 0)
             player.StolenMods.Steal(m.Mods, catalog, now);
-        player.StolenMods.StealRandom(m.Mods, catalog, stats.GetValueOrDefault(StolenMods.RandomSourceStat), now, AreaRng(player));
+        // A map's "Players gain the Modifiers of Rare Monsters they kill for 20 seconds" (Valdo Maps' MapSupporter mod).
+        else if (MapModsOf(player) is { } map && map.Get(Stat.MapPlayersGainRareMonsterModsOnKillPctChance) is int mapChance and > 0
+            && RandomRolls.Chance(mapChance, 100, random))
+        {
+            int ms = map.Get(Stat.MapPlayersGainRareMonsterModsOnKillMs);
+            player.StolenMods.Steal(m.Mods, catalog, now, ms > 0 ? ms / 1000.0 : 20);
+        }
+        int randomCount = stats.GetValueOrDefault(StolenMods.RandomSourceStat);
+        if (RandomRolls.Chance(stats.GetValueOrDefault(Stat.Gain1RareMonsterModsOnKillFor20SecondsPct), 100, random))
+            randomCount = ActorScale.Saturate((long)randomCount + 1);
+        player.StolenMods.StealRandom(m.Mods, catalog, randomCount, now, random);
+        if (RandomRolls.Chance(stats.GetValueOrDefault(Stat.Gain1RareMonsterModOnKillFor10SecondsPctChance), 100, random))
+            player.StolenMods.StealRandom(m.Mods, catalog, 1, now, random, seconds: 10);
     }
 
     /// <summary>The character's stat sources with the modifiers it stole (CharacterStatSources).</summary>

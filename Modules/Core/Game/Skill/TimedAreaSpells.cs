@@ -4,16 +4,18 @@ public static partial class Game
 {
     static bool TimedAreaSpellEffect(string? effect) =>
         CorpseDamageSpell(effect) || CremationEffect(effect) || BladefallEffect(effect)
-        || FrostBombEffect(effect) || effect == "BallLightningAltY";
+        || FrostBombEffect(effect) || OrbOfStormsEffect(effect) || VoidSphereEffect(effect) || HydrosphereEffect(effect) || TornadoEffect(effect) || IsBladeVortex(effect)
+        || GalvanicFieldEffect(effect) || effect is "BallLightningAltY" or VaalBladeVortexEffect;
 
     public sealed partial class ProjectileSession
     {
         internal void ScheduleTimedAreaSpell(
             (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
             (int X, int Y) aim, uint target, double windup, ushort sequence, Func<bool> commit,
-            SkillCriticalRoll? critical, SacrificeUse sacrifice, double more, int repeat)
+            SkillCriticalRoll? critical, SacrificeUse sacrifice, double more, int repeat, (int X, int Y)? origin = null)
         {
             var intensity = CastingIntensity(Player, gem.Id);
+            double beidatMore = CastingBeidatSpell(Player, gem.Id)?.More ?? 1;
             var source = SupportedSkill(Player, gem.Id);
             string? effect = SkillsFor(Player).EffectId(gem.Effect);
             var lifetime = CombatLifetime;
@@ -26,21 +28,73 @@ public static partial class Game
             {
                 if (!Current() || !commit()) return;
                 double now = ProjectileWorldTime(Player);
+                if (effect == VaalBladeVortexEffect)
+                {
+                    ReleaseVaalBladeVortex(source, CharacterPlayerStats(Player), Player.Walk.Position(now), Current,
+                        (at, radius) => Hit(at, radius, ProjectileWorldTime(Player)));
+                    return;
+                }
+                if (IsBladeVortex(effect))
+                {
+                    ReleaseBladeVortex(Player.Id, gem.Id, SkillArtVariation(Player, gem.Gem), source, CharacterPlayerStats(Player), Current,
+                        (radius, scale, critIncrease) =>
+                        {
+                            var at = Player.Walk.Position(ProjectileWorldTime(Player));
+                            // Repeats add blades to the same vortex. Its subsequent hits use the blade count.
+                            var task = AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, sequence: sequence,
+                                radiusOverride: radius + BladeVortexSizeReach,
+                                targetFilter: (id, p) => BladeVortexReaches(Player, at, radius, id, p),
+                                sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: this,
+                                extraCriticalIncrease: critIncrease, hitAndAilmentMore: scale);
+                            if (!task.IsCompleted) throw new InvalidOperationException("Blade Vortex contact must not yield.");
+                            task.GetAwaiter().GetResult();
+                        });
+                    return;
+                }
                 if (VolatileDeadEffect(effect))
                 {
-                    ReleaseVolatileDead(gem.Id, aim, now, Current, (at, radius, time) => Hit(at, radius, time), more: more);
+                    ReleaseVolatileDead(gem.Id, aim, now, Current, (at, radius, time) => Hit(at, radius, time), more: more * beidatMore);
                     return;
                 }
 
                 if (CremationEffect(effect))
                 {
                     ReleaseCremation(gem.Id, aim, target, effect == "CremationAltY", now, Current,
-                        (at, radius, time) => Hit(at, radius, time), more);
+                        (at, radius, time) => Hit(at, radius, time), more * beidatMore);
                     return;
                 }
                 if (FrostBombEffect(effect))
                 {
-                    ReleaseFrostBomb(gem.Effect, source.Stats, aim, Current, (at, radius, time) => Hit(at, radius, time));
+                    ReleaseFrostBomb(gem.Effect, source.Stats, aim, Current, impact => Hit(impact.Centre, impact.Radius, impact.At,
+                        hitMore: impact.HitMore, ailmentMore: impact.AilmentMore));
+                    return;
+                }
+                if (VoidSphereEffect(effect))
+                {
+                    ReleaseVoidSphere(Player.Id, gem.Effect, source.Stats, aim, Current,
+                        (at, radius, time) => Hit(at, radius, time));
+                    return;
+                }
+                if (HydrosphereEffect(effect))
+                {
+                    ReleaseHydrosphere(Player.Id, gem.Effect, source.Stats, aim, Current,
+                        (centre, radius, drenched, cold, lightning) => Hit(centre, radius, ProjectileWorldTime(Player),
+                            targetFilter: drenched, spellSource: HydroDamageSource(source, cold, lightning)));
+                    return;
+                }
+                if (GalvanicFieldEffect(effect))
+                {
+                    ArmGalvanicField(gem.Id, source, Current, (centre, radius, victim, multiplier) =>
+                        Hit(centre, radius, ProjectileWorldTime(Player), stageMore: multiplier,
+                            targetFilter: (id, _) => id == victim));
+                    return;
+                }
+                if (TornadoEffect(effect))
+                {
+                    var element = TornadoElement(Player, source);
+                    var damage = TornadoDamageSource(source, element);
+                    ReleaseTornado(gem.Effect, gem.Level, source, element, origin ?? Player.Walk.Position(now), aim, Current,
+                        (centre, radius) => Hit(centre, radius, ProjectileWorldTime(Player), spellSource: damage));
                     return;
                 }
                 if (effect == "BallLightningAltY")
@@ -48,15 +102,30 @@ public static partial class Game
                     ReleaseStaticBall(gem.Effect, source.Stats, aim, Current, (at, radius, time) => Hit(at, radius, time));
                     return;
                 }
+                if (OrbOfStormsEffect(effect))
+                {
+                    ReleaseStormOrb(Player.Id, gem.Effect, gem.Id, source.Stats, aim, Current, (centre, reach, targets, struck) =>
+                    {
+                        var task = AreaSkillHitForUse(null, Player, gem.Id, gem, centre, centre, immediate: true,
+                            sequence: sequence, sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: this,
+                            contactTargets: targets, radiusOverride: reach, onHit: struck, hitAndAilmentMore: more * beidatMore);
+                        if (!task.IsCompleted) throw new InvalidOperationException("Orb of Storms contact must not yield.");
+                        task.GetAwaiter().GetResult();
+                    });
+                    return;
+                }
                 if (BladefallEffect(effect))
                 {
-                    ReleaseBladefall(gem.Id, gem.Effect, source.Stats, Player.Walk.Position(now), aim, Current, Hit);
+                    ReleaseBladefall(gem.Id, gem.Effect, source.Stats, Player.Walk.Position(now), aim, Current,
+                        (centre, radius, at, scale, extraCrit) => Hit(centre, radius, at, scale, extraCrit));
                     return;
                 }
 
                 bool scavenging = effect == "DetonateDeadAltX";
                 bool vaal = effect == "VaalDetonateDead";
-                int limit = vaal ? 22 : effect == "DetonateDeadAltY" ? 8 : 1;
+                bool chaining = effect == "DetonateDeadAltY";
+                int limit = vaal ? 22 : chaining ? DetonateDeadChainLimit : effect == "DetonateDead"
+                    ? DetonateDeadCorpseCount(source.Stats, CharacterPlayerStats(Player)) : 1;
                 int radius = SkillRadius(Player, source.Stats, spell: true, gem.Effect);
                 bool Usable(SpawnedMonster m) => IsCorpse(m) && m.Hostile && !m.Ailments.Shattered
                     && (!scavenging || !m.CreatedAsCorpse);
@@ -82,9 +151,14 @@ public static partial class Game
                     ConsumeSpellCorpse(corpse.Key, corpse.Value, at);
                     Effect(pos.X, pos.Y, DetonateDeadArt, ProjectileRuntime.Time(.75), radius);
                     if (!scavenging) Hit(pos, radius, at);
-                    ApplyCorpseExplosion(gem.Id, corpse.Value.MaxLife, pos, radius, at, more: more);
+                    ApplyCorpseExplosion(gem.Id, corpse.Value.MaxLife, pos, radius, at, more: more * beidatMore);
                     if (index + 1 >= limit || !Current()) return;
-                    double gap = vaal ? .16 + .055 * index : Math.Max(.04, .22 - .023 * index);
+                    if (!vaal && !chaining)
+                    {
+                        DetonateNearest(at, index + 1);
+                        return;
+                    }
+                    double gap = vaal ? .16 + .055 * index : DetonateDeadChainGap(index);
                     Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(gap), () =>
                     {
                         if (Current()) DetonateNearest(ProjectileWorldTime(Player), index + 1);
@@ -92,13 +166,16 @@ public static partial class Game
                 }
             });
 
-            void Hit((int X, int Y) at, int radius, double atTime, double stageMore = 1, int extraCriticalIncrease = 0)
+            void Hit((int X, int Y) at, int radius, double atTime, double stageMore = 1, int extraCriticalIncrease = 0,
+                Func<uint, (int X, int Y), bool>? targetFilter = null, SupportedGem? spellSource = null,
+                double hitMore = 1, double ailmentMore = 1)
             {
                 using var scope = intensity is null ? null : new IntensityScope(intensity);
                 var task = AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, sequence: sequence,
                     radiusOverride: radius, criticalRoll: critical, sacrifice: sacrifice, triggeredCurrent: Current,
                     scheduledSession: this, repeat: repeat, damageMore: more * stageMore,
-                    extraCriticalIncrease: extraCriticalIncrease);
+                    extraCriticalIncrease: extraCriticalIncrease, hitAndAilmentMore: beidatMore,
+                    targetFilter: targetFilter, triggeredSpellSource: spellSource, hitMore: hitMore, ailmentMore: ailmentMore);
                 if (!task.IsCompleted) throw new InvalidOperationException("Scheduled timed area spell hit must not yield.");
                 task.GetAwaiter().GetResult();
             }

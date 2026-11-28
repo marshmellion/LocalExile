@@ -52,11 +52,42 @@ public sealed class AreaDelta(GameArea area)
         Add(entity, bytes, log, Kind.Remove);
     }
 
+    /// <summary>Forgets a departed player from every private-entity viewer list so long-lived areas (such as hideouts)
+    /// do not retain closed sessions.</summary>
+    public void RemoveViewer(Player player)
+    {
+        lock (viewers)
+        {
+            List<uint>? empty = null;
+            foreach (var (entity, list) in viewers)
+            {
+                if (list.Remove(player) && list.Count == 0)
+                    (empty ??= []).Add(entity);
+            }
+            if (empty is not null)
+                foreach (uint entity in empty) viewers.Remove(entity);
+        }
+    }
+
+    /// <summary>Discards undelivered frame delta records once no client remains in the area (for example when a player
+    /// leaves their hideout). Durable state is already committed to Area.Objects / Buffs / Stats / Life and will be
+    /// replayed cleanly via Join on re-entry instead of delivering stale departure records to the next entrant.</summary>
+    public void DiscardPending()
+    {
+        records.Clear();
+        held.Clear();
+        created.Clear();
+    }
+
     public void Add(Record record)
     {
         area.AssertOwner();
+        // Shared entities replayed to a joining player (peer players 0x20000000, shared monsters 0x08000000,
+        // dormant monsters, area objects) must never register that joiner as the entity's sole private viewer.
         if (record.Kind == Kind.Create && record.Only is { } owner && record.Except is null
-            && !area.Monsters.ContainsKey(record.Entity) && !area.Objects.Has(record.Entity))
+            && (record.Entity & 0xF0000000) != 0x20000000 && (record.Entity & 0xF8000000) != 0x08000000
+            && !area.Monsters.ContainsKey(record.Entity) && !area.DormantMonsters.ContainsKey(record.Entity)
+            && !area.Objects.Has(record.Entity))
         {
             lock (viewers)
             {
@@ -107,11 +138,42 @@ public sealed class AreaDelta(GameArea area)
         records.Add(record);
     }
 
-    /// <summary>A world record (u16 id, u32 object, u32 order key, u16 checkpoint) as it is: its order from its header.</summary>
-    public void Add(uint entity, byte[] bytes, string? log = null, Kind kind = Kind.World, Player? except = null, Player? only = null) =>
+    /// <summary>A world record (u16 id, u32 object, u32 order key, u16 checkpoint) as it is: its order from its header.
+    /// Active lockstep creates and removals always carry key 0xffffffff (WorldOrder.Last) so they sort in the client's
+    /// create/remove phase regardless of caller defaults.</summary>
+    public void Add(uint entity, byte[] bytes, string? log = null, Kind kind = Kind.World, Player? except = null, Player? only = null)
+    {
+        if (kind == Kind.Create && bytes.Length >= 12
+            && (System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(6)) != uint.MaxValue
+                || System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(10)) != 0))
+        {
+            bytes = bytes.ToArray();
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), uint.MaxValue);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(10), 0);
+        }
+        else if (kind == Kind.Remove && bytes.Length >= 10
+            && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(6)) != uint.MaxValue)
+        {
+            bytes = bytes.ToArray();
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), uint.MaxValue);
+        }
         Add(new(entity, bytes, log, kind == Kind.Message || bytes.Length < 12 ? WorldOrder.First
             : new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(6)),
                 System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(10))), kind, except, only));
+    }
+
+    /// <summary>Drops any queued <c>ActionStarted</c> (<c>0x01ab</c>) records for <paramref name="entity"/> that have not
+    /// been flushed yet in this frame (for example a monster that queued a charge earlier in the frame and died before
+    /// the frame ended).</summary>
+    public void DiscardActions(uint entity)
+    {
+        area.AssertOwner();
+        static bool IsActionFor(Record r, uint id) =>
+            r.Entity == id && r.Kind == Kind.World && r.Bytes.Length >= 2
+            && (r.Bytes[0] << 8 | r.Bytes[1]) == GameServer.Core.Protocol.Instance.InstanceProtocol.ActionStartedId;
+        records.RemoveAll(r => IsActionFor(r, entity));
+        held.RemoveAll(r => IsActionFor(r, entity));
+    }
 
     /// <summary>The frame's records, taken for its end; what waited for a create of this frame starts the next.</summary>
     public IReadOnlyList<Record> Take()

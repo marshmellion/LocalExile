@@ -16,13 +16,26 @@ public readonly record struct BlindHitInput(long GlobalChance, long AttackChance
     }
     public static BlindHitInput Capture(Func<uint, int> get) => new(
         get(Stat.GlobalChanceToBlindOnHitPct), get(Stat.AttacksChanceToBlindOnHitPct),
-        get(Stat.PctChanceToBlindOnCriticalStrike), get(Stat.BlindEffectPlusPct), Game.BlindSeconds(get));
+        get(Stat.PctChanceToBlindOnCriticalStrike), get(Stat.BlindEffectPlusPct), Game.BlindSeconds(get))
+        {
+            GlobalVsBleedingChance = get(Stat.GlobalChanceToBlindOnHitPctVsBleedingEnemies),
+            AttackVsBleedingChance = get(Stat.AttackChanceToBlindOnHitPctVsBleedingEnemies),
+        };
     public static BlindHitInput Capture(Func<uint, long> get) => new(
         get(Stat.GlobalChanceToBlindOnHitPct), get(Stat.AttacksChanceToBlindOnHitPct),
         get(Stat.PctChanceToBlindOnCriticalStrike), Saturate(get(Stat.BlindEffectPlusPct)),
-        Game.BlindSeconds(name => Saturate(get(name))));
-    public int Chance(bool spell, bool critical) => (int)Math.Clamp(GlobalChance
-        + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0), 0, 100);
+        Game.BlindSeconds(name => Saturate(get(name))))
+        {
+            GlobalVsBleedingChance = get(Stat.GlobalChanceToBlindOnHitPctVsBleedingEnemies),
+            AttackVsBleedingChance = get(Stat.AttackChanceToBlindOnHitPctVsBleedingEnemies),
+        };
+    public long GlobalVsBleedingChance { get; init; }
+    public long AttackVsBleedingChance { get; init; }
+    public int Chance(bool spell, bool critical) => Chance(spell, critical, bleeding: false);
+
+    public int Chance(bool spell, bool critical, bool bleeding) => (int)Math.Clamp(GlobalChance
+        + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0)
+        + (bleeding ? GlobalVsBleedingChance + (spell ? 0 : AttackVsBleedingChance) : 0), 0, 100);
 }
 
 public static partial class Game
@@ -39,16 +52,24 @@ public static partial class Game
         var value = state.PlayerBlind.Read(now, player.PlayerLife == 0);
         if (state.PlayerBlind.NextEnd is double end) StatsChangeAt(end, () => ResourceEffectsTime(player));
         var stats = playerStats ?? StatSourceValues(player);
-        bool selfBlinded = player.PlayerLife > 0 && stats.GetValueOrDefault(Stat.KeystoneBlindMonk) != 0;
+        bool selfBlinded = player.PlayerLife > 0 && (stats.GetValueOrDefault(Stat.KeystoneBlindMonk) != 0
+            || stats.GetValueOrDefault(Stat.YouAreBlind) != 0);
         if ((value.Less > 0 || selfBlinded) && BlindImmune(player, stats))
             return state.PlayerBlind.Read(now, true);
         return selfBlinded && value.Less < 20 ? (20, double.PositiveInfinity) : value;
     }
+    static int PlayerBlindPenalty(Player player, IReadOnlyDictionary<uint, int>? playerStats = null)
+    {
+        int less = PlayerBlindValue(player, playerStats).Less;
+        return less != 0 && (playerStats ?? StatSourceValues(player)).GetValueOrDefault(Stat.UnaffectedByBlind) != 0
+            ? 0 : less;
+    }
+
     public static int PlayerBlindAccuracy(Player player, int rating, IReadOnlyDictionary<uint, int>? playerStats = null) =>
-        TimedBlind.Apply(rating, PlayerBlindValue(player, playerStats).Less);
+        TimedBlind.Apply(rating, PlayerBlindPenalty(player, playerStats));
     public static int PlayerAccuracy(Player player, IReadOnlyDictionary<uint, int>? playerStats = null)
     {
-        int blindLess = PlayerBlindValue(player, playerStats).Less;
+        int blindLess = PlayerBlindPenalty(player, playerStats);
         if (blindLess == 0) return player.Pools.Accuracy;
         // BaseStats calls this while building the final dictionary; read raw sources when that dictionary is absent.
         uint moreKey = PlayerAccuracyModifiers.BootsMore;
@@ -57,9 +78,9 @@ public static partial class Game
         return PlayerAccuracyModifiers.Unselected(player.Pools, more, blindLess);
     }
     public static int PlayerEvasion(Player player, IReadOnlyDictionary<uint, int>? playerStats = null) =>
-        TimedBlind.Apply(PlayerEvasionBase(player, ResourceEffectsTime(player)), PlayerBlindValue(player, playerStats).Less);
+        TimedBlind.Apply(PlayerEvasionBase(player, ResourceEffectsTime(player)), PlayerBlindPenalty(player, playerStats));
     public static int PlayerEvasion(Player player, double now) =>
-        TimedBlind.Apply(PlayerEvasionBase(player, now), PlayerBlindValue(player).Less);
+        TimedBlind.Apply(PlayerEvasionBase(player, now), PlayerBlindPenalty(player));
     // The steps that read the player's blind.
     internal static void MarkPlayerBlind(Player player)
     {
@@ -71,7 +92,10 @@ public static partial class Game
     {
         var blind = PlayerBlindValue(player, stats);
         if (blind.Less > 0 || player.ResourceEffectsState is ResourceEffectsState state && state.PlayerBlind.Sent.Less > 0)
-        { stats[973] = blind.Less > 0 ? 1 : 0; stats[15023] = stats[15024] = -blind.Less; }
+        {
+            stats[973] = blind.Less > 0 ? 1 : 0;
+            stats[15023] = stats[15024] = stats.GetValueOrDefault(Stat.UnaffectedByBlind) != 0 ? 0 : -blind.Less;
+        }
     }
     public static bool InflictPlayerBlind(Player player, double seconds, int effect = 0,
         IReadOnlyDictionary<uint, int>? playerStats = null)
@@ -85,6 +109,9 @@ public static partial class Game
     }
     static int BlindEffectLess(IReadOnlyDictionary<uint, int> stats) =>
         (int)Math.Clamp(20L * Math.Max(0L, 100L + (Stat.BlindEffectPlusPct is var key ? stats.GetValueOrDefault(key) : 0)), 0, 10000) / 100;
+    static bool HasAreaBlind(Player player, uint id) =>
+        player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id);
+
     static (int Less, double Until) MonsterBlindValue(Player player, uint id, SpawnedMonster target, double at, int smokeLess,
         bool? auraBlinded = null)
     {
@@ -100,14 +127,15 @@ public static partial class Game
         var value = owner.Targets.TryGetValue(id, out var entry) && ReferenceEquals(entry.Target, target)
             ? entry.Blind.Read(at, false) : (0, 0);
         if (target.RampageBlindUntil > at && value.Less < 20) value = (20, target.RampageBlindUntil);
-        bool external = auraBlinded ?? (player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id));
-        return external && smokeLess > value.Less ? (smokeLess, 0) : value;
+        bool external = auraBlinded ?? HasAreaBlind(player, id);
+        int areaLess = Math.Max(external ? smokeLess : 0, SandstormBlindLess(target));
+        return areaLess > value.Less ? (areaLess, 0) : value;
     }
     public static int MonsterBlindRating(Player player, uint id, SpawnedMonster target, int rating, double at,
         IReadOnlyDictionary<uint, int>? playerStats = null)
     {
         // The synchronous caller reuses its captured sources. Never build a full player panel for each target.
-        bool auraBlinded = player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id);
+        bool auraBlinded = HasAreaBlind(player, id);
         int smoke = !auraBlinded ? 0 : BlindEffectLess(playerStats ?? StatSourceValues(player));
         return TimedBlind.Apply(rating, MonsterBlindValue(player, id, target, at, smoke, auraBlinded).Less);
     }
@@ -119,12 +147,28 @@ public static partial class Game
         return (Math.Clamp(Get(Stat.GlobalChanceToBlindOnHitPct), 0, 100), Get(Stat.BlindEffectPlusPct),
             4 * Math.Max(0d, 1 + Get(Stat.BlindDurationPlusPct) / 100d));
     }
+
+    static void BlindOnElementalSkillUseLocked(Player player, int effect, double now, IReadOnlyDictionary<uint, int> sources)
+    {
+        int chance = sources.GetValueOrDefault(Stat.ElementalSkillChanceToBlindNearbyEnemiesPct);
+        if (chance <= 0) return;
+        var skills = SkillsFor(player);
+        if (!(skills.HasType(effect, "Fire") || skills.HasType(effect, "Cold") || skills.HasType(effect, "Lightning"))
+            || !RandomRolls.Chance(chance, 100, AreaRng(player))) return;
+        const int radius = 30;
+        var at = player.Walk.Position(now);
+        var input = (100, sources.GetValueOrDefault(Stat.BlindEffectPlusPct), BlindSeconds(sources.GetValueOrDefault));
+        foreach (var (id, enemy) in player.Area.MonstersNear(at, radius))
+            if (Dist(enemy.Walk.Position(now), at) <= radius) InflictMonsterBlind(player, id, enemy, now, input);
+    }
     public static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at,
         (int Chance, int Effect, double Seconds) input, Random? random = null)
         => InflictMonsterBlind(player, id, target, at, input.Chance, input.Effect, input.Seconds, random);
     public static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at,
         BlindHitInput input, bool spell, bool critical, Random? random = null)
-        => InflictMonsterBlind(player, id, target, at, input.Chance(spell, critical), input.Effect, input.Seconds, random);
+        => InflictMonsterBlind(player, id, target, at, input.Chance(spell, critical,
+                (input.GlobalVsBleedingChance > 0 || !spell && input.AttackVsBleedingChance > 0) && target.Bleeds.IgnitedAt(at)),
+            input.Effect, input.Seconds, random);
     static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at, int chance,
         int effect, double seconds, Random? random)
     {
@@ -158,7 +202,7 @@ public static partial class Game
         double now = ResourceEffectsTime(player);
         state.CollectRetiredTargets(player);
         bool hasFlaskBlind = player.FlaskGrounds.HasBlindedMonsters;
-        bool hasAuraBlind = player.BlindAura.Any;
+        bool hasAuraBlind = player.BlindAura.Any || player.ProjectileRuntime is ProjectileSession { HasBladestormBlind: true };
         bool hasAegisBlind = player.PhysicalAegis.Blind.Any;
         bool hasRampageBlind = player.StandingRampageWorld is { Blinds.Count: > 0 };
         // Each Blind's end shows again (a nearby presentation, PresentIn).
@@ -214,8 +258,8 @@ public static partial class Game
         {
             foreach (var (id, target) in player.Area.Monsters)
             {
-                if (!state.Targets.ContainsKey(id) && target.RampageBlindUntil <= now && !player.FlaskGrounds.Blinded(id)
-                    && !player.BlindAura.Blinded(id) && !player.PhysicalAegis.Blind.Blinded(id)) continue;
+                if (!state.Targets.ContainsKey(id) && target.RampageBlindUntil <= now
+                    && SandstormBlindLess(target) == 0 && !HasAreaBlind(player, id)) continue;
                 var value = MonsterBlindValue(player, id, target, now, smoke);
                 Present(id, state.TargetBlind(id, target), value,
                     target.Dead || target.Life == 0 || target.Mods.Effects[Stat.CannotBeBlinded] != 0, false);
@@ -234,7 +278,7 @@ public static partial class Game
     public static bool Blinded(Player player, uint monster, double at) =>
         player.Area.Monsters.TryGetValue(monster, out var target)
         && !target.Dead && target.Life > 0 && target.Mods.Effects[Stat.CannotBeBlinded] == 0
-        && (player.FlaskGrounds.Blinded(monster) || player.BlindAura.Blinded(monster) || PhysicalAegisBlinds(player, monster)
+        && (SandstormBlindLess(target) > 0 || HasAreaBlind(player, monster)
             || target.RampageBlindUntil > at
             || player.ResourceEffectsState is ResourceEffectsState owner && owner.Targets.TryGetValue(monster, out var value)
                 && ReferenceEquals(value.Target, target) && value.Blind.Read(at).Less > 0);
@@ -261,8 +305,12 @@ public static partial class Game
     // hand: the swinging hand of a dual-wielded use (AttackHands), whose weapon base replaces the main hand's.
     public static int? AttackCriticalChanceVsBlinded(Player player, IReadOnlyDictionary<uint, int> playerStats, bool release = false,
         AttackHand hand = AttackHand.Main) =>
+        AttackCriticalChanceVsBlinded(player, playerStats, release, hand, extraBaseCrit: 0);
+
+    internal static int? AttackCriticalChanceVsBlinded(Player player, IReadOnlyDictionary<uint, int> playerStats, bool release,
+        AttackHand hand, int extraBaseCrit) =>
         StatOf(playerStats, VsBlindedCriticalStat) is not (not 0 and var extra)
-            ? null : AttackCriticalChanceWith(player, playerStats, extra, release, hand);
+            ? null : AttackCriticalChanceWith(player, playerStats, extra, release, hand, extraBaseCrit);
 
     /// <summary>A hit's chances against a target on ground effects, worked out once from the chance's base: on
     /// profane ground (+100% increased, PoB's SelfCritChance INC for enemies on Profane Ground), on consecrated ground with
@@ -299,25 +347,34 @@ public static partial class Game
     // The default attack's (and an ordinary bow's) chances against a target on the player's grounds (GroundCritical).
     public static GroundCritical AttackCriticalChanceVsGround(Player player, IReadOnlyDictionary<uint, int> playerStats, bool release = false,
         AttackHand hand = AttackHand.Main) =>
-        GroundCriticalWith(player, extra => AttackCriticalChanceWith(player, playerStats, extra, release, hand), StatOf(playerStats, VsBlindedCriticalStat));
+        AttackCriticalChanceVsGround(player, playerStats, release, hand, extraBaseCrit: 0);
+
+    internal static GroundCritical AttackCriticalChanceVsGround(Player player, IReadOnlyDictionary<uint, int> playerStats, bool release,
+        AttackHand hand, int extraBaseCrit) =>
+        GroundCriticalWith(player, extra => AttackCriticalChanceWith(player, playerStats, extra, release, hand, extraBaseCrit), StatOf(playerStats, VsBlindedCriticalStat));
 
     static int? AttackCriticalChanceWith(Player player, IReadOnlyDictionary<uint, int> playerStats, long extra, bool release,
-        AttackHand hand)
+        AttackHand hand, int extraBaseCrit = 0)
     {
         var weapon = WeaponProfileFor(player, activeSet: true);
-        return AttackBaseCriticalStrike.Chance(!weapon.Unarmed, hand == AttackHand.Main ? weapon.Critical : HandWeaponCritical(player, hand),
-            player.Pools.CriticalStrikeChancePct + extra,
-            name => release && IsCriticalProhibition(name) ? 0 : StatOf(playerStats, name));
+        int Get(uint name) => release && IsCriticalProhibition(name) ? 0 : StatOf(playerStats, name);
+        if ((hand != AttackHand.Off || OffhandWeaponFor(player) is null) && Get(Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance) != 0)
+            return Get(Stat.OverrideMainHandCriticalStrikeChancePctFromCriticalLink);
+        int weaponBase = hand == AttackHand.Main ? weapon.Critical : HandWeaponCritical(player, hand, playerStats);
+        if (extraBaseCrit == 0)
+            return AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weaponBase, player.Pools.CriticalStrikeChancePct + extra, Get);
+        int basis = ActorScale.Saturate((long)AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weaponBase, Get) + extraBaseCrit);
+        return AttackBaseCriticalStrike.ChanceOfBase(basis, player.Pools.CriticalStrikeChancePct + extra, Get);
     }
 
     // A supported gem's chance against a Blinded target (its attack or spell base, the pooled and own increases).
     public static int? SupportedCriticalChanceVsBlinded(Player player, ushort skillId, bool release, int? weaponCritical = null) =>
-        SupportedCriticalChanceVsBlinded(player, skillId, release, weaponCritical, 0);
+        SupportedCriticalChanceVsBlinded(player, skillId, release, weaponCritical, 0, extraBaseCrit: 0);
 
     static int? SupportedCriticalChanceVsBlinded(Player player, ushort skillId, bool release,
-        int? weaponCritical, long extraIncrease) =>
+        int? weaponCritical, long extraIncrease, int extraBaseCrit = 0) =>
         player.Pools.VsBlindedCriticalPct is not 0 and var extra
-            ? SupportedCriticalChanceFor(player, skillId, release, extra + extraIncrease, weaponCritical) : null;
+            ? SupportedCriticalChanceFor(player, skillId, release, extra + extraIncrease, weaponCritical, extraBaseCrit) : null;
 
     // A passive-granted spell's chances against a target on the player's grounds, from its own chance function.
     public static GroundCritical SpellCriticalChanceVsGround(Player player, Func<long, int> with) =>
@@ -328,11 +385,11 @@ public static partial class Game
 
     // A supported gem's chances against a target on the player's grounds (GroundCritical).
     public static GroundCritical SupportedCriticalChanceVsGround(Player player, ushort skillId, bool release, int? weaponCritical = null) =>
-        SupportedCriticalChanceVsGround(player, skillId, release, weaponCritical, 0);
+        SupportedCriticalChanceVsGround(player, skillId, release, weaponCritical, 0, extraBaseCrit: 0);
 
     static GroundCritical SupportedCriticalChanceVsGround(Player player, ushort skillId, bool release,
-        int? weaponCritical, long extraIncrease) =>
-        GroundCriticalWith(player, extra => SupportedCriticalChanceFor(player, skillId, release, extra + extraIncrease, weaponCritical),
+        int? weaponCritical, long extraIncrease, int extraBaseCrit = 0) =>
+        GroundCriticalWith(player, extra => SupportedCriticalChanceFor(player, skillId, release, extra + extraIncrease, weaponCritical, extraBaseCrit),
             player.Pools.VsBlindedCriticalPct);
 
     // damage_taken_+%_from_blinded_enemies (PoB DamageTaken INC, "from Blinded Enemies") for a Blinded monster's hits, where

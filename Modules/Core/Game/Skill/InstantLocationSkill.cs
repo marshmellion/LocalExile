@@ -1,12 +1,13 @@
 using GameServer.Core.World;
 
 
-/// <summary>Ordinary Frostblink's distance calculation and clear endpoint admission.
+/// <summary>Instant Frostblink variants' distance calculation and clear endpoint admission.
 /// Invalid endpoints still fail closed instead of guessing the native fallback search.</summary>
 public static class InstantLocationSkill
 {
     public static bool Supported(SkillCatalog skills, int effect) =>
-        skills.EffectId(effect) is "Frostblink" or "FrostblinkHardMode" && skills.IsInstant(effect) && skills.IsMovement(effect);
+        skills.EffectId(effect) is "Frostblink" or "FrostblinkHardMode" or "FrostblinkRoyale"
+        && skills.IsInstant(effect) && skills.IsMovement(effect);
 
     public static bool ObjectTargetSupported(SkillCatalog skills, int effect) =>
         Supported(skills, effect) || skills.IsInstant(effect) && !skills.IsMovement(effect);
@@ -35,21 +36,25 @@ public static class InstantLocationSkill
         return (first, last);
     }
 
-    // 0x141c00cd0: max distance truncates 42 * (100 + skill_maximum_travel_distance_+%) / 100;
-    // min distance is float 32 at 0x1436ae680. 0x1406722c0 rounds each normalized component with floor(x + .5).
-    public static (int X, int Y)? Endpoint((int X, int Y) from, (uint X, uint Y) aim, int travelDistancePct)
+    // 0x141c00cd0 (IceDash: 32/42) / 0x141d39ea0 (FlameDash: 25/60): max distance truncates
+    // baseMaxRange * (100 + travelDistancePct) / 100; 0x1406722c0 rounds each normalized component with floor(x + .5).
+    public static (int X, int Y)? Endpoint((int X, int Y) from, (uint X, uint Y) aim, int travelDistancePct) =>
+        Endpoint(from, aim, travelDistancePct, 32, 42);
+
+    public static (int X, int Y)? Endpoint((int X, int Y) from, (uint X, uint Y) aim, int travelDistancePct,
+        int minRange, int baseMaxRange)
     {
         if (aim.X > int.MaxValue || aim.Y > int.MaxValue) return null;
-        long numerator = 42L * (100L + travelDistancePct);
+        long numerator = (long)baseMaxRange * (100L + travelDistancePct);
         if (numerator < 0 || numerator > int.MaxValue) return null; // Native signed multiplication must not wrap.
         long maximum = numerator / 100;
         // Do not guess the native min/max interaction for unsupported extreme distance reductions.
-        if (maximum < 32 || maximum > int.MaxValue) return null;
+        if (maximum < minRange || maximum > int.MaxValue) return null;
         float dx = (long)aim.X - from.X, dy = (long)aim.Y - from.Y;
         float distance = MathF.Sqrt(dx * dx + dy * dy);
         if (!(distance > 0) || !float.IsFinite(distance)) return null;
-        if (distance >= 32 && distance <= maximum) return ((int)aim.X, (int)aim.Y);
-        float scale = (distance < 32 ? 32 : (float)maximum) / distance;
+        if (distance >= minRange && distance <= maximum) return ((int)aim.X, (int)aim.Y);
+        float scale = (distance < minRange ? minRange : (float)maximum) / distance;
         double x = from.X + (double)MathF.Floor(dx * scale + .5f);
         double y = from.Y + (double)MathF.Floor(dy * scale + .5f);
         if (x < 0 || y < 0 || x > int.MaxValue || y > int.MaxValue) return null;
@@ -70,30 +75,49 @@ public static class InstantLocationSkill
     {
         to = default;
         if (!player.ProjectileActive(epoch) || !player.Connection.PlayerSent || player.PlayerLife == 0 || player.Paused
-            || player.PendingTransfer is not null || inTown || stat(Stat.YourMovementSkillsAreDisabled) != 0
-            || player.Layout.Walkable is not { } walkable || player.Layout.GridW <= 0 || player.Layout.GridH <= 0)
+            || player.PendingTransfer is not null || inTown || stat(Stat.YourMovementSkillsAreDisabled) != 0)
             return false;
-        if (aim.X >= player.Layout.GridW || aim.Y >= player.Layout.GridH) return false;
+        if (aim.X > int.MaxValue || aim.Y > int.MaxValue) return false;
         return TryResolveLanding(player, from, ((int)aim.X, (int)aim.Y),
             stat(Stat.SkillMaximumTravelDistancePlusPct), allowTerrainFallback: false, out to);
     }
 
-    /// <summary>Resolves an IceDash landing from <paramref name="from"/> toward <paramref name="aim"/> using the
-    /// native 32/42-cell clamp, quest barrier check, monster blocker slide, and optional terrain fallback along the
-    /// aim line (used by Frostblink of Wintry Blast to match 0x141c00cd0 / 0x141c04830).</summary>
+    /// <summary>Resolves an IceDash (<c>0x141c00cd0</c> / <c>0x141c006d0</c> / <c>0x141c04830</c> / <c>0x141c00440</c>,
+    /// 32/42-cell clamp) or FlameDash (<c>0x141d39ea0</c> / <c>0x141d399a0</c> / <c>0x141d3b790</c> / <c>0x141d39830</c>,
+    /// 25/60-cell clamp) landing from <paramref name="from"/> toward <paramref name="aim"/>: range clamp, layer-1 sight
+    /// and solid-barrier line validation (crossing walk-only doors like prison grates while refusing solid walls),
+    /// forward fallback before solid walls when direct travel fails, monster blocker slide, and the native minimum
+    /// displacement threshold (<c>dx² + dy² >= 25</c>).</summary>
     public static bool TryResolveLanding(Player player, (int X, int Y) from, (int X, int Y) aim,
-        int travelDistancePct, bool allowTerrainFallback, out (int X, int Y) to)
+        int travelDistancePct, bool allowTerrainFallback, out (int X, int Y) to) =>
+        TryResolveLanding(player, from, aim, travelDistancePct, allowTerrainFallback, out to, 32, 42);
+
+    public static bool TryResolveLanding(Player player, (int X, int Y) from, (int X, int Y) aim,
+        int travelDistancePct, bool allowTerrainFallback, out (int X, int Y) to, int minRange, int baseMaxRange)
     {
         to = default;
-        if (player.Layout.Walkable is not { } walkable || player.Layout.GridW <= 0 || player.Layout.GridH <= 0)
-            return false;
         if (aim.X < 0 || aim.Y < 0) return false;
-        int clampedX = Math.Clamp(aim.X, 0, player.Layout.GridW - 1);
-        int clampedY = Math.Clamp(aim.Y, 0, player.Layout.GridH - 1);
-        if (Endpoint(from, ((uint)clampedX, (uint)clampedY), travelDistancePct) is not { } endpoint) return false;
+        // 0x141c00440 (IceDashClient::CanExecute): requires dx² + dy² > 24 (>= 5 cells) or the client rejects 0x01ce.
+        bool FarEnough((int X, int Y) target)
+        {
+            long dx = (long)target.X - from.X, dy = (long)target.Y - from.Y;
+            return dx * dx + dy * dy >= 25;
+        }
+        var walkable = player.Layout.Walkable;
+        bool openLayout = walkable is null && player.Layout.GridW <= 0 && player.Layout.GridH <= 0;
+        if (!openLayout && (walkable is null || player.Layout.GridW <= 0 || player.Layout.GridH <= 0))
+            return false;
+        // Compute Endpoint before clamping so diagonal OOB cursors preserve the exact ray angle sent in 0x01ce.
+        if (Endpoint(from, ((uint)aim.X, (uint)aim.Y), travelDistancePct, minRange, baseMaxRange) is not { } endpoint)
+            return false;
         var blockers = player.Blockers;
-        bool Allowed(int x, int y) => x >= 0 && y >= 0 && x < player.Layout.GridW && y < player.Layout.GridH
-            && walkable(x, y) && !player.Barrier.Contains((x, y));
+        var walkBarrier = player.Barrier;
+        var sightBarrier = player.SightBarrier;
+        var sight = player.Layout.Sight;
+        bool Allowed(int x, int y) => openLayout
+            ? x >= 0 && y >= 0 && !walkBarrier.Contains((x, y))
+            : x >= 0 && y >= 0 && x < player.Layout.GridW && y < player.Layout.GridH
+                && walkable!(x, y) && !walkBarrier.Contains((x, y));
         bool Blocked(int x, int y)
         {
             for (int i = 0; i < blockers.Count; i++)
@@ -104,27 +128,44 @@ public static class InstantLocationSkill
             }
             return false;
         }
-        bool ClearLine((int X, int Y) target)
+        bool ClearSightLine((int X, int Y) target)
         {
+            // 0x141c006d0 -> 0x141d8c6d0(..., 1) -> 0x141d98830: every cell along the line must have layer-1 sight >= 1
+            // and no solid/quest sight barrier. Walk-only doors (prison grates) remain passable.
             foreach (var cell in ClientPathfinder.Line(from, target))
             {
-                // Quest gates remain enforced; ordinary terrain between two clear endpoints is not a walking route.
-                if (player.Barrier.Contains(cell)) return false;
+                if (sightBarrier.Contains(cell)) return false;
+                if (sight is not null && sight(cell.X, cell.Y) < 1) return false;
             }
             return true;
         }
         if (!Allowed(from.X, from.Y)) return false;
-        if (!Allowed(endpoint.X, endpoint.Y))
+        bool endpointOob = !openLayout
+            && (endpoint.X < 0 || endpoint.Y < 0 || endpoint.X >= player.Layout.GridW || endpoint.Y >= player.Layout.GridH);
+        bool directAllowed = !endpointOob && Allowed(endpoint.X, endpoint.Y);
+        bool directClear = directAllowed && ClearSightLine(endpoint);
+        if (!directClear)
         {
-            if (!allowTerrainFallback) return false;
+            // Unlike Dash's 0x141b43d90 (0x141b43eea breaks on layer 1 < 2, 0x141b43f78 records layer 0 >= 2),
+            // IceDash's 0x141c04830 checks the layers in reverse order: 0x141c0498a (r8 = 0) aborts the trace as soon
+            // as layer 0 < 2 (!Allowed, including walk-only grates and chasms when the direct endpoint failed), while
+            // 0x141c04a1c (r8 = 1) skips recording cells with layer 1 == 1 and updates the landing only where
+            // layer 1 >= 2. 0x141c00440 then re-checks dx^2 + dy^2 >= 25 and 0x141c006d0 (layer 1 >= 1 along the line),
+            // so sight == 0 or a SightBarrier also terminates the trace instead of being skipped over.
+            if (!allowTerrainFallback && sight is null && !endpointOob) return false;
             (int X, int Y)? terrain = null;
-            foreach (var cell in ClientPathfinder.Line(endpoint, from))
+            foreach (var cell in ClientPathfinder.Line(from, endpoint))
             {
-                if (cell == from) break;
-                if (Allowed(cell.X, cell.Y) && ClearLine(cell)) { terrain = cell; break; }
+                if (!openLayout && (cell.X < 0 || cell.Y < 0 || cell.X >= player.Layout.GridW || cell.Y >= player.Layout.GridH)) break;
+                if (sightBarrier.Contains(cell) || sight is not null && sight(cell.X, cell.Y) < 1) break;
+                if (cell == from) continue;
+                if (!Allowed(cell.X, cell.Y)) break;
+                if (sight is not null && sight(cell.X, cell.Y) < 2) continue;
+                if (!Blocked(cell.X, cell.Y)) terrain = cell;
             }
-            if (terrain is not { } valid) return false;
-            endpoint = valid;
+            if (terrain is not { } valid || !FarEnough(valid) || !ClearSightLine(valid)) return false;
+            to = valid;
+            return true;
         }
         if (Blocked(endpoint.X, endpoint.Y))
         {
@@ -149,10 +190,10 @@ public static class InstantLocationSkill
                     {
                         if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
                         int cx = endpoint.X + dx, cy = endpoint.Y + dy;
-                        if (!Allowed(cx, cy) || Blocked(cx, cy)) continue;
+                        if (!Allowed(cx, cy) || Blocked(cx, cy) || !FarEnough((cx, cy))) continue;
                         long distSq = (long)dx * dx + (long)dy * dy;
                         if (distSq >= bestDistSq) continue;
-                        if (!ClearLine((cx, cy))) continue;
+                        if (!ClearSightLine((cx, cy))) continue;
                         bestDistSq = distSq;
                         fallback = (cx, cy);
                     }
@@ -162,38 +203,64 @@ public static class InstantLocationSkill
             to = clear;
             return true;
         }
-        if (!ClearLine(endpoint)) return false;
+        if (!FarEnough(endpoint)) return false;
         to = endpoint;
         return true;
     }
 
     // Object 0x1ce binds the entity again on delivery.
-    // Only the native clear-grid trace is supported: partial terrain searches and coincident RNG fail closed.
+    // Living monsters extend past the target's footprint; non-monster objects and corpses fall back to resolving toward their position.
     public static bool TryResolveObject(Player player, int epoch, uint targetId, bool inTown,
-        Func<uint, int> stat, out (int X, int Y) from, out (int X, int Y) to, out (int X, int Y) aim)
+        Func<uint, int> stat, out (int X, int Y) from, out (int X, int Y) to, out (int X, int Y) aim) =>
+        TryResolveObject(player, epoch, targetId, inTown, stat, out from, out to, out aim, out _);
+
+    public static bool TryResolveObject(Player player, int epoch, uint targetId, bool inTown,
+        Func<uint, int> stat, out (int X, int Y) from, out (int X, int Y) to, out (int X, int Y) aim, out bool monsterTarget)
     {
         double now = Game.ProjectileWorldTime(player);
-        from = player.Walk.Position(now); to = aim = default;
-        if (!player.Area.Monsters.TryGetValue(targetId, out var target) || target.Dead || target.Life == 0
-            || target.Variety is not { ObjectSize: >= 1 and <= 128 } variety) return false;
-        aim = target.Walk.Position(now);
-        if (ObjectAim(from, aim, 1, variety.ObjectSize - 1) is not { } trace
-            || !TryResolveFrom(player, epoch, from, ((uint)trace.End.X, (uint)trace.End.Y), inTown, stat, out to)) return false;
-        // 0x141c04ae0 retains the last valid Bresenham candidate. Requiring a wholly clear extension avoids
-        // guessing its two terrain-layer thresholds or the outer native terrain fallback on partial traces.
-        foreach (var cell in ClientPathfinder.Line(trace.Start, trace.End))
-            if (cell.X < 0 || cell.Y < 0 || cell.X >= player.Layout.GridW || cell.Y >= player.Layout.GridH
-                || player.Layout.Walkable!(cell.X, cell.Y) == false || player.Barrier.Contains(cell)) return false;
-        return Math.Max(Math.Abs((long)trace.End.X - aim.X), Math.Abs((long)trace.End.Y - aim.Y))
-            - (variety.ObjectSize - 1) >= 1; // Native candidate must be outside the target's footprint.
+        from = player.Walk.Position(now); to = aim = default; monsterTarget = false;
+        if (player.Area.Monsters.TryGetValue(targetId, out var target)
+            && !target.Dead && target.Life > 0
+            && target.Variety is { ObjectSize: >= 1 and <= 128 } variety)
+        {
+            aim = target.Walk.Position(now);
+            if (ObjectAim(from, aim, 1, variety.ObjectSize - 1) is not { } trace
+                || !TryResolveFrom(player, epoch, from, ((uint)trace.End.X, (uint)trace.End.Y), inTown, stat, out to)) return false;
+            // 0x141c04ae0 retains the last valid Bresenham candidate. Requiring a wholly clear extension avoids
+            // guessing its two terrain-layer thresholds or the outer native terrain fallback on partial traces.
+            if (player.Layout.Walkable is { } walkable && player.Layout.GridW > 0 && player.Layout.GridH > 0)
+            {
+                foreach (var cell in ClientPathfinder.Line(trace.Start, trace.End))
+                    if (cell.X < 0 || cell.Y < 0 || cell.X >= player.Layout.GridW || cell.Y >= player.Layout.GridH
+                        || !walkable(cell.X, cell.Y) || player.Barrier.Contains(cell)) return false;
+            }
+            else if (player.Barrier.Count > 0)
+            {
+                foreach (var cell in ClientPathfinder.Line(trace.Start, trace.End))
+                    if (player.Barrier.Contains(cell)) return false;
+            }
+            if (Math.Max(Math.Abs((long)trace.End.X - aim.X), Math.Abs((long)trace.End.Y - aim.Y))
+                - (variety.ObjectSize - 1) < 1) return false; // Native candidate must be outside the target's footprint.
+            monsterTarget = true;
+            return true;
+        }
+        if (Game.ResolveObjectAimCell(player, targetId, target, now) is not { } fallbackAim
+            || fallbackAim.X < 0 || fallbackAim.Y < 0)
+            return false;
+        aim = fallbackAim;
+        return TryResolveFrom(player, epoch, from, ((uint)fallbackAim.X, (uint)fallbackAim.Y), inTown, stat, out to);
     }
 
     public static bool TryCommitObject(Player player, int epoch, uint targetId, bool inTown,
-        Func<uint, int> stat, out (int X, int Y) aim, out (int X, int Y) to)
+        Func<uint, int> stat, out (int X, int Y) aim, out (int X, int Y) to) =>
+        TryCommitObject(player, epoch, targetId, inTown, stat, out aim, out to, out _);
+
+    public static bool TryCommitObject(Player player, int epoch, uint targetId, bool inTown,
+        Func<uint, int> stat, out (int X, int Y) aim, out (int X, int Y) to, out bool monsterTarget)
     {
         using (Game.ProjectileMutation(player))
         {
-            if (!TryResolveObject(player, epoch, targetId, inTown, stat, out _, out to, out aim)) return false;
+            if (!TryResolveObject(player, epoch, targetId, inTown, stat, out _, out to, out aim, out monsterTarget)) return false;
             player.Walk.Teleport(to.X, to.Y, Game.ProjectileWorldTime(player));
             return true;
         }

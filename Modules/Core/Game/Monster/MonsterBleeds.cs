@@ -29,7 +29,8 @@ public static partial class Game
     /// aggravate_bleeding_on_attack_crit_chance_%), and aggravate_inflicted_bleeding aggravates the hit's own; Crimson
     /// Dance (keystone_crimson_dance) stacks 8 instead and cannot aggravate (ReminderTextKeystoneCrimsonDance). It lasts
     /// 5 s × (1 + bleed_duration_+%, base_bleed_duration_+% and
-    /// base_all_ailment_duration_+%); faster_bleed_% and damaging_ailments_deal_damage_+%_faster multiply its damage per
+    /// base_all_ailment_duration_+% and, for a bow, status_ailments_you_inflict_duration_+%_with_bows);
+    /// faster_bleed_% and damaging_ailments_deal_damage_+%_faster multiply its damage per
     /// second and divide its duration, as ignite's faster stats do. cannot_cause_bleeding and never_damaging_ailments stop
     /// it; a physical prohibition already leaves its rows empty.
     /// </summary>
@@ -58,9 +59,12 @@ public static partial class Game
         // Puncture (bleed_duration_is_skill_duration): its bleed lasts the skill's duration, with the skill duration
         // modifiers (ActiveSkills puncture: "affected by modifiers to skill duration"), then the bleed's own.
         double baseSeconds = get(Stat.BleedDurationIsSkillDuration) != 0 && get(Stat.BaseSkillEffectDuration) > 0
-            ? SkillDurationModifiers.Seconds(get(Stat.BaseSkillEffectDuration), _ => 0, get) : Ailments.BleedDurationSeconds;
+            ? SkillDurationModifiers.Seconds(get(Stat.BaseSkillEffectDuration), _ => 0, get,
+                bow ? SkillDurationModifiers.Kinds.Bow : SkillDurationModifiers.Kinds.None)
+            : Ailments.BleedDurationSeconds;
         double seconds = baseSeconds * Math.Max(0, 1 + ((double)get(Stat.BleedDurationPlusPct)
-            + get(Stat.BaseBleedDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100) / faster
+            + get(Stat.BaseBleedDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)
+            + (bow ? get(Stat.StatusAilmentsYouInflictDurationPlusPctWithBows) : 0)) / 100) / faster
             * MonsterIgnites.DurationMultiplier(get);
         bool dance = get(Stat.KeystoneCrimsonDance) != 0;
         int aggravate = dance ? 0 : get(Stat.BaseAggravateBleedingOnAttackHitChancePct);
@@ -88,8 +92,9 @@ public static partial class Game
         var rows = capturedInputs is null
             ? SupportedAilmentRows(player, skillId, "main_hand", weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, "main_hand", additionalIncreased);
+        bool bow = capturedInputs?.WieldingBow ?? (weapon ?? WeaponFor(player)).Bow;
         return WithOverheat(player, skillId, BleedSettings(rows, "main_hand", get,
-            weapon is null ? MainHandLocalSources(player) : weapon.LocalSources, melee, bow: false));
+            weapon is null ? MainHandLocalSources(player) : weapon.LocalSources, melee, bow));
     }
 
     /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
@@ -114,7 +119,11 @@ public static partial class Game
     // (wiki Bleeding, Aggravate): they deal damage as though it moved for the rest of their durations.
     // shortcut: callers only come here for a hit that dealt physical damage, so a hit without any never aggravates.
     public static List<byte[]>? BleedOnHitLocked(Player player, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false)
+        MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false) =>
+        BleedOnHitLocked(player, id, target, settings, critical, now, reflect, playerOwned: true);
+
+    static List<byte[]>? BleedOnHitLocked(Player player, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now, bool reflect, bool playerOwned)
     {
         if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row) return null;
         // Elemental Overload: the ailment is not from a critical strike, so it rolls the hit's chance and aggravate.
@@ -124,19 +133,23 @@ public static partial class Game
         if (target.Bleeds.Burning
             && RandomRolls.Chance(critical ? settings.CriticalAggravate : settings.Aggravate, 100, player.IgniteRandom))
             target.Bleeds.Aggravate();
-        if (!RandomRolls.Chance(critical ? settings.CriticalChance : settings.Chance, 100, player.IgniteRandom)) return null;
+        if (settings.Seconds <= 0 || settings.OnlyFromCrit && !critical
+            || (critical ? settings.CriticalMax : settings.Max) <= 0) return null;
+        int chance = ActorScale.Saturate((long)(critical ? settings.CriticalChance : settings.Chance)
+            + target.Effects[Stat.ReceiveBleedingChancePctWhenHitByAttack]);
+        if (!RandomRolls.Chance(chance, 100, player.IgniteRandom)) return null;
         var e = target.Mods.Effects;
         if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e[Stat.AvoidBleedPct] + e[Stat.BaseAvoidBleedPct],
                 e[Stat.ImmuneToBleeding] != 0 || e[Stat.CannotGainBleeding] != 0 || e[Stat.BaseCannotGainBleeding] != 0,
                 player.IgniteRandom, out double perSecond)) return null;
         player.Area.ActiveBleedMonsters.Add(id);
-        InflictedLocked(player, target, AilmentType.Bleed, now + settings.Seconds);
+        if (playerOwned) InflictedLocked(player, target, AilmentType.Bleed, now + settings.Seconds / target.Bleeds.ExpiryRate);
         // Rupture Support: the critical strike that inflicted this bleeding also ruptures the target.
         if (critical && settings.RupturePercent > 0)
         {
             target.Ruptures.SetExpiryRate(now, target.RecipientDebuffRate);
             target.Ruptures.Add(now, settings.RupturePercent);
-            target.Bleeds.SetExpiryRate(now, BleedingExpiryRate(target, now));
+            SetBleedingExpiryRate(target, now);
         }
         if (reflect)
         {
@@ -170,7 +183,11 @@ public static partial class Game
 
     public static void BleedOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false) =>
-        QueueDotBuff(session, BleedOnHitLocked(session.Player, id, target, settings, critical, now, reflect),
+        BleedOnHitLocked(session, id, target, settings, critical, now, reflect, playerOwned: true);
+
+    static void BleedOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now, bool reflect, bool playerOwned) =>
+        QueueDotBuff(session, BleedOnHitLocked(session.Player, id, target, settings, critical, now, reflect, playerOwned),
             BleedingLog(id, target, critical, now));
 
     /// <summary>A bleeding monster's mitigation: its physical damage over time taken (resistance, damage taken, Pride;
@@ -192,17 +209,51 @@ public static partial class Game
     public static double BleedingExpiryRate(SpawnedMonster target, double now) =>
         target.RecipientDebuffRate * (1 + .25 * target.Ruptures.Stacks(now));
 
+    static void SetBleedingExpiryRate(SpawnedMonster target, double now)
+    {
+        double previous = target.Bleeds.ExpiryRate;
+        double rate = BleedingExpiryRate(target, now);
+        if (rate == previous) return;
+        target.Bleeds.SetExpiryRate(now, rate);
+        target.RetimeSourceMarks(InflictedKeys[(int)AilmentType.Bleed], now, previous, target.Bleeds.ExpiryRate);
+    }
+
     // Settle at each stack's expiry, even if a delayed tick crosses several. Damage is committed by the normal DoT
     // tick; changing the rate or adding another bleed must not discard damage already earned by an expired instance.
     public static void SettleBleeding(SpawnedMonster target, double now)
     {
-        while (target.Ruptures.NextExpiry is var end && end <= now)
+        if (!target.Bleeds.Burning)
+        {
+            SetBleedingExpiryRate(target, now);
+            return;
+        }
+        if (MaimDotTaken.TryGetValue(target, out var maim) && maim.Overlaps(target.Bleeds.AccruedThrough, now))
+        {
+            foreach (double boundary in maim.Boundaries(target.Bleeds.AccruedThrough, now).Distinct().Order())
+                SettleBleedingUntil(target, boundary);
+        }
+        SettleBleedingUntil(target, now);
+    }
+
+    static void SettleBleedingUntil(SpawnedMonster target, double now)
+    {
+        double maimEnd = target.MaimedPhysicalTakenUntil;
+        while (true)
+        {
+            double ruptureEnd = target.Ruptures.NextExpiry;
+            double end = target.Bleeds.AccruedThrough < maimEnd ? Math.Min(ruptureEnd, maimEnd) : ruptureEnd;
+            if (end > now) break;
+            Accrue(end);
+            if (end == ruptureEnd) SetBleedingExpiryRate(target, end);
+            if (end == maimEnd) maimEnd = double.PositiveInfinity;
+        }
+        Accrue(now);
+
+        void Accrue(double end)
         {
             double before = Math.BitDecrement(end);
             target.Bleeds.Accrue(end, BleedTaken(target, before), AggravatedExtra(target, before));
-            target.Bleeds.SetExpiryRate(end, BleedingExpiryRate(target, end));
         }
-        target.Bleeds.Accrue(now, BleedTaken(target, now), AggravatedExtra(target, now));
     }
 
     // One tick of the bleeding monsters (the area's monster damage over time), as BurnIgnited: only the strongest bleed deals damage (Crimson

@@ -51,24 +51,9 @@ public static partial class MapStrongboxes
         "degen_effect_+%", "self_elemental_status_duration_-%",
     };
 
-    sealed class PlayerCurse
-    {
-        public readonly List<(Dictionary<uint, int> Stats, double Until, ushort Buff)> Active = [];
-    }
-    static readonly RuleTable<Player, PlayerCurse> Cursed = new();
-
-    /// <summary>GameEvents.PlayerStatSources: the strongbox curses on this player, while they last.</summary>
-    public static Dictionary<uint, int> CurseStats(Player player, Dictionary<uint, int> stats)
-    {
-        if (!Cursed.TryGetValue(player, out var cursed) || cursed.Active.Count == 0) return stats;
-        double now = Now;
-        lock (cursed)
-            foreach (var (curse, until, _) in cursed.Active)
-                if (until > now)
-                    foreach (var (key, value) in curse)
-                        stats[key] = (int)Math.Clamp((long)stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
-        return stats;
-    }
+    /// <summary>Strongbox curses now route through <see cref="Game.AddPlayerDebuff"/> so they deduplicate with all
+    /// other player curses and respect area time and curse immunity.</summary>
+    public static Dictionary<uint, int> CurseStats(Player player, Dictionary<uint, int> stats) => stats;
 
     /// <summary>A skill's base hit damage from its stats: <c>spell_minimum_base_&lt;type&gt;_damage</c> and the maximum, or the
     /// <c>secondary_</c> ones (an explosion's).</summary>
@@ -285,6 +270,7 @@ public static partial class MapStrongboxes
             await SendWorldRecord(player, player.Id, InstanceProtocol.LifeUpdate(player.Id, player.PlayerLife, player.PlayerReservedLife), "strongbox daemon hit");
             await SendPlayerEnergyShield(player);
             if (hit.Mana != hit.ManaBefore) await SendPlayerMana(player, "strongbox daemon mana");
+            if (player.PlayerLife > 0) await SendRage(player);
             if (player.PlayerLife == 0) await PlayerDied(player, "death from a strongbox daemon");
         }
     }
@@ -296,51 +282,26 @@ public static partial class MapStrongboxes
             if (player.Immune || InGracePeriod(player)) continue;
             var stats = CharacterPlayerStats(player);
             double now = AreaTime(player);
-            ApplyPlayerAilmentsLocked(player, now, a => a.Inflict(kind, magnitude, seconds, now,
-                key => stats.GetValueOrDefault(key), player.IncomingHitRandom));
+            var defences = PlayerElementalDefencesAt(player, now, stats.GetValueOrDefault);
+            ApplyPlayerAilmentsLocked(player, now, a => a.Inflict(kind, magnitude, seconds, now, defences, player.IncomingHitRandom));
             double after = player.ElementalAilments.Magnitude(kind, now);
             Console.WriteLine($"[map-content] strongbox daemon {kind} {magnitude:0.#} for {seconds:0.#} s on {CharacterName(player)}: " +
                 (after > 0 ? $"active ({after:0.#})" : "avoided or immune"));
         }
     }
 
-    /// <summary>One of the daemon's curses on the players near the box: the curse's stats that act on the one it curses
-    /// (and <c>you_are_cursed_with_&lt;curse&gt;</c>), its buff, for its duration; a curse-immune player is not cursed.</summary>
+    /// <summary>One of the daemon's curses on the players near the box: routed through <see cref="Game.AddPlayerDebuff"/>
+    /// so it deduplicates with monster, pillar, Harbinger, and map curses and respects area time and curse immunity.</summary>
     static async Task Curse(Player source, (int X, int Y) at, double radius, (string Name, ushort Buff) curse,
         Dictionary<uint, int> skillStats, double seconds)
     {
         foreach (var player in PlayersNear(source, at, radius).ToArray())
         {
             if (player.Immune || InGracePeriod(player)) continue;
-            var playerStats = CharacterPlayerStats(player);
-            int Has(uint key) => playerStats.GetValueOrDefault(key);
-            if (Has(Stat.ImmuneToCurses) != 0 || Has(Stat.VirtualImmuneToCurses) != 0 || Has(Stat.Hexproof) != 0) continue;
             var stats = skillStats.Where(p => CurseOnPlayerStats.Contains(Stats.Name(p.Key) ?? "")).ToDictionary(p => p.Key, p => p.Value);
             if (Stats.Key("you_are_cursed_with_" + curse.Name) is uint flag) stats[flag] = 1;
-            var cursed = Cursed.GetOrCreateValue(player);
-            ushort buff = player.NextBuff++;
-            lock (cursed) { cursed.Active.RemoveAll(c => c.Until <= Now); cursed.Active.Add((stats, Now + seconds, buff)); }
-            await SendWorldRecord(player, player.Id, InstanceEntities.AddBuff(player.Id, buff, curse.Buff,
-                u68: BitConverter.SingleToUInt32Bits((float)seconds)), $"strongbox curse {curse.Name} for {seconds:0.#} s");
-            await RefreshStats(player);
-            _ = Uncurse(player, buff, seconds);
+            await AddPlayerDebuff(player, curse.Buff, 0, stats, seconds);
         }
-    }
-
-    static async Task Uncurse(Player player, ushort buff, double seconds)
-    {
-        await Task.Delay(TimeSpan.FromSeconds(seconds));
-        if (Cursed.TryGetValue(player, out var cursed)) lock (cursed) cursed.Active.RemoveAll(c => c.Buff == buff);
-        if (player.Closed) return;
-        await SendWorldRecord(player, player.Id, InstanceEntities.RemoveBuff(player.Id, buff), null);
-        if (!player.LeavingArea) await RefreshStats(player);
-    }
-
-    static async Task RefreshStats(Player c)
-    {
-        c.Pools = PoolsFor(c, c.Pools.Level);
-        c.ApplyMovementSpeed();
-        await SendPlayerStatSnapshot(c, () => PlayerStatsOffFrames(c), null);
     }
 
     /// <summary>Every corpse near the box explodes (and is consumed): each an area hit around it. The art is the official
@@ -503,18 +464,25 @@ public static partial class MapStrongboxes
             inside = [.. inside.Where(z => !(unaffected.Burning && z.Type == DamageType.Fire && z.Dps > 0
                 || unaffected.Chilled && z.Ailment == "chill" || unaffected.Shocked && z.Ailment == "shock"))];
         var immune = inside.Length > 0 ? PlayerImmunities(player) : [];
-        double dps = inside.Where(z => z.Dps > 0 && !immune.Contains(z.Type))
-            .Sum(z => z.Dps * (z.Type == DamageType.Physical ? 1 : 1 - Math.Min(MaxResistance(player, z.Type), Resistance(player, z.Type)) / 100.0));
-        player.Degens[share] = dps;
-        share.Dps = dps;
+        double physical = 0, elemental = 0, chaos = 0;
+        foreach (var zone in inside)
+        {
+            if (zone.Dps <= 0 || immune.Contains(zone.Type)) continue;
+            if (zone.Type == DamageType.Physical) { physical += zone.Dps; continue; }
+            double resisted = zone.Dps * (1 - Math.Min(MaxResistance(player, zone.Type), Resistance(player, zone.Type)) / 100.0);
+            if (zone.Type == DamageType.Chaos) chaos += resisted;
+            else elemental += resisted;
+        }
+        player.Degens.Set(share, physical, elemental, chaos);
+        share.Dps = physical + elemental + chaos;
         foreach (var zone in inside.Where(z => z.Ailment is not null))
         {
             var kind = zone.Ailment == "chill" ? PlayerElementalAilments.Kind.Chill : PlayerElementalAilments.Kind.Shock;
             int magnitude = kind == PlayerElementalAilments.Kind.Chill ? 10 : 15;
             if (player.ElementalAilments.Magnitude(kind, at) >= magnitude) continue;
             var stats = CharacterPlayerStats(player);
-            ApplyPlayerAilmentsLocked(player, at, a => a.Inflict(kind, magnitude, .3, at,
-                key => stats.GetValueOrDefault(key), player.IncomingHitRandom));
+            var defences = PlayerElementalDefencesAt(player, at, stats.GetValueOrDefault);
+            ApplyPlayerAilmentsLocked(player, at, a => a.Inflict(kind, magnitude, .3, at, defences, player.IncomingHitRandom));
         }
     }
 

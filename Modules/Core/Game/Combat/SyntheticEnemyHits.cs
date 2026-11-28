@@ -23,13 +23,15 @@ public static partial class Game
             var stats = CharacterPlayerStats(player);
             if (spell && DodgesSpellHit(player)) return false;
             GainLifeBeforeEnemyHitLocked(player, stats);
+            uint manaBefore = player.PlayerMana;
+            GainManaBeforeEnemyHitLocked(player, stats);
             // The order a monster's hit takes (Monsters.cs): damage taken as shifts the packet, each type taken is avoided
             // (Elusive's one roll for the whole hit first), the Gambler's one 90% resistance roll and each type's resistance,
             // then block, one armour decision for the hit, and each part through armour and the rest.
             var shifted = PlayerDamageTaken.Shift(DamagePacket.Of(type, amount, amount), stats.GetValueOrDefault);
             var kept = PlayerDamageTaken.Avoid(shifted, stats.GetValueOrDefault, player.IncomingHitRandom, out var avoided,
                 ElusiveAvoidPct(player));
-            var mitigated = GamblerFor(stats).MitigateIncomingHit(kept, t =>
+            var mitigated = HitRollsFor(stats).MitigateIncomingHit(kept, t =>
                 new DamageModel.ResistanceValue(Resistance(player, t), MaxResistance(player, t)), player.IncomingHitRandom, out bool ninety);
             var immune = PlayerImmunities(player, stats);
             int blockChance = spell ? player.Pools.SpellBlockChance : player.Pools.BlockChance;
@@ -42,7 +44,7 @@ public static partial class Game
             string mitigation = MitigationLabels(player, shifted, avoided, immune, ninety, armour.EffectiveArmour, stats);
             var suppression = suppress ? Suppression(player) : default;
             bool suppressed = suppress && DamageModel.Suppresses(suppression.Chance,
-                player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
+                player.IncomingHitRandom, suppression.Lucky, suppression.Unlucky);
             // Each part through armour and the rest, kept as the damage taken the ailments and recoup read.
             var ailmentTaken = DamagePacket.Empty;
             int physicalDealt = 0, chaosDealt = 0, dealt = 0;
@@ -63,10 +65,16 @@ public static partial class Game
             dealt = FortificationDamageTakenLocked(player, dealt, now, stats);
             chaosDealt = FortificationDamageTakenLocked(player, chaosDealt, now, stats);
             physicalDealt = Math.Min(FortificationDamageTakenLocked(player, physicalDealt, now, stats), Math.Max(0, dealt - chaosDealt));
-            uint manaBefore = player.PlayerMana;
             if (blocked) RecoverOnBlockLocked(player, stats, now, attack: !spell);
             var recouped = ailmentTaken.Select((_, r) => new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats),
                 FortificationDamageTakenLocked(player, (int)r.Max, now, stats)));
+            if (stats.GetValueOrDefault(Stat.BaseElementalDamageHeals) != 0)
+            {
+                int elemental = Math.Max(0, dealt - physicalDealt - chaosDealt);
+                RecoverElementalDamageAsLife(player, elemental, stats.GetValueOrDefault);
+                dealt -= elemental;
+                recouped = recouped.Select((part, range) => DamageTypes.IsElemental(part) ? default : range);
+            }
             RecoupHitLocked(player, recouped, now, stats);
             if (shifted[DamageType.Physical].Min > 0 || type == DamageType.Physical)
                 PreventedDamageOf(player).Add(now, shifted[DamageType.Physical].Min - physicalDealt);
@@ -78,7 +86,8 @@ public static partial class Game
             RecordIncomingHitLocked(player, now, spell, blocked, suppressed, lifeDamage, dealt > 0, attack: !spell);
             RecentHitLifeLossOnHitLocked(player, now);
             UnhingedHitRecoveryLocked(player, now, stats);
-            if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+            RageWhenHitLocked(player);
+            if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
             RecordHardcoreDeath(player);
             hit = new(dealt, mitigation, player.PlayerLife, player.PlayerMana, manaBefore,
                 blocked, blockChance, suppressed, suppression, recouped);

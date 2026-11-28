@@ -103,8 +103,10 @@ public static partial class MonsterSkills
                 RallyCharge: rally, RallyCount: count);
         }
         if (IsCorpseSkill(effect)) return CorpseUseOf(skills, effect, level, shape, stats, seconds);
-        ushort row = ActionClasses.OfEffect(effect)?.SelfBuff is { } buff && BuffRows.TryGetValue(buff(skills, effect), out ushort own)
-            ? own : BuffRowOf(skills.EffectId(effect) ?? "", shape);
+        ushort row = shape == MonsterSkillShape.Curse && stats.ContainsKey(Stat.TemporalChainsActionSpeedPlusPctFinal)
+            ? AuraCatalog.BuffRow("TemporalChains")
+            : ActionClasses.OfEffect(effect)?.SelfBuff is { } buff && BuffRows.TryGetValue(buff(skills, effect), out ushort own)
+                ? own : BuffRowOf(skills.EffectId(effect) ?? "", shape);
         return shape switch
         {
             MonsterSkillShape.Travel => new(shape, 0, 0, stats, TravelMinRange),
@@ -160,16 +162,24 @@ public static partial class MonsterSkills
     /// <summary>The corpse a monster uses the skill on, in the area's frame: for a travel, the one nearest the player
     /// that is within its reach and brings it nearer; for a spell, the one nearest the player whose hits reach the player.
     /// Null when there is none.</summary>
-    public static (uint Id, SpawnedMonster Corpse, (int X, int Y) At)? CorpseFor(Player player, SpawnedMonster m, MonsterAttack a, double now)
+    public static (uint Id, SpawnedMonster Corpse, (int X, int Y) At)? CorpseFor(Player player, SpawnedMonster m, MonsterAttack a, double now) =>
+        CorpseFor(player, m, a, now, cachedAreaLists: false);
+
+    internal static (uint Id, SpawnedMonster Corpse, (int X, int Y) At)? CorpseFor(Player player, SpawnedMonster m, MonsterAttack a, double now, bool cachedAreaLists)
     {
         if (a.Use is not { OnCorpse: true } use) return null;
+        if (!cachedAreaLists) player.Area.SyncLivingMonsters();
+        if (!player.Area.HasDeadMonsters) return null;
+        var dead = player.Area.SyncDeadMonsters(livingAlreadySynced: true);
+        if (dead.Count == 0) return null;
         var here = m.Walk.Position(now);
         var playerAt = player.Walk.Position(now);
         double near = Dist(here, playerAt);
         (uint, SpawnedMonster, (int, int))? best = null;
         double bestDistance = double.MaxValue;
-        foreach (var (id, corpse) in player.Area.Monsters)
+        for (int i = 0; i < dead.Count; i++)
         {
+            var (id, corpse) = dead[i];
             if (!IsCorpse(corpse)) continue;
             var at = corpse.Walk.Position(now);
             double fromMonster = Dist(here, at), fromPlayer = Dist(at, playerAt);
@@ -186,11 +196,14 @@ public static partial class MonsterSkills
     /// summon only while its summoner has fewer of its monsters than the skill's limit (a totem is placed when there is
     /// none, not again over the one that stands). In the area's frame.</summary>
     public static bool Usable(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
+        Usable(player, id, m, a, now, cachedAreaLists: false);
+
+    internal static bool Usable(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now, bool cachedAreaLists) =>
         (!a.IsDischarge || HasAnyMonsterCharge(m))
-        && (a.Use is not { OnCorpse: true } || CorpseFor(player, m, a, now) is not null)
-        && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(player, id, summon) < summon.Limit)
+        && (a.Use is not { OnCorpse: true } || CorpseFor(player, m, a, now, cachedAreaLists) is not null)
+        && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(player, id, summon, cachedAreaLists) < summon.Limit)
         // A summon on its cooldown or at the cap of living summons waits too: chosen, the boss stood until it could.
-        && Game.SummonReadyLocked(player, id, m, a, now);
+        && Game.SummonReadyLocked(player, id, m, a, now, cachedAreaLists);
 
     static bool HasAnyMonsterCharge(SpawnedMonster m)
     {
@@ -323,7 +336,7 @@ public static partial class MonsterSkills
     {
         foreach (ushort row in rows)
         {
-            player.Area.Buffs.Set(id, new(row, id, AuraSource: true));
+            player.Area.Buffs.Set(id, global::BuffRows.Spec(row, id, null) with { AuraSource = true });
         }
     }
 
@@ -363,7 +376,8 @@ public static partial class MonsterSkills
                 if (isDash)
                 {
                     target = Game.DashLanding(player.Layout, player.Barrier, from,
-                        order.Player, TravelPct(player, a.Effect!.Value, m.Level), false, m.Variety?.ObjectSize ?? 1);
+                        order.Player, TravelPct(player, a.Effect!.Value, m.Level), false, m.Variety?.ObjectSize ?? 1,
+                        player.SightBarrier);
                 }
                 else
                 {
@@ -378,9 +392,10 @@ public static partial class MonsterSkills
                 bool groundSlide = a.Effect is int slideEffect
                     && SkillCatalog.ActionTypeId(slideEffect) is "BladeFlurry" or "WhirlingBlades"
                         or "ShieldCharge" or "NewShieldCharge" or "NewNewShieldCharge";
+                var travelBarrier = isDash ? player.SightBarrier : player.Barrier;
                 foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, target))
                 {
-                    if (player.Barrier.Contains(cell)) return null;
+                    if (travelBarrier.Contains(cell)) return null;
                     if (groundSlide && cell != from && !m.Walk.Floor(cell.X, cell.Y)) return null;
                 }
             }
@@ -513,7 +528,6 @@ public static partial class MonsterSkills
         double walkSpeed, chargeSpeed;
         walkSpeed = m.Walk.Speed;
         chargeSpeed = walkSpeed / Math.Max(.01, 1 + ownPct / 100.0) * Math.Max(.01, 1 + (ownPct + bonusPct) / 100.0);
-        SetStats(player, id, [(Stat.MovementVelocityPlusPct, ownPct + bonusPct)]);
         double startedAt = 0, arrives = 0;
         ushort seq = player.NextActionSequence();
         (int X, int Y) from = default, target = default;
@@ -529,6 +543,8 @@ public static partial class MonsterSkills
             // server's run stopped at, 1 to 10 cells along).
             foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, target))
                 if (player.Barrier.Contains(cell) || (cell != from && !m.Walk.Floor(cell.X, cell.Y))) return null;
+            // Only apply the charge movement bonus once the charge is actually admitted at the gate.
+            SetStats(player, id, [(Stat.MovementVelocityPlusPct, ownPct + bonusPct)]);
             // A lockstep client starts the run later than the order (ten charges, sync trace 2026-11-17: it left its cell
             // and arrived 85 ms after the server's walk on average, 12-169 ms), so the walk and the impact wait for it.
             double runsFrom = startedAt + (player.Connection.LockstepClient ? ChargeStartDelay : 0);
@@ -542,9 +558,9 @@ public static partial class MonsterSkills
             m.BusyUntil = Math.Max(m.BusyUntil, arrives + player.LockstepActionTail);
             return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, player.MonsterOrderFlags);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) charges with skill 0x{a.SkillId:x4} at {ownPct + bonusPct:+0;-0}% movement speed");
-        if (sent)
-            Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) charge from {from} to {target}: arrives in {arrives - startedAt:0.00} s");
-        bool arrived = sent && await WaitMonsterActionTime(player, id, m, action, arrives);
+        if (!sent) return;
+        Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) charge from {from} to {target}: arrives in {arrives - startedAt:0.00} s");
+        bool arrived = await WaitMonsterActionTime(player, id, m, action, arrives);
         // The step pass runs on frames, so the walk can be a cell or two short at its arrival time; it ends as a charge only
         // once the pass has stepped past the arrival, or a body next to the end stops its last step (sync traces
         // 2026-11-17: 2 cells short of the client's beside the player; then, waiting only for the walk's own clock, 1 to 3
@@ -591,9 +607,9 @@ public static partial class MonsterSkills
         until = AreaTime(player) + use.Seconds;
         buffs.Active.Add((buff, use.Stats, until));
         m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
-        // Each use is a buff of its own (its tag), with its countdown.
+        // Each use is a buff of its own (its tag), with its countdown and any definition-required tail/behaviour data.
         if (use.BuffRow > 0)
-            player.Area.Buffs.Set(id, new(use.BuffRow, id, U68: Buff.Seconds(use.Seconds), Tag: buff));
+            player.Area.Buffs.Set(id, global::BuffRows.Spec(use.BuffRow, id, use.Stats, use.Seconds, tag: buff));
         _ = EndBuff(player, id, m, use, buffs, buff, player.Layout);
     }
 

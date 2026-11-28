@@ -25,8 +25,10 @@ using GameServer.Core.World;
 public static class AilmentPanelStats
 {
     /// <summary>The hit's context: which rows it fills (<paramref name="Hand"/>: main_hand, off_hand, spell,
-    /// secondary), whether it is a spell and whether it is a melee hit.</summary>
-    public readonly record struct Context(string Hand, bool Spell, bool Melee = false)
+    /// secondary), whether it is a spell and whether it is a melee hit. <paramref name="Skill"/> is the hit
+    /// ActiveSkills Id (<c>artillery_ballista</c>) for the stats a Crucible tree names after one skill
+    /// (<see cref="SkillPoisonStats"/>); null leaves them out, as they name no skill then.</summary>
+    public readonly record struct Context(string Hand, bool Spell, bool Melee = false, string? Skill = null)
     {
         public bool Attack => Hand is "main_hand" or "off_hand";
         public IReadOnlyDictionary<uint, int>? WeaponStats { get; init; }
@@ -44,8 +46,10 @@ public static class AilmentPanelStats
     // (GemSupportDamage applies those to the hit, with the generic and typed ones here).
     static readonly More[] SupportMore =
     [
+        new(Stat.ActiveSkillAilmentDamagePlusPctFinal),
         new(Stat.DoedreAuraDamagePlusPctFinal), new(Stat.CastOnDamageTakenDamagePlusPctFinal),
         new(Stat.SupportCastWhileChannellingTriggeredSkillDamagePlusPctFinal),
+        new(Stat.SupportDivineCryDamagePlusPctFinal),
         new(Stat.SupportManaforgedArrowsDamagePlusPctFinal),
         new(Stat.SupportEchoDamagePlusPctFinal), new(Stat.SupportReducedDurationDamagePlusPctFinal),
         new(Stat.SupportSpiritStrikeDamagePlusPctFinal), new(Stat.SupportStormBarrierDamagePlusPctFinal),
@@ -79,7 +83,15 @@ public static class AilmentPanelStats
     ];
 
     public static List<(uint Stat, int Value)> Compute(Context context, DamagePacket raw, DamageConversion conversion,
-        Func<uint, int> get, long additionalIncreased = 0)
+        Func<uint, int> get, long additionalIncreased = 0) =>
+        Compute(context, raw, conversion, get, additionalIncreased, igniteOnly: false);
+
+    public static List<(uint Stat, int Value)> Ignite(Context context, DamagePacket raw, DamageConversion conversion,
+        Func<uint, int> get, long additionalIncreased) =>
+        Compute(context, raw, conversion, get, additionalIncreased, igniteOnly: true);
+
+    static List<(uint Stat, int Value)> Compute(Context context, DamagePacket raw, DamageConversion conversion,
+        Func<uint, int> get, long additionalIncreased, bool igniteOnly)
     {
         get = WeaponAttributeDamage.Read(context.Attack && !context.Spell && WeaponAttributeDamage.Armed(
             get(context.Hand == "off_hand" ? Stat.OffHandWeaponType : Stat.MainHandWeaponType)), get);
@@ -98,14 +110,16 @@ public static class AilmentPanelStats
             }
         }
         bool tinctureWeapon = context.Attack && !context.Spell && get(Stat.TinctureApplied) != 0;
-        if (context.Attack) Add("bleeding", DamageType.Physical, [DamageType.Physical], BleedPercent);
+        if (context.Attack && !igniteOnly) Add("bleeding", DamageType.Physical, [DamageType.Physical], BleedPercent);
         DamageType[] ignite = get(Stat.AllDamageCanIgnite) != 0
             || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanIgnite) != 0
             ? DamageTypes.ConversionOrder : get(Stat.UniqueColdDamageIgnites) != 0
                 ? [DamageType.Fire, DamageType.Cold] : [DamageType.Fire];
         if (get(Stat.UniqueFireDamageShocks) != 0) ignite = [.. ignite.Where(type => type != DamageType.Fire)];
         Add("ignite", DamageType.Fire, ignite, IgnitePercent);
+        if (igniteOnly) return rows;
         Add("poison", DamageType.Chaos, get(Stat.AllDamageCanPoison) != 0
+            || context.Skill is not null && SkillPoisonStats.Of(context.Skill, get).AllDamage
             || context.Attack && (context.WeaponStats?.GetValueOrDefault(Stat.LocalAllDamageCanPoison) ?? 0) != 0
             || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanPoison) != 0
             ? DamageTypes.ConversionOrder : [DamageType.Physical, DamageType.Chaos], PoisonPercent);
@@ -154,7 +168,11 @@ public static class AilmentPanelStats
         var more = SupportMore.Where(m => (m.Only is null || m.Only.Contains(ailment)) && (!m.MeleeHit || context.Melee)
             && (!m.Attack || context.Attack) && get(m.Stat) != 0).ToList();
         more.Add(new(Stat.DeliriumAuraDamageOverTimePlusPctFinal));
-        if (ailment == "poison") more.Add(new(Stat.HeraldOfAgonyPoisonDamagePlusPctFinal));
+        if (ailment == "poison")
+        {
+            more.Add(new(Stat.HeraldOfAgonyPoisonDamagePlusPctFinal));
+            more.Add(new(Stat.CorrosiveShroudPoisonDamagePlusPctFinalWhileAccumulatingPoison));
+        }
         if (ailmentType == DamageType.Physical) more.Add(new(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal));
         // Elemental Overload: "Ailments never count as being from Critical Strikes" for as long as the keystone is
         // allocated, so the critical rows lose the critical ailment multipliers (the application side rolls the hit's
@@ -185,10 +203,13 @@ public static class AilmentPanelStats
         int localIgniteMore = attack && ailment == "ignite"
             ? context.WeaponStats?.GetValueOrDefault(Stat.LocalIgniteDamagePlusPctFinalWithThisWeapon) ?? 0 : 0;
         double multiplier = dotMultiplier * Math.Max(0, 1 + localIgniteMore / 100d)
+            * (ailment == "poison" && critical && !neverFromCrit
+                ? Math.Max(0, 1 + get(Stat.PoisonFromCriticalStrikesDamagePlusPctFinal) / 100d) : 1)
             // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).
             * (ailmentType == DamageType.Fire ? Math.Max(0, 1 + get(Stat.ActiveSkillIgniteDamagePlusPctFinal) / 100.0) : 1)
             // Puncture's "49% more Damage with Bleeding".
-            * (ailment == "bleeding" ? Math.Max(0, 1 + get(Stat.ActiveSkillBleedingDamagePlusPctFinal) / 100.0) : 1)
+            * (ailment == "bleeding" ? Math.Max(0, 1 + get(Stat.ActiveSkillBleedingDamagePlusPctFinal) / 100.0)
+                * Math.Max(0, 1 + get(Stat.PunctureBleedingDamagePlusPctFinal) / 100.0) : 1)
             // Crimson Dance: "50% less Damage with Bleeding" (ReminderTextKeystoneCrimsonDance).
             * (ailment == "bleeding" && get(Stat.KeystoneCrimsonDance) != 0 ? .5 : 1);
         var typed = DamageTypes.ConversionOrder.Select(type => (History: DamageTypes.HistoryOf(type), Increased: get(Stat.Of(Slug(type) + "_damage_+%")))).ToArray();

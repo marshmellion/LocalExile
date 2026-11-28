@@ -45,8 +45,9 @@ public static partial class Game
             var own = player.Character.QuestFlagsSnapshot();
             var client = PlayerQuestFlags(player);
             bool Has(string flag) => Quests.ClientHas(flag, own, client);
+            bool HasLeague(int flag) => player.Character.LeagueQuestFlags.Contains(flag);
             var carried = QuestItems.Carried(items).Select(c => QuestFlagsOf(player, c.Item.Item)).OfType<QuestItemFlags>().ToHashSet();
-            (set, clear, var remove) = QuestItems.Sync(QuestItemTypes(player), carried, Has);
+            (set, clear, var remove) = QuestItems.Sync(QuestItemTypes(player), carried, Has, HasLeague);
             if (removeItems && remove.Count > 0) removed = QuestItems.RemoveAll(items, i => QuestFlagsOf(player, i), remove);
             foreach (var row in removed.GroupBy(r => r.Row))
                 await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
@@ -64,7 +65,8 @@ public static partial class Game
     public static async Task RemoveDoneQuestItemsFromGround(Player player)
     {
         var done = player.Instance.Ground.All().Where(e => QuestFlagsOf(player, e.Item.Item) is { } q
-            && QuestItems.Removed(q, f => ClientHasQuestFlag(player, f)) && QuestDropVisibleTo(player, e.Id))
+            && QuestItems.Removed(q, f => ClientHasQuestFlag(player, f), lqf => player.Character.LeagueQuestFlags.Contains(lqf))
+            && QuestDropVisibleTo(player, e.Id))
             .Select(e => e.Id).ToList();
         foreach (uint id in done)
             if (player.Instance.Ground.Take(id) is not null)
@@ -91,7 +93,7 @@ public static partial class Game
         // This character's copy only: in a shared instance another player's quest item is theirs (SharedKills.cs).
         bool onGround = player.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash
             && QuestDropVisibleTo(player, e.Id));
-        if (!QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround))
+        if (!QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround, lqf => player.Character.LeagueQuestFlags.Contains(lqf)))
         {
             Console.WriteLine($"[gateway] {remote} {source}: no {type.Name}, the character has one or does not need it");
             return [];
@@ -551,9 +553,7 @@ public static partial class Game
                     || id == KitavaActFive.First && KitavaActFive.IsActor(m.Variety));
                 if (spawned) continue;
                 var owner = player.Frames.View ?? (instance.World.Runner is { Closed: false, LeavingArea: false } runner ? runner : player);
-                var point = area == KitavaActFive.Area && id == KitavaActFive.First
-                    ? KitavaActFive.SpawnPoint(owner, (at.X, at.Y))
-                    : owner.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? owner.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
+                var point = owner.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? owner.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
                 byte level = (byte)Math.Clamp(Packs.For(area)?.AreaLevel ?? 1, 1, 100);
                 spawned = await SpawnMonster(owner, variety, level,
                     MonsterRarity.Unique, point.Item1, point.Item2) != 0;
@@ -705,8 +705,16 @@ public static partial class Game
         ItemsFor(player).Find(itemId) is { } type && (carried.Contains(type.Hash)
             || type.Quest is { } quest && QuestItems.Removed(quest, f => ClientHasQuestFlag(player, f)));
 
-    // MinimapIcon has no component-update reader. Recreate only the source object with its explicit hidden bit;
-    // keep the opened model, blockers and per-player quest state. Other party members keep their own markers.
+    // Hide the minimap icon on the old entity (0x02bc MinimapIcon 0x06) before 0x02bd removal so sticky (__col3 == 0)
+    // QuestObject markers are erased cleanly instead of detached and pinned on the minimap/tab map.
+    static Task HideQuestObjectMinimapIcon(Player player, uint id, string type)
+    {
+        int miIdx = QuestObjectTypes.Find(type)?.Components.ToList().IndexOf("MinimapIcon") ?? -1;
+        return miIdx >= 0
+            ? SendWorldRecord(player, id, InstanceEntities.HideMinimapIcon(id, (byte)miIdx), null)
+            : Task.CompletedTask;
+    }
+
     public static async Task HideCollectedQuestMarkers(Player player)
     {
         List<(uint Id, Quests.ChestRule Rule, GlyphQuest.Placement At)> chests;
@@ -726,6 +734,7 @@ public static partial class Game
             lock (player.QuestChests) { player.QuestChests.Remove(id); player.QuestChests[next] = (rule, at); }
             player.RemoveBlocker(id);
             player.SetObjectBlocker(next, at.X, at.Y, QuestChestSize, QuestObjectTypes.Find(rule.ChestType)?.ActorOrChest ?? true);
+            await HideQuestObjectMinimapIcon(player, id, rule.ChestType);
             await SendWorldRemoval(player, id, null);
             await SendWorldCreate(player, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ChestType),
                 QuestChestBlob(player, rule, at, rule.Guards is not null || player.Instance.ChestOpened(at.X, at.Y), hideMinimapIcon: true)),
@@ -739,6 +748,7 @@ public static partial class Game
             lock (player.GlyphNests) { player.GlyphNests.Remove(id); player.GlyphNests[next] = nest; }
             player.RemoveBlocker(id);
             player.SetObjectBlocker(next, nest.At.X, nest.At.Y, GlyphQuest.NestSize, QuestObjectTypes.Find(nest.Type)?.ActorOrChest ?? true);
+            await HideQuestObjectMinimapIcon(player, id, nest.Type);
             await SendWorldRemoval(player, id, null);
             await SendWorldCreate(player, next, () => InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(nest.Type),
                 GlyphQuest.NestBlob(nest.At, player.Instance.ChestOpened(nest.At.X, nest.At.Y), hideMinimapIcon: true)),
@@ -789,6 +799,7 @@ public static partial class Game
         lock (player.QuestChests) { player.QuestChests.Remove(use.TargetId); player.QuestChests[opened] = (rule, at); }
         player.RemoveBlocker(use.TargetId);
         player.SetObjectBlocker(opened, at.X, at.Y, QuestChestSize, QuestObjectTypes.Find(rule.ChestType)?.ActorOrChest ?? true);
+        await HideQuestObjectMinimapIcon(player, use.TargetId, rule.ChestType);
         await Game.SendWorldRemoval(player, use.TargetId, null);
         await SendWorldCreate(player, opened, () => InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(player, rule, at, true)),
             $"0x02bb opened quest chest 0x{opened:x} (was 0x{use.TargetId:x})", wake: true, awaitBirth: false);
@@ -995,24 +1006,30 @@ public static partial class Game
             await FormQuestBosses(player, m, variety.Id, at);
     }
 
+    // Crematorium's piety_fight.arm does not load PietySinsPortal (that QuestObject is only in Act 2's Chamber of Sins
+    // boss_1a.arm), so sending its 0x02bb hash in 1_3_3_1 triggers "Unknown object type serialized by server". Play
+    // MiscAnimated row 124 (PietyPortal) on the globally registered PermanentServerEffect (MiscObjects row 666) with
+    // rig.amd clip 2 (Piety_portalescape, 5833 ms).
+    internal static byte[] PietyRetreatPortalCreate(uint portalId, (int X, int Y) at)
+    {
+        const string portalArt = "Metadata/Effects/Environment/piety_portal/close.ao";
+        const uint portalEscapeClip = 2;
+        var portal = new EffectObject(at.X, at.Y, portalArt) { AnimatedFlags = 9, AnimationId = portalEscapeClip };
+        return InstanceEntities.CreateObject(portalId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), portal.Blob());
+    }
+
     static async Task SpawnPietyRetreatPortal(Player player, (int X, int Y) at)
     {
-        const string portalType = "Metadata/QuestObjects/Piety/PietySinsPortal";
-        if (QuestObjectTypes.Find(portalType) is not { } info || !QuestObject.CanSerialize(info.Components)) return;
         uint portalId = player.TakeObjectId();
         var instance = player.Instance;
-        // Create untransitioned (state 1), then step Transitionable so on_transition plays Piety's portal retreat clip.
-        var blob = new QuestObject(at.X, at.Y, info.Components, 0, null, info.Model, 1, Blocked: false).Blob();
-        await SendWorldCreate(player, portalId, () => InstanceEntities.CreateObject(portalId, InstanceEntities.ObjectTypeHash(portalType), blob),
-            $"0x02bb Piety retreat portal 0x{portalId:x} at ({at.X}, {at.Y})", wake: true, awaitBirth: false);
-        if (QuestObject.TransitionableIndex(info.Components) is int slot and >= 0 && info.States > 1)
-            await SendWorldRecord(player, portalId, InstanceEntities.TransitionableUpdate(portalId, (byte)slot, (byte)info.States),
-                $"0x02bc Piety retreat portal 0x{portalId:x} Transitionable -> {info.States}");
+        if (!await SendWorldCreate(player, portalId, () => PietyRetreatPortalCreate(portalId, at),
+            $"0x02bb Piety retreat portal 0x{portalId:x} at ({at.X}, {at.Y})", wake: true, awaitBirth: false))
+            return;
         _ = Task.Run(async () =>
         {
             try
             {
-                await AreaDelay(player, 2.5);
+                await AreaDelay(player, 5.8);
                 if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Instance, instance)) return;
                 await SendWorldRemoval(player, portalId, $"0x02bd Piety retreat portal 0x{portalId:x} closed");
             }

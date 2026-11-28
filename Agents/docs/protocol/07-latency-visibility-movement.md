@@ -151,6 +151,13 @@ removes its collision; **0 → 2** shows it posed at a random 30-50% of the clip
 (shards, `breaking_free`, a 3 s speed ramp); 5 ends it. The pose is made only on the change from 0: a monster created in state 2 stands unposed.
 See [Legion](../game/legion.md).
 
+`LegionRevive` (type `0xd59a`, skill `0x159a`; reader `0x1413b0920`, 0x2c8 `0x1413b0fa0`): after the animation block, `i32 state,
+u8 falling, f32 pose, f32 fall speed, f32 fall time, f32 timer, u8 revive, u8 leave` (23 bytes). The 0x2c8 payload is `i32 state` and
+then: 1 `f32 timer, u8 revive`; 3 `u8 falling, f32 pose, f32 fall speed, f32 fall time, f32 timer`; 4 `u8 revive`; 5 `f32 timer,
+u8 revive, u8 leave`. The client's StartReviveTimer (`0x141c4a600`) sets pose = 0.6..0.8 of the clip (`DAT_1436add20`, `DAT_1436ade1c`), speed =
+1.0 / (3.0 / pose) (`DAT_1436adeec`, `DAT_1436ae27c`), fall time 3.0; its FrameMove eases the speed by the remaining fall time squared
+(`DAT_1436ae17c` = 2.0). These are 3.29.3c data addresses.
+
 ## 5. Movement
 
 **C→S 0x25** "use skill at location" (sender `0x14216ccb0`, class `0x1435ca5f0`, 16 bytes): `u32 x, u32 y` (target grid
@@ -639,7 +646,7 @@ mode-pure (`0x1421660b0`, `0x1421664c0`, `0x142166660`, `0x142166800`, `0x14216c
 0x18f, 0x192, 0x195, 0x196, 0x197 and 0x198, predictive only 0x24, 0x25 and 0x199.
 
 The Gateway has no mode setting and asks nothing. `ClientPackets` lists every C→S message with the mode that sends it (Shared, Predictive-only, Lockstep-only); the first mode-only message of a connection (one area) is the mode its handlers serve (`Player.NotePacket`). Messages of both modes in one area, which one client never sends, are logged and shown six times in the client's chat with their ids, for the player to report. Nothing else tells the modes apart for certain, so until then a client is served in
-Lockstep, the default (a server-controlled player, which sends predictive messages, in Predictive). Latency adds input delay, not position error: both sides count the
+Lockstep, the default (a player the server drives, in the mode its driver sets: Program.DriveByServer). Latency adds input delay, not position error: both sides count the
 same frames, so a client on a slower link plays the same frames later.
 
 The tick's u8 is no mode test. Only a lockstep world counts frames behind: its only writers are the world's

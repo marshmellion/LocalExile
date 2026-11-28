@@ -37,7 +37,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [cluster jewels](../docs/game/cluster-jewels.md).
 - Timeless jewels: the alternate tree in radius and Militant Faith's Devotion mods; conqueror keystone mechanics are
   missing. Docs: [timeless jewels](../docs/game/timeless-jewels.md).
-- Radius unique jewels: 42 implemented and the 33 threshold jewels; skill-specific consumers are partial.
+- Radius unique jewels: 42 implemented (including Thread of Hope donut mod, Variable/Massive variants, and legacy save
+  migration) and the 33 threshold jewels; skill-specific consumers are partial.
   Docs: [radius jewels](../docs/game/radius-jewels.md), [list](../docs/game/radius-jewel-list.md).
 - Impossible Escape and Rational Doctrine. Docs: [radius jewels](../docs/game/radius-jewels.md),
   [13](../docs/protocol/13-items.md), "What some flasks and Rational Doctrine make".
@@ -66,14 +67,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Staff Mastery can recover life from blocked attacks while wielding the staff.
   Not checked live: the socket, ring and amulet conditions, Claw2, Leech2 and Reservation2.
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
-- Behemoth through the optional Phrecia module. Docs: [Behemoth](../docs/game/behemoth.md).
-- Whisperer through the optional module. Docs: [Whisperer](../docs/game/whisperer.md).
+- Behemoth through the `phreciaascendancies` mod. Docs: [Behemoth](../docs/game/behemoth.md).
+- Whisperer through the same mod. Docs: [Whisperer](../docs/game/whisperer.md).
 - Aristocrat (not checked live). Docs: [Aristocrat](../docs/game/aristocrat.md).
 - Ancestral Commander (not checked live). Docs: [Ancestral Commander](../docs/game/ancestral-commander.md).
 - Paladin (not checked live). Docs: [Paladin](../docs/game/paladin.md).
 - Polytheist (not checked live). Docs: [Polytheist](../docs/game/polytheist.md).
 - Surfcaster (not checked live). Docs: [Surfcaster](../docs/game/surfcaster.md).
-- Phrecia ascendancies: the optional module, Harbinger, Forest Tracking and family gem levels.
+- Phrecia ascendancies: the mod `phreciaascendancies` (LocalExile-Mods), Harbinger, Forest Tracking and family gem levels.
   Docs: [Phrecia modules](../docs/game/phrecia-modules.md), [Harbinger](../docs/game/harbinger.md),
   [ascendancies](../docs/game/ascendancies.md).
 - Ruthless experience and passive alternatives. Docs: [league modes](../docs/game/league-modes.md).

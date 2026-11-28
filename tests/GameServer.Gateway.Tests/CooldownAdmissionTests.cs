@@ -143,6 +143,139 @@ public sealed class CooldownAdmissionTests
     }
 
     [Fact]
+    public void Frostblink_crosses_walk_only_doors_but_stops_at_solid_walls_and_sight_doors()
+    {
+        using var f = new Fixture();
+        var c = f.Player;
+        c.Connection.PlayerSent = true;
+        // Open floor with a walk-only prison grate door at x=120 (blocks Barrier, clears SightBarrier).
+        var openLayout = new AreaLayout(1, "prison-door", 200, 200, 100, 100,
+            (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, [])
+        {
+            Sight = (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 ? (byte)5 : (byte)0
+        };
+        c.Use(openLayout);
+        var doorCells = new HashSet<(int X, int Y)> { (120, 100), (120, 99), (120, 101) };
+        c.DoorBarriers[1] = doorCells;
+        c.SightDoorBarriers[1] = new HashSet<(int X, int Y)>();
+        c.UpdateBarrier();
+        Assert.Contains((120, 100), c.Barrier);
+        Assert.DoesNotContain((120, 100), c.SightBarrier);
+        Assert.Null(Game.ProjectilesFor(c).TraceTerrain(new(100, 100), new(140, 100)));
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var to));
+        Assert.Equal((140, 100), to);
+        // Dash crosses the walk-only door too when SightBarrier is supplied.
+        Assert.Equal((130, 100), Game.DashLanding(openLayout, c.Barrier, (100, 100), (140, 100), 0, false,
+            size: 1, sightBarriers: c.SightBarrier));
+        // When the direct endpoint behind a walk-only grate is unwalkable, IceDash's 0x141c04830 aborts at layer 0
+        // (before the grate) rather than crossing into the blocked room and desyncing from the client's 0x01ce check.
+        var walledBehindGrate = new AreaLayout(1, "prison-door-wall", 200, 200, 100, 100,
+            (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 && x < 135, [])
+        {
+            Sight = (x, y) => x >= 135 ? (byte)0 : (x == 134 ? (byte)1 : (byte)5)
+        };
+        c.Use(walledBehindGrate);
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var beforeGrate));
+        Assert.Equal((119, 100), beforeGrate);
+        c.Use(openLayout);
+        // A solid door with projectile-blocking cells (SightDoorBarriers non-empty) blocks travel and falls back before it.
+        c.SightDoorBarriers[1] = doorCells;
+        c.UpdateBarrier();
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var beforeDoor));
+        Assert.Equal((119, 100), beforeDoor);
+        Assert.NotNull(Game.ProjectilesFor(c).TraceTerrain(new(100, 100), new(140, 100)));
+
+        // Static solid wall at x=118..122 (Sight=0, Walkable=false; ring x=117 has Sight=1): never crosses the wall.
+        c.DoorBarriers.Clear();
+        c.SightDoorBarriers.Clear();
+        c.UpdateBarrier();
+        // Even on a walkable floor, a sight-0 curtain terminates the fallback instead of being skipped by sight < 2.
+        var sightZeroCurtain = new AreaLayout(3, "sight-curtain", 200, 200, 100, 100,
+            (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, [])
+        {
+            Sight = (x, y) => x == 120 ? (byte)0 : (x == 119 || x == 121 ? (byte)1 : (byte)5)
+        };
+        c.Use(sightZeroCurtain);
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var beforeCurtain));
+        Assert.Equal((118, 100), beforeCurtain);
+
+        var wallLayout = new AreaLayout(2, "prison-wall", 200, 200, 100, 100,
+            (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 && (x < 118 || x > 122), [])
+        {
+            Sight = (x, y) => x >= 118 && x <= 122 ? (byte)0 : (x == 117 || x == 123 ? (byte)1 : (byte)5)
+        };
+        c.Use(wallLayout);
+        // Far from wall: falls back to the last safe cell with Sight >= 2 in front of the wall (x=116).
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var beforeWall));
+        Assert.Equal((116, 100), beforeWall);
+        // Flame Dash uses the same sight-line validation and layer-0-abort fallback with 25/60-cell clamping, and
+        // generic MovementLanding stops in front of solid walls instead of walking backward from the aimed cell.
+        int flameDash = Game.SkillsFor(c).EffectRow("FlameDash");
+        int genericMove = Game.SkillsFor(c).EffectRow("LeapSlam");
+        Assert.Equal((116, 100), Game.MovementLanding(c, flameDash, (100, 100), (160, 100)));
+        Assert.Equal((117, 100), Game.MovementLanding(c, genericMove, (100, 100), (140, 100)));
+        // Standing close to the wall (< 5 cells to x=116): rejected to match client CanExecute (dx^2 + dy^2 >= 25).
+        c.Walk.Teleport(114, 100, Game.ProjectileWorldTime(c));
+        Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (150, 100), false, _ => 0, out _, out _));
+        Assert.Equal((114, 100), Game.MovementLanding(c, flameDash, (114, 100), (160, 100)));
+        // Rejected Flame Dash casts (< 5 cells from a wall or aiming at self) must not spend Flame Dash / shared Blink
+        // cooldown charges, bump ActionCount, or move the player before admission.
+        var blinkIds = f.Equip(PlayerInventories.Weapon1, "Flame Dash", "Frostblink");
+        ushort flameDashId = blinkIds.Single(id => Game.SkillsFor(c).EffectId(Game.SupportedSkill(c, id).Effect) == "FlameDash");
+        ushort frostblinkId = blinkIds.Single(id => id != flameDashId);
+        int frostblinkEffect = Game.SupportedSkill(c, frostblinkId).Effect;
+        c.SingleUseCooldowns.Clear(); c.SkillReadyAt.Clear(); c.CooldownGroups.Clear(); c.CooldownSources.Clear();
+        c.PlayerMana = 1000;
+        int actionsBefore = c.ActionCount;
+        bool callbackRan = false;
+        Assert.False(Game.TryBeginFlameDashUse(c, flameDashId, flameDash, 0, Game.ProjectileWorldTime(c),
+            _ => (160, 100), (_, _, _, _) => callbackRan = true, out var refusedUse));
+        Assert.Null(refusedUse);
+        Assert.False(callbackRan);
+        Assert.Equal(actionsBefore, c.ActionCount);
+        Assert.Empty(c.SingleUseCooldowns);
+        Assert.False(Game.TryBeginFlameDashUse(c, flameDashId, flameDash, 0, Game.ProjectileWorldTime(c),
+            _ => (114, 100), (_, _, _, _) => callbackRan = true, out _));
+        Assert.False(callbackRan);
+        Assert.Empty(c.SingleUseCooldowns);
+        // Flame Dash crosses walk-only prison grates up to its 60-cell base range when SightBarrier is empty, and valid
+        // admission spends 1 charge (including shared Blink cooldown) and delivers the resolved landing.
+        c.Use(openLayout);
+        c.Walk.Teleport(100, 100, Game.ProjectileWorldTime(c));
+        c.DoorBarriers[1] = doorCells;
+        c.SightDoorBarriers[1] = new HashSet<(int X, int Y)>();
+        c.UpdateBarrier();
+        Assert.Equal((160, 100), Game.MovementLanding(c, flameDash, (100, 100), (170, 100)));
+        (int X, int Y) admittedLanding = default;
+        Assert.True(Game.TryBeginFlameDashUse(c, flameDashId, flameDash, 0, Game.ProjectileWorldTime(c),
+            _ => (170, 100), (t, _, _, landed) => { admittedLanding = landed; c.Walk.Teleport(landed.X, landed.Y, t); },
+            out var acceptedUse));
+        Assert.NotNull(acceptedUse);
+        Assert.Equal((160, 100), admittedLanding);
+        Assert.Equal((160, 100), c.Walk.Position(Game.ProjectileWorldTime(c)));
+        Assert.Equal(1, c.SingleUseCooldowns[flameDash].SpentUses);
+        Assert.Equal(1, c.SingleUseCooldowns[frostblinkEffect].SpentUses);
+        // Flame Dash's burning ground segment damages hostile monsters along the dash trail without touching off-trail ones.
+        var onTrail = new SpawnedMonster("burn-on-trail", new(130, 100, 0), 0, 0, 1000) { Hostile = true };
+        var offTrail = new SpawnedMonster("burn-off-trail", new(130, 120, 0), 0, 0, 1000) { Hostile = true };
+        c.Area.Monsters[0x80000101u] = onTrail;
+        c.Area.Monsters[0x80000102u] = offTrail;
+        Game.PlaceFlameDashGround(c, (100, 100), (160, 100), flameDashId, flameDash, Game.ProjectileWorldTime(c));
+        double groundStart = Game.ProjectileWorldTime(c);
+        Assert.True(Game.ProjectileSession.OnBurningDamageGround(c.Area, onTrail, groundStart + .5));
+        Assert.False(Game.ProjectileSession.OnBurningDamageGround(c.Area, offTrail, groundStart + .5));
+        Game.ProjectilesFor(c).AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(groundStart + 1));
+        Assert.True(onTrail.Life < 1000);
+        Assert.Equal(1000u, offTrail.Life);
+
+        c.Use(openLayout with { Walkable = null });
+        int usesBefore = c.SingleUseCooldowns[flameDash].SpentUses;
+        Assert.False(Game.TryBeginFlameDashUse(c, flameDashId, flameDash, 0, Game.ProjectileWorldTime(c),
+            _ => (390, 100), (_, _, _, _) => Assert.Fail("Missing terrain admitted a cast"), out _));
+        Assert.Equal(usesBefore, c.SingleUseCooldowns[flameDash].SpentUses);
+    }
+
+    [Fact]
     public async Task Frostblink_slides_around_monster_blockers_and_queues_cooldown_refresh_in_area_frame()
     {
         using var f = new Fixture();
@@ -192,6 +325,115 @@ public sealed class CooldownAdmissionTests
         finally
         {
             GameArea.Own(previousArea);
+        }
+    }
+
+    [Fact]
+    public async Task Frostblink_resolves_hideout_oob_objects_and_EndAreaPlacedSkills_purges_area_objects()
+    {
+        using (var f = new Fixture())
+        {
+            var c = f.Player;
+            c.Connection.PlayerSent = true;
+            // HideoutDivine has GridW=0, GridH=0, Walkable=null.
+            c.Use(new(1, "HideoutDivine", 0, 0, 197, 261, null, []));
+            Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (250, 261), false, _ => 0, out var from, out var to));
+            Assert.Equal((197, 261), from);
+            Assert.Equal((239, 261), to);
+            // Walkmap-less hideout still enforces Barrier / SightBarrier / Blockers.
+            c.DoorBarriers[1] = new HashSet<(int X, int Y)> { (239, 261) };
+            c.SightDoorBarriers[1] = new HashSet<(int X, int Y)>();
+            c.UpdateBarrier();
+            Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (250, 261), false, _ => 0, out _, out _));
+            c.DoorBarriers[1] = new HashSet<(int X, int Y)> { (210, 261) };
+            c.SightDoorBarriers[1] = new HashSet<(int X, int Y)> { (210, 261) };
+            c.UpdateBarrier();
+            Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (250, 261), false, _ => 0, out _, out _));
+            c.DoorBarriers.Clear();
+            c.SightDoorBarriers.Clear();
+            c.UpdateBarrier();
+            // Bounded combat layout with missing Walkable must fail closed.
+            c.Use(new(11, "missing-walkmap", 200, 200, 100, 100, null, []));
+            Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out _));
+            c.Use(new(1, "HideoutDivine", 0, 0, 197, 261, null, []));
+            // Dead monster / corpse target falls back to non-monster ground target resolution without Walkable!.
+            var zombie = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Zombies/ZombieBite"));
+            c.Area.Monsters[0x80000010u] = new("corpse", new(240, 261, 0), 0, 0, 0) { Dead = true, Hostile = true, Variety = zombie };
+            Assert.True(InstantLocationSkill.TryResolveObject(c, c.ProjectileEpoch, 0x80000010u, false, _ => 0,
+                out _, out var corpseTo, out var corpseAim, out bool monsterTarget));
+            Assert.False(monsterTarget);
+            Assert.Equal((240, 261), corpseAim);
+            Assert.Equal((239, 261), corpseTo);
+            // Living monster target on a walkmap-less hideout also works without NRE and marks monsterTarget=true.
+            c.Area.Monsters[0x80000011u] = new("alive", new(240, 261, 0), 0, 0, 100) { Hostile = true, Variety = zombie };
+            Assert.True(InstantLocationSkill.TryResolveObject(c, c.ProjectileEpoch, 0x80000011u, false, _ => 0,
+                out _, out _, out _, out monsterTarget));
+            Assert.True(monsterTarget);
+            // Out-of-bounds positive cursor on a walked map stops at the last clear floor cell along the unclamped ray.
+            c.Use(new(2, "map-oob", 200, 200, 165, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, []));
+            Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (350, 100), false, _ => 0, out _, out var clampedTo));
+            Assert.Equal((199, 100), clampedTo);
+            // Diagonal OOB cursor preserves the exact ray angle (~12.5 deg) instead of bending toward a pre-clamped edge.
+            c.Use(new(4, "map-oob-diag", 200, 200, 170, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, []));
+            Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (350, 140), false, _ => 0, out _, out var diagTo));
+            Assert.Equal(199, diagTo.X);
+            Assert.InRange(diagTo.Y, 105, 108);
+            // With a sight grid, aiming OOB near the edge still falls back to the last clear floor cell.
+            c.Use(new(3, "map-oob-sight", 200, 200, 180, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, [])
+            {
+                Sight = (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 ? (byte)5 : (byte)0
+            });
+            Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (350, 100), false, _ => 0, out _, out var edgeTo));
+            Assert.Equal((199, 100), edgeTo);
+        }
+
+        // EndAreaPlacedSkills purges traps, mines, leaving entries, and grounds from Area.Objects and is idempotent.
+        using var placedFixture = new TriggeredSummonTests.Fixture();
+        var player = placedFixture.Player;
+        var clock = new PlacedCleanupClock();
+        var previous = Game.AreaUpdateContext.Value;
+        player.ProjectileRuntimeState = placedFixture.Session;
+        player.Walk.Teleport(100, 100, clock.At);
+        Game.AreaUpdateContext.Value = new(placedFixture.Lifetime, clock);
+        try
+        {
+            ushort skill = Assert.Single(placedFixture.Equip(("Stormblast Mine", 1)));
+            placedFixture.Session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(clock.At));
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (112, 100)));
+            var mine = Assert.Single(player.Placed.All.Values);
+
+            uint leavingId = 0x9001u, groundId = 0x9002u;
+            player.Area.Objects.RecordDirect(mine.Id, new byte[20], AreaDelta.Kind.Create, player);
+            player.Area.Objects.RecordDirect(leavingId, new byte[20], AreaDelta.Kind.Create, player);
+            player.Area.Objects.RecordDirect(groundId, new byte[20], AreaDelta.Kind.Create, player);
+            player.Placed.Leaving.Add((leavingId, 99));
+            player.Placed.Grounds.Add(new(groundId, 1, (100, 100), 10, 50, 99, 0));
+            Assert.True(player.Area.Objects.Has(mine.Id));
+            Assert.True(player.Area.Objects.Has(leavingId));
+            Assert.True(player.Area.Objects.Has(groundId));
+
+            Game.EndAreaPlacedSkills(player);
+            Game.EndAreaPlacedSkills(player);
+
+            Assert.Empty(player.Placed.All);
+            Assert.Empty(player.Placed.Leaving);
+            Assert.Empty(player.Placed.Grounds);
+            Assert.False(player.Area.Objects.Has(mine.Id));
+            Assert.False(player.Area.Objects.Has(leavingId));
+            Assert.False(player.Area.Objects.Has(groundId));
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    sealed class PlacedCleanupClock : IPlayerUpdateSchedule
+    {
+        public double At = 1;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            At += milliseconds / 1000d;
+            return Task.CompletedTask;
         }
     }
 

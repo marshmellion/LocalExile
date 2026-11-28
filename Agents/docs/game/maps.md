@@ -27,7 +27,10 @@ Their item class is `MapKey` (ItemClassCategory 63, which StashtabAffinityByItem
 - **Shaper Guardian Map:** the area is influenced by the Shaper.
 - **Vaal Temple Map:** the area contains 10 additional guarded Vaal Vessels; always corrupted. Obtained by corrupting
   tier 16 maps.
-- **Valdo Map:** acquired from a Valdo's Puzzle Box.
+- **Valdo Map:** acquired from a Valdo's Puzzle Box. Each is a supporter-made outcome: a layout, fixed MapSupporter
+  modifiers and a Celestial foil unique reward. The client data holds neither the outcomes nor their weights (3.29
+  weights them by the reward's rarity and a factor per modifier, unpublished), so world.db keeps poewiki's
+  trade-observed list and the server rolls the modifiers from the MapSupporter pool.
 
 The tables also hold about 490 older map bases named after areas (`MapTier1_1` "Cursed Crypt Map", `MapAtlasBeach` and
 `MapWorldsBeach` "Beach Map" …, class `Map`, and Maps.dat with each one's `Regular_WorldAreasKey`). They are left over
@@ -86,7 +89,7 @@ When a Voidstone is socketed into the Atlas:
 
 - **Implemented first slice (2026-10-27):** generic `MapKeyTierN` items (MapKey component) carry their map tier and can
   be created with `/item Map (Tier N)`; the map device accepts them, the native Atlas panel selects a starting layout
-  (C?S 0x00e7), and the device opens that layout at the map tier. The selected layout is saved with the character.
+  (C→S 0x00e7), and the device opens that layout at the map tier. The selected layout is saved with the character.
   The area level follows the tier (`tier + 67`), and the area instance/monsters use it. Every character has the epilogue
   flag `EndGameAvailable` that the client requires for Atlas activation and map areas (before Kitava only in a hideout
   and the maps: `Quests.EndgameOnly`). Basic map drops from monsters use a local

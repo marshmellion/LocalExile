@@ -268,7 +268,7 @@ public static partial class MapStrongboxes
                     && random.NextDouble() * 100 < UniqueChance * Math.Max(0, 100 + mods.Get(Stat.MapStrongboxesChanceToBeUniquePlusPct)) / 100.0
                     && StrongboxCatalog.RollUnique(level, random) is { } special)
                 {
-                    box = new(player.Instance.World.NewMonsterId(), area.Boxes.Count, req.X, req.Y, special.Type.Id)
+                    box = new(player.Instance.World.TakeObjectId(), area.Boxes.Count, req.X, req.Y, special.Type.Id)
                     {
                         Unique = special.Unique.Id, Rarity = 3, Corrupted = corrupted, PackArea = req.PackArea,
                         Mods = Kept(special.Unique.ModRows.Select(r => modCatalog.Row(r)?.Roll(ModSection.Explicit, random)).OfType<ItemMod>()),
@@ -280,7 +280,7 @@ public static partial class MapStrongboxes
                     if (type is null) continue;
                     byte rarity = type.Rollable ? StrongboxMods.RollRarity(mods, random) : (byte)0;
                     var rolled = StrongboxMods.Roll(modCatalog, type, rarity, level, mods, random);
-                    box = new(player.Instance.World.NewMonsterId(), area.Boxes.Count, req.X, req.Y, type.Id)
+                    box = new(player.Instance.World.TakeObjectId(), area.Boxes.Count, req.X, req.Y, type.Id)
                     {
                         Rarity = rarity, Mods = Kept(rolled), Corrupted = corrupted, PackArea = req.PackArea,
                     };
@@ -303,7 +303,7 @@ public static partial class MapStrongboxes
 
     public static async Task Enter(Player player)
     {
-        if (player.Instance is null || InTown(player) || player.Layout.Walkable is null) return;
+        if (player.Instance is null || IsNonCombatHub(player) || player.Layout.Walkable is null) return;
         var area = Areas.GetOrCreateValue(player.Instance);
         await area.Gate.WaitAsync();
         try
@@ -345,7 +345,7 @@ public static partial class MapStrongboxes
             bool forced = boxes.Count == 0 && mods.Get(Stat.MapAreaContainsUniqueStrongbox) != 0;
             if ((forced || random.NextDouble() * 100 < unique) && StrongboxCatalog.RollUnique(level, random) is { } special)
             {
-                boxes.Add(new(player.Instance.World.NewMonsterId(), boxes.Count, x, y, special.Type.Id)
+                boxes.Add(new(player.Instance.World.TakeObjectId(), boxes.Count, x, y, special.Type.Id)
                 {
                     Unique = special.Unique.Id, Rarity = 3, Corrupted = corrupted,
                     Mods = Kept(special.Unique.ModRows.Select(r => catalog.Row(r)?.Roll(ModSection.Explicit, random)).OfType<ItemMod>()),
@@ -356,7 +356,7 @@ public static partial class MapStrongboxes
             {
                 byte rarity = type.Rollable ? StrongboxMods.RollRarity(mods, random) : (byte)0;
                 var rolled = StrongboxMods.Roll(ItemsFor(player).Mods, type, rarity, level, mods, random);
-                boxes.Add(new(player.Instance.World.NewMonsterId(), boxes.Count, x, y, type.Id)
+                boxes.Add(new(player.Instance.World.TakeObjectId(), boxes.Count, x, y, type.Id)
                 {
                     Rarity = rarity, Mods = Kept(rolled), Corrupted = corrupted,
                 });
@@ -387,7 +387,13 @@ public static partial class MapStrongboxes
         var area = Areas.GetOrCreateValue(player.Instance);
         if (!area.Shown.TryGetValue(box.Id, out var was) || !ReferenceEquals(was, box))
         {
-            if (was is not null) await SendWorldRemoval(player, box.Id, null);
+            if (was is not null)
+            {
+                int miIdx = type.Components.ToList().IndexOf("MinimapIcon");
+                if (miIdx >= 0)
+                    await SendWorldRecord(player, box.Id, InstanceEntities.HideMinimapIcon(box.Id, (byte)miIdx), null);
+                await SendWorldRemoval(player, box.Id, null);
+            }
             // Chest bit 1 is the box's activated flag: the client plays a trap mod's warning sound (chest_play_warning_sound)
             // and drops the nameplate. Set only once the box is open — a closed box created with it showed no label at all
             // (live 2026-11-22).
@@ -648,13 +654,13 @@ public static partial class MapStrongboxes
     /// <c>number_of_packs_to_summon</c> packs and <c>number_of_monsters_to_summon</c> single monsters at that rarity; the
     /// implicit ChestSummonNormals is 3 normal packs), one more normal pack by <c>map_strongboxes_additional_pack_chance_%</c>,
     /// and on the instance's first opened box <c>map_first_strongbox_contains_x_additional_rare_monsters</c> rares. Packs
-    /// are the area's own scattered packs by weight.</summary>
+    /// are the instance's own scattered packs by weight (<see cref="InstancePacks(Player)"/>).</summary>
     public static List<AreaPopulation.Spawn> Guards(Player player, Box box, bool first) => Guards(player, box, first, false);
 
     /// <param name="summoned">The box's daemons bring guards of their own: no stand-in packs.</param>
     static List<AreaPopulation.Spawn> Guards(Player player, Box box, bool first, bool summoned)
     {
-        var packs = (box.PackArea is { Length: > 0 } ? Packs.For(box.PackArea) : null) ?? Packs.For(player.Layout.Id);
+        var packs = (box.PackArea is { Length: > 0 } ? Packs.For(box.PackArea) : null) ?? InstancePacks(player);
         if (packs is null || StrongboxCatalog.Find(box.Type) is not { } type) return [];
         var pool = packs.Scattered.Where(p => p.Pack.Entries.Count > 0
             && p.Pack.Entries.All(e => Monsters.Find(e.Variety.ToString()) is { Supported: true })).ToList();

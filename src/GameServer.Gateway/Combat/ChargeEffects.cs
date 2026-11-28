@@ -125,6 +125,7 @@ public static class ChargeEffects
         P(Stat.SkillAreaOfEffectPlusPctPerPowerCharge, Stat.BaseSkillAreaOfEffectPlusPct),
         new(Stat.SkillAreaOfEffectPlusPctPerPowerChargeUpTo50Pct, ChargeType.Power, [Stat.BaseSkillAreaOfEffectPlusPct], Cap: 50),
         P(Stat.SpellDamagePlusPctPerPowerCharge, Stat.SpellDamagePlusPct),
+        P(Stat.WandDamagePlusPctPerPowerCharge, Stat.WandDamagePlusPct),
         P(Stat.ProjectileDamagePlusPctPerPowerCharge, Stat.ProjectileDamagePlusPct),
         P(Stat.DamagePlusPctPerPowerCharge, Stat.DamagePlusPct),
         P(Stat.ElementalDamagePlusPctPerPowerCharge, Stat.ElementalDamagePlusPct),
@@ -155,7 +156,7 @@ public static class ChargeEffects
         P(Stat.LightningDamagePctToAddAsChaosPerPowerCharge, Stat.LightningDamagePctToAddAsChaos),
         // All three
         new(Stat.DamagePlusPctPerFrenzyPowerOrEnduranceCharge, null, [Stat.DamagePlusPct]),
-        // Brutal (Endurance Charges converted): Character.ot's 3% chance to deal triple damage (the hits' gambler roll)
+        // Brutal (Endurance Charges converted): Character.ot's 3% chance to deal triple damage (the hits' hitRolls roll)
         // and 10% increased stun threshold per charge (PanelStatDefaults). Affliction's more ailment damage is
         // DamageMore(ailment); its more effect of non-damaging ailments and Absorption's recoup of elemental damage
         // taken as energy shield have no server consumer yet (11-skills.md §15).
@@ -182,6 +183,17 @@ public static class ChargeEffects
         new(Stat.AdditionalMaximumAllResistancesPctWithNoEnduranceCharges, ChargeType.Endurance, true, [Stat.AdditionalMaximumAllResistancesPct]),
     ];
 
+    static readonly HashSet<uint> ConditionalStats = [.. Conditional.Select(c => c.Stat)];
+
+    /// <summary>True if <paramref name="stats"/> contains any expandable per-charge or conditional charge stat.</summary>
+    public static bool HasAny(IReadOnlyDictionary<uint, int> stats, IReadOnlySet<uint>? extra = null)
+    {
+        foreach (uint key in stats.Keys)
+            if (Expanded.Contains(key) || ConditionalStats.Contains(key) || (extra?.Contains(key) ?? false))
+                return true;
+        return false;
+    }
+
     /// <summary>
     /// What the charges held add to the character's stats (<paramref name="get"/>: passives, items and auras with
     /// <see cref="Inherent"/>; <paramref name="held"/>: the effective count per type, Charges.State.Effective), by
@@ -195,7 +207,7 @@ public static class ChargeEffects
     /// count (none without it).
     /// </summary>
     public static Dictionary<uint, int> Expand(Func<uint, int> get, Func<ChargeType, int> held, Func<ChargeType, bool>? converted = null,
-        IEnumerable<Rule>? rules = null, Func<ChargeType, int>? maximum = null)
+        IEnumerable<Rule>? rules = null, Func<ChargeType, int>? maximum = null, bool includePhysicalReduction = true)
     {
         var added = new Dictionary<uint, int>();
         void Add(uint stat, long value)
@@ -217,7 +229,8 @@ public static class ChargeEffects
         foreach (var c in Conditional)
             if (get(c.Stat) is int value and not 0 && (Standard(c.Type) == 0) == c.WhenNone)
                 foreach (uint target in c.Targets) Add(target, value);
-        Add(AdditionalPhysicalReduction, (long)get(PhysicalReduction) + added.GetValueOrDefault(PhysicalReduction));
+        if (includePhysicalReduction)
+            Add(AdditionalPhysicalReduction, (long)get(PhysicalReduction) + added.GetValueOrDefault(PhysicalReduction));
         return added;
     }
 

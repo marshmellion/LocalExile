@@ -268,6 +268,7 @@ public static class DepravedTrinity
             if (!CurrentGameWork || !TransitionShown(c, use.TargetId, gate)
                 || !PlayerWalk.InWalkUpRange(stop, (gate.GridX, gate.GridY), AreaTransitionObjectSize)) return true;
             c.Walk.Teleport(destination.X, destination.Y, ProjectileWorldTime(c));
+            RememberLocalGateCheckpoint(c, gate, stop, destination, allowUnpaired: true);
             await SendWorldRecord(c, c.Id, InstanceProtocol.Teleport(c.Id, destination.X, destination.Y), $"[Rotting Core] gate 0x{use.TargetId:x} -> {destination}", still: () => PlayerActionCurrent(c, action));
         }
         finally { await SendWorldRecord(c, c.Id, InstanceProtocol.ActionEnded(c.Id), null, still: () => PlayerActionCurrent(c, action)); }
@@ -319,9 +320,14 @@ public static class DepravedTrinity
                     await SendWorldRemoval(c, id, "[Rotting Core] encounter creature retired");
             }
         }
-        var p = c.Area.Monsters.FirstOrDefault(m => IsBoss(m.Value.Variety));
-        if (p.Value is null) return;
-        var f = Fights.GetValue(c.Instance, _ => new(p.Key, p.Value, c));
+        // Take the fight while its own boss is still in the area; otherwise search for the boss as before, and
+        // step nothing when the area has none.
+        if (!Fights.TryGetValue(c.Instance, out var f) || !f.BossIn(c.Area))
+        {
+            var p = c.Area.Monsters.FirstOrDefault(m => IsBoss(m.Value.Variety));
+            if (p.Value is null) return;
+            f = Fights.GetValue(c.Instance, _ => new(p.Key, p.Value, c));
+        }
         await f.Gate.WaitAsync();
         try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, AreaTime(c)); }
         finally { f.Gate.Release(); }
@@ -345,6 +351,7 @@ public static class DepravedTrinity
     public sealed class Fight
     {
         public readonly SemaphoreSlim Gate = new(1);
+        public bool BossIn(GameArea a) => a.Monsters.TryGetValue(id, out var m) && ReferenceEquals(m, boss);
         public bool Stopped;
         readonly uint id; readonly SpawnedMonster boss;
         readonly GameArea area;

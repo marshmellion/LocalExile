@@ -3,6 +3,7 @@ using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
+using GameServer.Core.World;
 using GameServer.Data.Terrain.Generation;
 
 static partial class QuestobjectsRules
@@ -470,7 +471,7 @@ static partial class QuestobjectsRules
                     perSecond = GameServer.Core.World.DamageModel.Mitigate(player.PlayerMaxLife * lifeShare + player.EnergyShield.Maximum * shieldShare,
                         Resistance(player, fire), MaxResistance(player, fire));
                 }
-                await degen.Set(player, perSecond, burns ? LabyrinthTrials.LavaBuffRow : null, "on a trial hot plate");
+                await degen.Set(player, perSecond, burns ? LabyrinthTrials.LavaBuffRow : null, "on a trial hot plate", DamageType.Fire);
                 await AreaDelay(player, SpikeTickMilliseconds / 1000.0);
             }
         }
@@ -633,7 +634,7 @@ static partial class QuestobjectsRules
                     continue;
                 }
                 uint mob = await SpawnMonster(player, monster, level, MonsterRarity.Normal, statue.X, statue.Y, log: false);
-                if (player.Area.Monsters.TryGetValue(mob, out var m)) (m.BusyUntil, m.Aggro) = (double.PositiveInfinity, false);
+                if (player.Area.Monsters.TryGetValue(mob, out var m)) (m.BusyUntil, m.Aggro, m.ScriptHeld) = (double.PositiveInfinity, false, true);
                 await global::Game.SendWorldRecord(player, mob, InstanceProtocol.Orientation(mob, statue.Angle), null);
                 if (Emerges.ClipIndex(monster) is uint clip) await global::Game.SendWorldRecord(player, mob, InstanceProtocol.AnimationUpdate(mob, 0, clip, 0), null);
                 waiting.Add((mob, statue, monster));
@@ -654,7 +655,7 @@ static partial class QuestobjectsRules
                     if (!gone && !near && !hit) continue;
                     waiting.Remove(w);
                     if (gone) continue;
-                    if (player.Area.Monsters.TryGetValue(w.Mob, out var woken)) (woken.BusyUntil, woken.Aggro) = (now + Emerges.Seconds(w.Monster) + 0.3, true);
+                    if (player.Area.Monsters.TryGetValue(w.Mob, out var woken)) (woken.BusyUntil, woken.Aggro, woken.ScriptHeld) = (now + Emerges.Seconds(w.Monster) + 0.3, true, false);
                     if (Emerges.SkillId is ushort emerge)
                         await Send(player, [.. InstanceProtocol.ActionStarted(w.Mob, w.Statue.X, w.Statue.Y, w.Statue.X, w.Statue.Y, emerge, 0xffff, player.MonsterOrderFlags),
                             .. InstanceProtocol.ActionEnded(w.Mob)], $"0x01ab statue monster 0x{w.Mob:x} {w.Monster.Name} at ({w.Statue.X}, {w.Statue.Y}) steps down");
@@ -1326,7 +1327,7 @@ static partial class QuestobjectsRules
         long before = player.PlayerLife, lifeDamage = DamagePlayerHitTyped(player, damage, 0, 0, now, CharacterPlayerStats(player),
             GameServer.Core.World.DamagePacket.Of(GameServer.Core.World.DamageType.Physical, damage, damage));
         player.PlayerLife = (uint)Math.Max(0, before - lifeDamage);
-        if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+        if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
         RecordHardcoreDeath(player);
         return player.PlayerLife;
     }
@@ -1817,13 +1818,13 @@ static partial class QuestobjectsRules
         // This tick's degeneration (0 out of the trap) and buff row: the buff swapped as the row changes, and the client's
         // recovery rates sent again on entering and leaving (PlayerStatsUpdateAtGate).
         public async Task Set(Player player, double perSecond, ushort? row,
-            string where)
+            string where, DamageType type = DamageType.Physical)
         {
             bool was, degen;
             ushort instance = 0;
             was = mine > 0;
             if (player.PlayerLife == 0) perSecond = 0;
-            player.Degens[this] = perSecond;
+            player.Degens.Set(this, type, perSecond);
             mine = perSecond;
             degen = mine > 0;
             if (!degen) row = null;

@@ -80,6 +80,57 @@ start an arm; kills of monsters created 62 to 85 cells from a piece did, one cre
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
 Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
 
+## Bestiary and Sulphite scarab boundaries
+
+The pinned client tables supply all twelve Bestiary scarab/lure inputs and seven Sulphite inputs, including legacy
+rows. Family lures use BestiaryCapturableMonsters, BestiaryGroups and BestiaryFamilies; Shadowed Crow selects
+AtlasMorriganBeast rather than a similarly named ordinary bird. Herd, Duplicating, Crow, Greed and Fumes modify an
+existing master encounter; they do not independently guarantee one. The base scarabs and legacy lures carry that stat.
+
+The account/league capture store retains the capturable row, variety, level, rarity, modifiers and separate copy IDs.
+Its source identity prevents repeated kills or reload from crediting the same capture twice. The mission snapshot
+keeps each red beast's separate wave and random progression. Native book, itemisation and Blood Altar protocols are
+not implemented by this store. The base mission's level/count mapping, equal red selection weights and map fallback
+pool remain estimates. The full store retains 1,000 entries and replaces the oldest; the replacement order and the
+50% nearby-party capture roll are local approximations. The official
+[3.20 party change](https://www.pathofexile.com/forum/view-thread/3323944#bestiaryparty-play) establishes per-player
+chance and guaranteed instance-owner credit, but does not publish its exact constant. Nearby non-owners use 250 cells.
+
+Sulphite retains the shipped resource curve and existing party yield formula, with owner-only scarab bonuses,
+map quantity, mined-sulphite modifiers and equipment capacity. The three deposits have a shared single-use claim.
+Fumes adds its 50% quantity once, preserving other encounter quantity and other stats, and uses a separate retained
+mark for the native enrage presentation. Its radius, guard placement and combat tuning remain local approximations.
+
+## Ritual
+
+CoreLeagues 20 is rolled by the module at `AreaPopulated` in maps (`ExtraTerrainFeatures.LeagueCount`; `map_area_contains_rituals`
+forces it) and in the retail 3.29 campaign areas carrying `MapActsRitualSpawn` in `WorldAreas.ModsKeys` (`1_2_8` The Northern
+Forest and `1_2_13` The Dread Thicket, 3 forced altars). Maps roll 3–4 altars by level (`RitualBalancePerLevel`; 4 with
+`map_ritual_encounter_count_is_four`), each with a rune and its guard packs. Nothing is sent until a player comes within 250
+cells of an altar; it then shows, spawns its guards, and ties hostile monsters in its 87-cell circle while inactive. Tied deaths
+spawn BloodPools and credit the altar; clearing all tied monsters marks it ready (`S→C 0x165`). Clicking a ready altar starts
+the waves, activates circular arena containment (`RitualBlocker` ring radius 87), sets `is_in_ritual` (enabling life/ES recovery
+ceilings), spawns rune daemons/hazards, and grants Tribute (`S→C 0x167`).
+
+**Favour window (3.29.3c/d verified):** `S→C 0x0166` (`0x1421b5aa0` → `0x14250f110`) carries `u32 BE tribute`, `u8 rerollsUsed`,
+`u8 count`, `count × (u32 BE itemId, u16 BE buyCost, u16 BE originalCost, u8 flag)` sorted ascending by `itemId` (`0x140320c60`),
+`u8 totalAltars`, `u8 completedAltars` (`buyCost=0xffff` = hidden placeholder `HiddenItem*Ritual`, `originalCost=0xffff` = not
+deferrable; `flag` 0 normal / 1 deferred / 2 warning / 3 final warning). `S→C 0x007b` kind `0x38` opens `RitualRewardWindow`
+bound to a Manager-1 shop inventory (`0x620`, `flags=0x60`); Manager-0 row 57 (`RitualSavedRewards1`, `invId=58`) mirrors the
+league-isolated persisted deferred items (`PersonalStashOf(player)` `ModuleData["ritual.deferred"]`) for the client's 50-item
+defer cap (`0x14032049e`). `QuestFlags` row 2020 (`IsMapOwner`) is granted to the instance owner via `GameEvents.AreaQuestFlags`
+and flushed in `Placed` after `AreaPopulated`. Client actions: `C→S 0x0169`
+(open), `0x0168` (reroll, base cost from `RitualBalancePerLevel.__col13`), `0x0283` (buy/claim, 18 B), `0x0284` (defer, 6 B,
+min area level 47).
+
+**Vessels, Scarabs, Atlas & Omens:** Using a `Ritual Vessel` (`CurrencyRitualStone`, `C→S 0x0074`/`0x0079`) on a completed altar
+captures its first-kill monsters into a `Blood-filled Vessel` (`RitualFragment`, item component 157 `RitualEncounter`: `u8 count`,
+`u32 LE monsterLevel`, `count × (u16 LE MonsterVarieties HASH16, u16 LE count)`, `u16 LE WorldAreas HASH16`, persisted in
+`items.ritual_encounter`). Placing up to 4 Blood-filled Vessels in the Map Device injects their captured monsters and stacking
+bonuses (+5% IIQ via `MapFragmentMods` row 247, +20% spawn speed/max alive/rewards). All 4 Ritual Scarabs, Ritual Atlas passives
+(`Immutable Dogma`, `Arbitrary Tenets`, `Occult Devotion`, `Sacrificial Due`, `Answered Appeals`, `Flexible Dogma`, `Secular
+Focus`, Wisps buff `2502`), and all 16 `AncestralOmen*` Omens (1 per combat area) are wired.
+
 ## Mercenaries (CoreLeagues row 28)
 
 A map area rolls one mercenary of the Mercenaries of Trarthus at its WorldAreaLeagueChances chance (column +0xa4: 8% in
@@ -93,5 +144,76 @@ at the area's monster level.
 The mercenary is the instance's. It waits friendly and scripted (team 70, `encounter_state` 1), a click opens the panel,
 the panel's duel choice (a 0x2ca action of ruleset 161) starts a countdown of 54 frames, the friendly one is replaced by a
 hostile one of its variety, and its death leaves the `*Allied` mercenary. The rulesets 161 and 162 are added by 0x1f when the
-mercenary is placed or a player enters. Not built: the build's own skills, the hire following and fighting for the player,
+mercenary is placed or a player enters. Not built: the hire following and fighting for the player,
 the duel opponent's drops, and the header listing of the two rulesets.
+
+## Delirium scarabs
+
+The five current scarabs use the existing map Mirror encounter and composed instance stats. Only the base scarab
+guarantees a mirror. Mania scales reward-counter points and monster depth (capped at 100%); Paranoia adds two initial
+types. Neuroses places Omniphobia and Kosis through the ordinary monster path and adds a distinct reward type per
+boss killed. Their ids, spawn and reward flags survive module reload and reentry; repeated boss callbacks pay once.
+
+Delusions prepares newly generated map drops before ground publication, including containers and encounter rewards.
+The ground hook has no game rules. Player drops and restored ground objects bypass it; duplicate references to the same
+generated item share its result. Unique maps and maps already carrying Delirium layers keep their original modifiers.
+The enchant uses `AfflictionMapDeliriumStacks` and `AfflictionRewardMapMods`, with the reward formatter's one-based values.
+It applies independently of whether the map contains a mirror.
+
+Fidelity limits: the existing Mirror's fog, population, depth scaling and reward rates remain calibrated estimates.
+Neuroses uses the existing boss kits and places both bosses in the first spawned group. Found maps draw 1–5 layers and
+reward types uniformly; the client tables supply their identities and 20% layer size, not the retail distribution.
+Permanent Delirium-map gameplay is a separate engine from this scarab's found-item enchant.
+
+## Influence, Legion, Abyss and Mercenary scarabs
+
+The twelve Shaper/Elder/current Influence inputs use the client fragment flags, pack lists and monster drop mods.
+Interference places one supported standalone guardian beside a map boss. Influenced equipment retains its influence
+and rarity; additional rare drops receive independent item rolls. Base influence density is calibrated at ten packs;
+the retail pack total and spatial distribution are not published by the client.
+
+The nine Legion inputs compose monolith counts, generals, war hoards, sergeants, Maraketh, repeated breakouts and
+spreading Emblematic rewards. Frozen and released actors retain their encounter identity through restoration.
+Life/damage increase by 50% per repeated breakout and 100% for spreading; these difficulty values are calibration.
+The existing army population and chest/drop weights remain estimates.
+
+The nine Abyss inputs retain independent pit plans and reward claims through reload and reentry. They compose
+extra pits, pack size, guaranteed Spires, Depths entrances, Consorts and non-final pits' Abyssal Crystals. Depths has
+a return to the parent instance and uses the existing generated Lich areas, matched to its monster family. The removed
+non-Lich Depths areas cannot generate in this client. The new inputs reuse the captured crack/pit lifecycle.
+Extra-pit placement, rare-monster distribution and crystal reward count are local models; the base encounter's
+recorded capture evidence does not establish retail parity for them.
+
+The four Trarthan inputs select Infamous builds, unique equipment, wild companions and their quantity/difficulty
+modifiers. Wild mercenaries pay actual carried items through ordinary ground publication once. The ordinary hire
+panel and duel remain the base module's route. Carried item selection is uniform without replacement; build/equipment
+weights and the difficulty curve remain calibration. Following, party AI and all league gameplay beyond these scarab
+effects remain separate work.
+
+## Expedition, Incursion, Betrayal and Pandemonium scarabs
+
+The nine legacy/current Expedition inputs compose encounter admission, explosive counts and radius, runic markers,
+and remnant prefix/suffix counts. Runic increases add markers without replacing the ordinary population. Remnants
+exclude duplicate modifier families. Logbooks retain each location, faction and implicit roll through inventory and
+stash storage; Infusion prepares four implicits per location on newly generated ground items. The baseline runic
+logbook chance is calibrated at 2%. Each detonated remnant under Infusion adds 20% life, 10% damage, 20% quantity and
+20% rarity to subsequently unearthed monsters; this curve and uniform remnant selection are server calibration.
+
+The four Incursion inputs force eligible Alva missions, add the table's 12-16 map packs, increase room population and
+roll the Champions minimum rarity once per incursion. Timelines copies the final incursion's architect outcome once
+per map. Newly found temples randomize room tiers without changing the character's plan. The item retains the eleven
+room hashes and the server graph's open-edge mask. The d-client's item reader format is verified; retail door-bit
+ordering and polarity remain unverified. The past-room terrain section, temple area and its reward encounters remain
+base-module work.
+
+The four Betrayal inputs use the supported Transportation and Intervention encounters. Available unassigned targets
+can join either supported mission; all writable Syndicate targets can reinforce it. Each member owns its kneel and
+Interrogate choice. Interrogation excludes the target for three subsequent completed encounters, then releases it
+with one rank lost unless the retained scarab roll preserves it. Reinforcement odds use a calibrated 40% baseline,
+scaled by the map's increased chance. Board relationships, recruitment/Execute choices, Fortification/Research,
+safehouses and Catarina remain separate work. The Allflame scarab multiplies the client table's pack substitution
+counts; Ember-specific reward and behaviour scripts are separate from this count effect.
+
+Pandemonium rolls per non-unique population pack and replaces the entire selected pack with one supported standalone
+Atlas boss. Existing uniques remain in their packs; ordinary instance population retains the replacements and final
+map-boss modifiers apply. The selection pool is the existing supported standalone pool, not every Atlas boss script.

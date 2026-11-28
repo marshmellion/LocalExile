@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using GameServer.Modding;
 
 // Unified monster kill-reward & NoRewards funnel shared across melee/AoE/DoT (Combat.cs), projectiles
@@ -9,6 +10,9 @@ public static partial class Game
     /// <see cref="SpawnedMonster.NoRewards"/> or species mod <see cref="BossMods.NoRewards"/>).</summary>
     public static bool MonsterGivesNoRewards(SpawnedMonster m) =>
         m.NoRewards || BossMods.NoRewards(m.Variety);
+
+    static bool MonsterGrantsKillFlaskCharges(SpawnedMonster monster) =>
+        !MonsterGivesNoRewards(monster) && monster.Effects[Stat.MonsterGrantsNoFlaskCharges] == 0;
 
     /// <summary>Whether a monster drops no items or gold (includes <see cref="BossMods.NoDrops"/> and the tutorial zombie).</summary>
     public static bool MonsterGivesNoItems(SpawnedMonster m) =>
@@ -67,7 +71,7 @@ public static partial class Game
             bool carried = QuestItems.Carried(ItemsOf(player)).Any(c => c.Item.Item.TypeHash == type.Hash);
             bool onGround = player.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash
                 && QuestDropVisibleTo(player, e.Id));
-            if (QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround))
+            if (QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround, lqf => player.Character.LeagueQuestFlags.Contains(lqf)))
                 return true;
         }
 
@@ -117,13 +121,21 @@ public static partial class Game
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return [];
         if (MonsterGivesNoItems(m)) return [];
+        // "Monsters drop no Items" (map_monster_no_drops, a Valdo modifier).
+        if (MapModsOf(player)?.Get(Stat.MapMonsterNoDrops) > 0) return [];
         if (!GameEvents.AllowsLoot(player)) return [];
 
-        var balance = LeagueFor(player).Rules;
+        var lootStats = PlayerStatValues(player);
+        var league = LeagueFor(player);
+        var balance = league.Rules;
         var modded = GameEvents.RunDrops(player, ModMonster(m, at));
         int iir = IncreasedItemRarity(player, m);
         double iiq = ItemQuantityFactor(player, m);
         int areaLevel = ServerLevels.AreaLevel(player.Layout.Id) is > 0 and var al ? al : m.Level;
+        var mapMods = MapModsOf(player);
+        bool isBoss = m.Rarity == MonsterRarity.Unique && m.Variety is { } variety
+            && (variety.BossHealthBar || BossMods.IsActBoss(variety) || BossMods.IsQuestBoss(variety)
+                || BossKits.IsCampaignBoss(variety) || FinalActBossVarieties.Contains(variety.Id));
         List<ItemDrops.Drop> drops = [];
 
         // The King in the Mists always drops one of four uniques, plus its support gems and card.
@@ -132,30 +144,43 @@ public static partial class Game
 
         if (modded is not { Cancel: true })
         {
+            var sirusRewards = Sirus.Rewards(player, m).ToList();
             if (m.Rarity == MonsterRarity.Unique && m.Variety is { } boss)
             {
                 drops.AddRange(DropsFor(player).EncounterJewels(boss.Id, m.Level, rng, DropDataProvider.Default.Current));
+                // Roll world.db drop_boss_items (fragments, crests, memory echoes, Uber fragments, boss-only currency,
+                // and boss unique pools), skipping bosses owned by dedicated module drop handlers.
+                bool hasDedicatedDrops = KingInMists.IsBoss3(boss)
+                    || sirusRewards.Count > 0
+                    || boss.Id.StartsWith("Metadata/Monsters/LeagueHarvest/", StringComparison.Ordinal);
+                if (!hasDedicatedDrops)
+                    drops.AddRange(DropsFor(player).BossDrops(boss.Id, m.Level, rng, DropDataProvider.Default.Current));
                 if (IsTwilightStrandHillock(player.Layout.Id, boss.Id))
                 {
                     drops.AddRange(DropsFor(player).RollHillockStarterDrop(player.Character.ClassRow, rng));
                 }
                 else if (firstBossKill && ClassifyFirstKillCampaignBoss(player, boss) is bool actBoss)
                 {
+                    var bossContext = DropContext.BossBonus(boss.Id, player.Layout.Id,
+                        leagueId: league.Id, hardMode: league.HardMode);
                     drops.AddRange(DropsFor(player).RollBossFirstKillBonus(m.Level, rng, actBoss: actBoss,
-                        increasedRarity: iir, rarityMultiplier: balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+                        increasedRarity: iir, rarityMultiplier: balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1),
+                        context: bossContext));
                 }
             }
 
             var map = MapRunOf(player);
             int mapTier = map?.Area.Tier ?? 0;
-            var mapMods = MapModsOf(player);
+            string dropAreaId = map?.Area.DivinationCardArea ?? player.Layout.Id;
+            var killContext = DropContext.MonsterKill(m.Rarity, isBoss, m.Variety?.Id,
+                areaId: player.Layout.Id, leagueId: league.Id, hardMode: league.HardMode);
             drops.AddRange(DropsFor(player).Roll(
                 m.Level, m.Rarity, rng, iir,
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * iiq,
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1),
-                mapTier, mapMods, map?.Area.DivinationCardArea ?? player.Layout.Id, MapScarabQuantity(mapMods),
+                mapTier, mapMods, dropAreaId, MapScarabQuantity(mapMods),
                 characterLevel: player.Pools.Level,
-                areaLevel: areaLevel, weights: modded?.Weights));
+                areaLevel: areaLevel, weights: modded?.Weights, context: killContext));
             drops.AddRange(PartyCurrency(player, drops, rng));
             if (RollMapDropForKill(player, m.Level, m.Rarity, mapTier, rng, modded?.MapRelated ?? 1) is { } mapDrop)
                 drops.Add(mapDrop);
@@ -163,12 +188,18 @@ public static partial class Game
             // rather than monster/boss IIR/IIQ to avoid double-multiplying Act Boss gold stacks.
             if (DropsFor(player).Gold(
                 m.Level, m.Rarity, rng,
-                balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1),
+                balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)
+                    * Math.Max(0, 1 + lootStats.GetValueOrDefault(Stat.ItemFoundGoldPlusPct) / 100d),
                 increasedRarity: IncreasedItemRarity(player),
                 quantityFactor: ItemQuantityFactor(player)) is { } gold)
                 drops.Add(gold);
-            drops.AddRange(ExtraDropsFromMap(player, m.Level, m.Rarity, rng));
-            drops.AddRange(Sirus.Rewards(player, m));
+            if (RandomRolls.Chance(lootStats.GetValueOrDefault(Stat.AdditionalScrollOfWisdomDropChancePct), 100, rng)
+                && ItemsFor(player).Find("Metadata/Items/Currency/CurrencyIdentification") is { Supported: true } wisdom)
+                drops.Add(new(ItemCatalog.Create(wisdom) with { StackSize = 1 }, wisdom));
+            var mapCurrencyContext = DropContext.MapCurrency(m.Rarity, isBoss, m.Variety?.Id,
+                areaId: player.Layout.Id, leagueId: league.Id, hardMode: league.HardMode);
+            drops.AddRange(ExtraDropsFromMap(player, m.Level, m.Rarity, rng, modded?.Weights, mapCurrencyContext));
+            drops.AddRange(sirusRewards);
         }
 
         if (modded is { Stacks.Count: > 0 }) drops.AddRange(ModStacks(player, modded));
@@ -176,6 +207,20 @@ public static partial class Game
         drops.AddRange(MadeDrops(player, modded));
         modded?.ApplyTransforms(drops);
         if (MapBeyond.CorruptsDrops(player, m.Variety?.Id)) CorruptDrops(drops);
+        else if (mapMods is not null)
+        {
+            int corruptionChance = m.Rarity switch
+            {
+                MonsterRarity.Rare => mapMods.Get(Stat.MapRareMonsterItemsDropCorruptedPct),
+                MonsterRarity.Unique => mapMods.Get(Stat.MapUniqueMonsterItemsDropCorruptedPct),
+                _ => 0,
+            };
+            if (corruptionChance > 0) CorruptDrops(drops, corruptionChance, rng);
+        }
+        if (lootStats.GetValueOrDefault(Stat.MagicItemsDropIdentified) != 0)
+            for (int i = 0; i < drops.Count; i++)
+                if (drops[i].Item is { Rarity: ItemRarity.Magic, Identified: false } magic)
+                    drops[i] = drops[i] with { Item = magic with { Identified = true } };
         return ItemDrops.Stacked(drops);
     }
 

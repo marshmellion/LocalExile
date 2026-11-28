@@ -49,7 +49,7 @@ static partial class KitavaActTen
     {
         if (v.Id == Body)
             return [.. Effects.Select(e => Game.SkillsFor(c).FindByRow(Skill(e), e, Data(c, e, level).Level,
-                WithBehaviourVariation(c, e, Attack(c, v, level, e).InPlaceSkillStats()))).OfType<GrantedSkill>()];
+                WithBehaviourVariation(c, e, [.. Attack(c, v, level, e).InPlaceSkillStats(), (global::Stat.ActionDoNotFaceTarget, 1)]))).OfType<GrantedSkill>()];
         if (v.Id is Sin or Innocence)
         {
             int[] effects = v.Id == Sin ? [2790, 2791] : [2788, 2789];
@@ -97,14 +97,14 @@ static partial class KitavaActTen
         readonly List<Visual> visuals = [];
         readonly List<Orb> orbs = [];
         readonly HashSet<(int, Player, uint)> struck = [];
-        readonly Dictionary<(Player, uint), double> carry = [];
+        readonly Dictionary<(Player, uint), ArenaHazards.GroundCarry> carry = [];
         int rotation, group;
         double lastGround;
         readonly Dictionary<int, double> cooldowns = [];
         void CancelCombat() { hits.Clear(); struck.Clear(); body.ActionGeneration++; body.SwingGeneration = null; }
         (int X, int Y) ModelCell(double x, double y)
         {
-            double cos = Math.Cos(anchor.Rotation), sin = Math.Sin(anchor.Rotation);
+            double cos = Math.Cos(anchor.Angle), sin = Math.Sin(anchor.Angle);
             return (anchor.X + (int)Math.Round((x * cos - y * sin) / WorldUnits.PerCell),
                 anchor.Y + (int)Math.Round((x * sin + y * cos) / WorldUnits.PerCell));
         }
@@ -168,8 +168,8 @@ static partial class KitavaActTen
                 {
                     // Default stance omits these two ACT attachments; stance3 supplies them itself.
                     uint clip = effect == 8508 ? 0u : effect == 8510 ? 2u : 1u;
-                    await Fx(c, (anchor.X, anchor.Y), Art + "death_breath/rig.ao", now + 5, clip, anchor.Rotation);
-                    await Fx(c, (anchor.X, anchor.Y), Art + "DB_burning_grd/DB_burning_grd.ao", now + 6.433, clip, anchor.Rotation);
+                    await Fx(c, (anchor.X, anchor.Y), Art + "death_breath/rig.ao", now + 5, clip, anchor.Angle);
+                    await Fx(c, (anchor.X, anchor.Y), Art + "DB_burning_grd/DB_burning_grd.ao", now + 6.433, clip, anchor.Angle);
                 }
                 // Three normal breaths leave neighbouring lanes safe; the ultimate covers all but the far-side strip.
                 double from = ultimate ? .333 : .4, until = ultimate ? .9 : .87;
@@ -217,25 +217,41 @@ static partial class KitavaActTen
                     double Dps(Patch g) => g.Type == DamageType.Physical ? Stat(c, g.Effect, body.Level, global::Stat.BasePhysicalDamageToDealPerMinute) / 60d
                         : Math.Max(0, Stat(c, g.Effect, body.Level, global::Stat.BaseFireDamageToDealPerMinute) / 60d);
                     var e = Exposures.GetValue(p, _ => new());
-                    double dps = p.PlayerLife == 0 || p.Paused || p.Immune || InGracePeriod(p) ? 0 : patches.Where(g => Active(p.Walk.Position(now), g) && !PlayerImmunities(p).Contains(g.Type))
-                        .GroupBy(g => g.Type).Sum(g => g.Max(h => Dps(h) * (h.Type == DamageType.Fire ? Math.Max(0, 1 - Math.Min(Resistance(p, h.Type), MaxResistance(p, h.Type)) / 100d) : 1)));
-                    p.Degens[e] = dps; e.Dps = dps;
+                    double physical = 0, fire = 0;
+                    if (p.PlayerLife > 0 && !p.Paused && !p.Immune && !InGracePeriod(p))
+                    {
+                        var at = p.Walk.Position(now);
+                        var immunities = PlayerImmunities(p);
+                        foreach (var patch in patches.Where(g => Active(at, g) && !immunities.Contains(g.Type)))
+                        {
+                            if (patch.Type == DamageType.Physical) physical = Math.Max(physical, Dps(patch));
+                            else fire = Math.Max(fire, Dps(patch));
+                        }
+                        if (fire > 0) fire *= Math.Max(0, 1 - Math.Min(Resistance(p, DamageType.Fire), MaxResistance(p, DamageType.Fire)) / 100d);
+                    }
+                    p.Degens.Set(e, physical, fire, 0); e.Dps = physical + fire;
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                     {
                         if (!GolemCurrent(p, g) || g.Monster.Dead || g.Monster.Invulnerable || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;
-                        double rate = patches.Where(h => Active(g.Monster.Walk.Position(now), h)).GroupBy(h => h.Type).Sum(h => h.Max(patch =>
+                        double rate = 0, elementalRate = 0;
+                        foreach (var group in patches.Where(h => Active(g.Monster.Walk.Position(now), h)).GroupBy(h => h.Type))
                         {
-                            var res = MonsterHitResistance(g.Monster, patch.Type, default);
-                            return Dps(patch) * (patch.Type == DamageType.Fire ? Math.Max(0, 1 - Math.Min(res.Value, res.Maximum) / 100d) : 1)
-                                * Math.Max(0, 1 + Stat(c, patch.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d);
-                        }));
-                        double raw = rate * seconds + carry.GetValueOrDefault((p, g.Id));
-                        int damage = (int)Math.Min(int.MaxValue, Math.Floor(raw)); carry[(p, g.Id)] = raw - damage;
+                            double taken = group.Max(patch =>
+                            {
+                                var res = MonsterHitResistance(g.Monster, patch.Type, default);
+                                return Dps(patch) * (patch.Type == DamageType.Fire ? Math.Max(0, 1 - Math.Min(res.Value, res.Maximum) / 100d) : 1)
+                                    * Math.Max(0, 1 + Stat(c, patch.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d);
+                            });
+                            rate += taken;
+                            if (DamageTypes.IsElemental(group.Key)) elementalRate += taken;
+                        }
+                        carry[(p, g.Id)] = carry.GetValueOrDefault((p, g.Id))
+                            .Apply(g.Monster, rate * seconds, elementalRate * seconds, out int damage, out bool healed);
                         int incoming = damage;
                         damage = g.ShieldPool.Damage(damage, bypass: false, now);
                         PublishEnergyShieldLocked(p, g);
                         g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
-                        if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Kitava ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
+                        if (incoming > 0 || healed) p.Minions.OutputQueue.Add(new([], "Kitava ground changes minion life", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
                         if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
                     }
                 }

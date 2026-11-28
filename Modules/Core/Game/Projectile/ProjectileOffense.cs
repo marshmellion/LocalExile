@@ -13,6 +13,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     int CriticalMultiplier, string Label)
 {
     public bool WeaponAttack { get; init; }
+    internal bool FiresWandProjectiles { get; init; }
+    internal bool DirectAttackContact { get; init; }
     public GameServer.Core.Protocol.Instance.Item? SkeletonWeaponContactSource { get; init; }
     /// <summary>Whether an attack hit counts as a projectile attack (false for non-projectile rains and secondary explosions).</summary>
     public bool? ProjectileAttack { get; init; }
@@ -24,10 +26,16 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public SpawnedMonster? BrandedTarget { get; init; }
     public object? Owner { get; init; }
     public bool IntimidatingCryExerted { get; init; }
+    internal int OtherWarcryExertions { get; init; }
+    internal int? RallyingDamage { get; init; }
     public double HitProfileMore { get; init; } = 1;
     public double AilmentProfileMore { get; init; } = 1;
+    public double DotProfileMore { get; init; } = 1;
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
+    internal sealed record AreaAilments(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
+    internal AreaAilments? ConeAilments { get; init; }
+    internal AreaAilments? BlindedConeAilments { get; init; }
     internal Game.ForbiddenRiteCast? ForbiddenRite { get; init; }
     public Penetration.PerType Penetration { get; init; }
     public HitResistances.Mods ResistanceMods { get; init; }
@@ -41,8 +49,16 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>The poison damage and duration its hits deal, captured at release (MonsterPoisons); the default poisons
     /// nothing.</summary>
     public MonsterPoisons.Settings Poison { get; init; }
-    /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
+    /// <summary>The poison rules a Crucible weapon tree granted the released skill by name (SkillPoisonStats): its
+    /// whole hit can poison, and its poisons may deal 100% more damage. The default grants neither.</summary>
+    public SkillPoisonStats PoisonSkill { get; init; }
     public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
+
+    public DamageOverTime? TrarthusBurn { get; init; }
+    internal DamageOverTime? ConflagrationBurn { get; init; }
+    internal MonsterContagion.Cast? Soulrend { get; init; }
+    internal Game.FleshrendCast? Fleshrend { get; init; }
+    internal double GhorrDotMore { get; init; } = 1;
     /// <summary>Caustic Arrow's non-stacking caustic ground cloud, spawned at every arrow impact and end (CausticClouds.cs).</summary>
     public sealed record CausticCloudSpec(int Radius, double Duration, double Dps, int ArtVariation);
     public CausticCloudSpec? CausticCloud { get; init; }
@@ -50,7 +66,11 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public GroundBladeSpec? GroundBlade { get; init; }
     internal Game.UnearthCorpse? Unearth { get; init; }
     public Game.ExplosiveFuseSpec? ExplosiveFuse { get; init; }
+    internal Game.ExplosiveFuses? ExplosiveBlast { get; init; }
     public Game.EnsnareSpec? Ensnare { get; init; }
+    internal Game.ElectrocutionSpec? Electrocution { get; init; }
+    internal Game.VenomGyreCapture? VenomGyre { get; init; }
+    internal Game.FusilladeCast? Fusillade { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }
@@ -63,15 +83,21 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal bool FreezingPulseFalloff { get; init; }
     internal int RemainingChainDamagePercent { get; init; }
     internal int CompletedChainDamagePercent { get; init; }
-    /// <summary>The local stats of the weapon an attack was made with (GamblerModifiers.ForWeapon); null for a spell.</summary>
+    internal int DamageIncreasePerChain { get; init; }
+    internal int DamageIncreasePerPierce { get; init; }
+    /// <summary>The local stats of the weapon an attack was made with (HitRollModifiers.ForWeapon); null for a spell.</summary>
     public IReadOnlyDictionary<uint, int>? WeaponLocal { get; init; }
+    internal bool OffHandWeapon { get; init; }
     public string? WeaponClass { get; init; }
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
     public int Effect { get; init; } = -1;
     public ushort SourceSkill { get; init; }
     public Game.LinkedTriggerSource? CriticalTrigger { get; init; }
+    internal Game.SupportedGem? KineticFluxDriver { get; init; }
+    internal Game.SupportedGem? VoidstormDriver { get; init; }
     public long? RampageEpoch { get; init; }
     public RampageCatalog.SkillLevel? RampageSkill { get; init; }
+    internal double RampageAddedEffectiveness { get; init; } = 1;
     public int Level { get; init; } = 1;
     /// <summary>The skill's gem type, for the art its worn skill effects pick.</summary>
     public uint Gem { get; init; }
@@ -86,6 +112,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool PointBlank { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
     public int DamageMorePerGroundBounce { get; init; }
+    public int DamageMoreAfterPierce { get; init; }
+    public int DamageMorePerElementalAilment { get; init; }
     internal sealed class LancingSteelHitSeries(double repeatMultiplier)
     {
         public readonly HashSet<ProjectileActorKey> Targets = [];
@@ -101,6 +129,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public SpiderDamageSource? Spider { get; init; }
     public SpiderDamageSource? SpiderArea { get; init; }
     public int? SecondFormCriticalChance { get; init; }
+    internal sealed record FormCriticalOptions(int? VsBlinded, Game.GroundCritical? VsGround, int MultiplierPlus);
+    internal FormCriticalOptions? SecondFormOptions { get; init; }
     /// <summary>The chance against a target the player has Blinded (Program.CriticalChanceOn), or null.</summary>
     public int? VsBlindedCriticalChance { get; init; }
     /// <summary>The chances against a target on the player's profane or consecrated ground (Game.GroundCritical), or null.</summary>
@@ -123,11 +153,13 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal int ScourgePods { get; init; }
     internal bool ScourgePodsPerProjectile { get; init; }
     internal Game.SomaticShellApplications? SomaticApplications { get; init; }
-    internal bool PreventsSomaticShellBreak { get; init; }
+    internal bool BypassesSomaticShell { get; init; }
     internal int SkillResistanceInversionChance { get; init; }
     /// <summary>The use's once-per-use grants (the Frenzy gem's charge), shared by its volley: the first enemy hit
     /// claims them.</summary>
     public UseOnce? FirstHit { get; init; }
+    internal Game.TraumaUse? Trauma { get; init; }
+    internal Game.SupportedGem? TraumaSource { get; init; }
 
     /// <summary>Selects the frozen output for the target's state before this hit's side effects, without recapturing
     /// release inputs or drawing random numbers.</summary>
@@ -137,16 +169,31 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal ProjectileOffense Against(bool targetWasBlinded, int webs, bool ignited, bool bleeding, bool lowLife, bool maimed,
         Game.TargetContact contact = default, bool? areaContact = null)
     {
-        if (Spider is { } spider
+        var cone = areaContact is true ? ConeAilments : null;
+        if ((cone is null ? Spider : SpiderArea) is { } spider
             && Game.ProjectileTargetChangesDamage(spider, targetWasBlinded, webs, ignited, bleeding, lowLife, maimed, contact))
         {
             var profile = Game.SpiderDamageProfile(spider, webs, targetWasBlinded, ignited, bleeding, lowLife, maimed, contact: contact);
+            if (cone is not null)
+                return this with { AreaHit = profile.Hit.Scale(HitProfileMore),
+                    Ignite = Scale(profile.Ignite, AilmentProfileMore), Bleed = Scale(profile.Bleed, AilmentProfileMore),
+                    Poison = Scale(profile.Poison, AilmentProfileMore) };
             var areaHit = areaContact is not false && SpiderArea is { } area
                 ? Game.SpiderDamageProfile(area, webs, targetWasBlinded, ignited, bleeding, lowLife, maimed,
                     contact: contact, hitOnly: true).Hit.Scale(HitProfileMore) : AreaHit;
             return this with { Hit = profile.Hit.Scale(HitProfileMore), AreaHit = areaHit,
                 Ignite = Scale(profile.Ignite, AilmentProfileMore), Bleed = Scale(profile.Bleed, AilmentProfileMore),
                 Poison = Scale(profile.Poison, AilmentProfileMore) };
+        }
+        if (cone is not null)
+        {
+            if (targetWasBlinded && BlindedConeAilments is { } blinded) cone = blinded;
+            return this with
+            {
+                AreaHit = targetWasBlinded && VsBlinded?.AreaHit is { } hit ? hit.Scale(HitProfileMore) : AreaHit,
+                Ignite = Scale(cone.Ignite, AilmentProfileMore), Bleed = Scale(cone.Bleed, AilmentProfileMore),
+                Poison = Scale(cone.Poison, AilmentProfileMore),
+            };
         }
         return targetWasBlinded && VsBlinded is { } alternate ? this with
         {
@@ -163,14 +210,19 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     {
         Hit = Hit.Scale(more), AreaHit = AreaHit?.Scale(more),
         HitProfileMore = HitProfileMore * more, AilmentProfileMore = AilmentProfileMore * more,
+        DotProfileMore = DotProfileMore * more,
+        Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
+        Soulrend = Soulrend is { } cast ? cast with { DamagePerSecond = cast.DamagePerSecond * more } : null,
+    };
+
+    public ProjectileOffense ScaleHitAndAilmentDamage(double more) => more == 1 ? this : this with
+    {
+        Hit = Hit.Scale(more), AreaHit = AreaHit?.Scale(more),
+        HitProfileMore = HitProfileMore * more, AilmentProfileMore = AilmentProfileMore * more,
         Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
     };
 
-    static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value with
-    {
-        Min = value.Min * more, Max = value.Max * more,
-        CriticalMin = value.CriticalMin * more, CriticalMax = value.CriticalMax * more,
-    };
+    static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value.ScaleDamage(more);
 
     static MonsterPoisons.Settings Scale(MonsterPoisons.Settings value, double more) => value with
     {

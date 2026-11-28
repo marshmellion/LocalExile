@@ -20,6 +20,18 @@ public static partial class Game
     public static bool RunBossKilled(MapDevice.OpenMap? run) => run is not null
         && MapRuns.Any(p => p.Value.Run == run.Run && p.Value.Completed);
 
+    public static bool CurrentMapBossesKilled(Player player) => MapRunOf(player) is not null
+        && player.Instance is { } instance && MapRuns.TryGetValue(instance, out var progress) && progress.Completed;
+
+    public static bool CurrentMapBossesKilled(Player player, bool checkCurrentMonsters)
+    {
+        if (!checkCurrentMonsters) return CurrentMapBossesKilled(player);
+        if (player.Instance is not { } instance || MapDevice.ForInstance(player) is not { } run) return false;
+        var progress = MapRuns.GetValue(instance, _ => new(run.Run, CompletionBosses(run.Area.Id)));
+        lock (progress)
+            return progress.Completed || MapBossesDefeatedLocked(player, progress);
+    }
+
     static int[] CompletionBosses(string area)
     {
         var bosses = (Packs.For(area)?.Bosses ?? []).Select(row => Monsters.Find(row.ToString()))
@@ -36,19 +48,13 @@ public static partial class Game
             || MapDevice.ForInstance(player) is not { } run) return;
         var progress = MapRuns.GetValue(instance, _ => new(run.Run, CompletionBosses(run.Area.Id)));
         double now = AreaTime(player);
-        if (progress.Completed || progress.Bosses.Count == 0 || !force && now < progress.NextCheck) return;
-        progress.NextCheck = now + 0.25;
-        bool alive = false;
-        foreach (var monster in player.Area.Monsters.Values.Concat(player.Area.DormantMonsters.Values))
+        lock (progress)
         {
-            if (!monster.Hostile || monster.Variety is not { } variety || !progress.Bosses.Contains(variety.Row)) continue;
-            if (monster.Dead || monster.Life <= 0) progress.Killed.Add(variety.Row);
-            else alive = true;
+            if (progress.Completed || progress.Bosses.Count == 0 || !force && now < progress.NextCheck) return;
+            progress.NextCheck = now + 0.25;
+            if (!MapBossesDefeatedLocked(player, progress)) return;
+            progress.Completed = true;
         }
-        // Remember kills before a corpse is consumed, but never complete while a twin or a later boss is alive
-        // or a required boss has not spawned yet.
-        if (alive || !progress.Bosses.IsSubsetOf(progress.Killed)) return;
-        progress.Completed = true;
         Console.WriteLine($"[gateway] {run.Owner} map run {run.Run} completed: {run.Area.Id}");
         if (run.PantheonSoul is { } soul)
             await DeliverCapturedSouls(player, run.Owner, soul.VesselItemId);
@@ -71,6 +77,20 @@ public static partial class Game
                 // A visitor disconnected; the next listing still reads this run's completed state.
             }
         }
+    }
+
+    static bool MapBossesDefeatedLocked(Player player, MapRunProgress progress)
+    {
+        if (progress.Bosses.Count == 0) return false;
+        bool alive = false;
+        foreach (var monster in player.Area.Monsters.Values.Concat(player.Area.DormantMonsters.Values))
+        {
+            if (!monster.Hostile || monster.Variety is not { } variety || !progress.Bosses.Contains(variety.Row)) continue;
+            if (monster.Dead || monster.Life <= 0) progress.Killed.Add(variety.Row);
+            else alive = true;
+        }
+        // Keep a defeated boss after its corpse leaves the roster. Check live twins and later forms too.
+        return !alive && progress.Bosses.IsSubsetOf(progress.Killed);
     }
 
     const string PendingSoulsKey = "pantheon.pendingSouls";
@@ -116,6 +136,34 @@ public static partial class Game
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
     }
 
+    public sealed record TownMapDevice(uint Id, int X, int Y);
+    static readonly Store<Player, TownMapDevice> TownMapDevices = new();
+
+    /// <summary>The Karui Shores War Room interactive Map Device spawned for this player, or null outside Karui Shores.</summary>
+    public static TownMapDevice? EndgameTownDevice(Player player) =>
+        player.Layout.Id == MapDevice.EndgameTownArea && TownMapDevices.TryGetValue(player, out var dev) ? dev : null;
+
+    /// <summary>Creates the interactive War Room Map Device in Karui Shores (<c>2_11_endgame_town</c>) overlaying
+    /// camp.arm's FlashBack_MapDevice_01 visual doodad so characters can complete a11q1 without visiting a hideout.</summary>
+    public static async Task SpawnEndgameTownDevice(Player player)
+    {
+        if (player.Layout.Id != MapDevice.EndgameTownArea) return;
+        if (QuestObjectTypes.Find(MapDevice.EndgameTownDeviceType) is not { } info
+            || !QuestObject.CanSerialize(info.Components))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} Karui Shores map device {MapDevice.EndgameTownDeviceType}: unknown or unsupported components");
+            return;
+        }
+        int x = MapDevice.EndgameTownDeviceX, y = MapDevice.EndgameTownDeviceY;
+        uint id = player.TakeObjectId();
+        var obj = new QuestObject(x, y, info.Components, Rotation: MapDevice.EndgameTownDeviceRotation, TransitionState: 1);
+        await SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapDevice.EndgameTownDeviceType), obj.Blob()),
+            $"0x02bb create Karui Shores Map Device 0x{id:x} ({MapDevice.EndgameTownDeviceType}) at ({x}, {y})");
+        await SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id),
+            $"0x01a9 Karui Shores Map Device 0x{id:x} enters wake zone");
+        TownMapDevices.AddOrUpdate(player, new(id, x, y));
+    }
+
     public static (uint Id, int X, int Y, bool Campaign)? MapDeviceHere(Player player)
     {
         if (player.Layout.Id == MapDevice.CampaignDeviceArea)
@@ -123,6 +171,8 @@ public static partial class Game
                 foreach (var (id, obj) in player.QuestObjects)
                     if (obj.Rule.ObjectType == MapDevice.CampaignDeviceType)
                         return (id, obj.At.X, obj.At.Y, true);
+        if (EndgameTownDevice(player) is { } townDevice)
+            return (townDevice.Id, townDevice.X, townDevice.Y, false);
         lock (player.HideoutDoodads)
             foreach (var (id, device) in player.HideoutDoodads)
                 if (HideoutCatalog.IsPlaced(device)) return (id, device.X, device.Y, false);
@@ -202,6 +252,203 @@ public static partial class Game
         Send(player, InstanceMapDevice.Portals(0, [SinglePortalEntry(player, id, area, owner, variation)]),
             $"0x008f portal 0x{id:x} leads to 0x{area:x4} before its create ({what} stands already)");
 
+    // Custom standalone portals opened by modules/mods via IPlayerWorld.SpawnPortalAsync.
+    public sealed class CustomPortal(uint id, int x, int y, ushort targetArea, PortalOptions options, bool isReturnPortal = false)
+    {
+        public uint Id { get; } = id;
+        public int X { get; } = x;
+        public int Y { get; } = y;
+        public ushort TargetArea { get; } = targetArea;
+        public PortalOptions Options { get; } = options;
+        public bool IsReturnPortal { get; } = isReturnPortal;
+        public int? UsesLeft = options.UsesLeft;
+        public ulong ResolvedInstance = options.TargetInstance;
+        public bool InFlight;
+    }
+
+    sealed record CustomReturnOrigin(ushort Area, ulong Instance, int X, int Y, string? Owner, ushort? Variation, DateTimeOffset RecordedAt);
+    sealed record CustomReturnKey(ushort Area, ulong Instance);
+
+    static readonly Store<Player, System.Collections.Concurrent.ConcurrentDictionary<uint, CustomPortal>> CustomPortals = new();
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<(ushort Area, ulong Instance), CustomReturnOrigin> CustomReturnOrigins = new();
+    static readonly Store<InstanceState, CustomReturnKey> CustomReturnInstanceKeys = new();
+
+    public static bool HasCustomPortal(Player player, uint id) =>
+        CustomPortals.TryGetValue(player, out var portals) && portals.ContainsKey(id);
+
+    internal static void RecordCustomReturnOrigin(ushort targetArea, ulong targetInstance,
+        ushort originArea, ulong originInstance, int originX, int originY, string? owner = null, ushort? variation = null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (CustomReturnOrigins.Count >= 64)
+        {
+            // Belt-and-suspenders sweep for transfers abandoned before the target instance was ever entered.
+            foreach (var entry in CustomReturnOrigins)
+                if (now - entry.Value.RecordedAt > TimeSpan.FromHours(1))
+                    CustomReturnOrigins.TryRemove(entry.Key, out _);
+        }
+        CustomReturnOrigins[(targetArea, targetInstance)] =
+            new CustomReturnOrigin(originArea, originInstance, originX, originY, owner, variation, now);
+    }
+
+    internal static bool HasCustomReturnOrigin(ushort targetArea, ulong targetInstance) =>
+        CustomReturnOrigins.ContainsKey((targetArea, targetInstance));
+
+    /// <summary>Evicts any custom return-portal origin bound to a closing sub-area instance (<see cref="InstanceEvents.InstanceClosing"/>).</summary>
+    public static void ReleaseCustomReturnOrigin(InstanceState instance)
+    {
+        if (CustomReturnInstanceKeys.TryGetValue(instance, out var key))
+            CustomReturnOrigins.TryRemove((key.Area, key.Instance), out _);
+    }
+
+    /// <summary>Spawns a clickable standalone portal at <c>(x, y)</c> leading to <paramref name="targetArea"/>.</summary>
+    public static Task<uint?> SpawnCustomPortal(Player player, int x, int y, ushort targetArea, PortalOptions? options = null) =>
+        SpawnCustomPortalCore(player, x, y, targetArea, options, isReturnPortal: false, standing: false);
+
+    static async Task<uint?> SpawnCustomPortalCore(Player player, int x, int y, ushort targetArea, PortalOptions? options,
+        bool isReturnPortal, bool standing)
+    {
+        if (player.Closed || player.LeavingArea || targetArea == 0) return null;
+        var opts = options ?? new PortalOptions();
+        var (px, py) = player.Layout.Walkable?.Invoke(x, y) == false ? player.Layout.Near((x, y)) : (x, y);
+        uint id = player.TakeObjectId();
+        var portal = new CustomPortal(id, px, py, targetArea, opts, isReturnPortal);
+        CustomPortals.GetOrCreateValue(player)[id] = portal;
+        var previousView = Program.ViewOf.Value;
+        Program.ViewOf.Value = player;
+        try
+        {
+            if (standing) await ListStandingPortal(player, id, targetArea, "custom return portal", owner: opts.Owner, variation: opts.Variation);
+            await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
+                new MapPortalObject(px, py, -1, MapPortalType, Open: 1, Rotation: player.PortalRotationRadians).Blob()),
+                $"0x02bb create custom portal 0x{id:x} at ({px}, {py}) -> 0x{targetArea:x4}", wake: true, awaitBirth: false);
+        }
+        finally { Program.ViewOf.Value = previousView; }
+        ListPortal(player, id, targetArea, "custom portal", MapPortalEntryMs, owner: opts.Owner, variation: opts.Variation);
+        return id;
+    }
+
+    /// <summary>Removes a standalone custom portal spawned via <see cref="SpawnCustomPortal"/>.</summary>
+    public static async Task<bool> RemoveCustomPortal(Player player, uint id)
+    {
+        if (!CustomPortals.TryGetValue(player, out var portals) || !portals.TryRemove(id, out _)) return false;
+        if (SinglePortals.TryGetValue(player, out var singles)) singles.TryRemove(id, out _);
+        if (!player.Closed && !player.LeavingArea)
+        {
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = player;
+            try
+            {
+                await Send(player, InstanceMapDevice.Portals(0, [new(id, 0)]), null);
+                await SendWorldRemoval(player, id, $"0x02bd remove custom portal 0x{id:x}");
+            }
+            finally { Program.ViewOf.Value = previousView; }
+        }
+        return true;
+    }
+
+    /// <summary>Handles clicks on standalone custom portals (GameEvents.ObjectUse).</summary>
+    public static async Task<bool> TryUseCustomPortal(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    {
+        if (!CustomPortals.TryGetValue(player, out var portals) || !portals.TryGetValue(use.TargetId, out var portal))
+            return false;
+        if (!TryBeginObjectWalk(player, requestedAt, portal.X, portal.Y, AreaTransitionObjectSize, out var walk)) return true;
+        var (action, now, _, stop, arrive) = walk;
+        if (arrive > now) await AreaDelay(player, arrive - now);
+        if (!PlayerActionCurrent(player, action) || player.PendingTransfer is not null) return true;
+        if (!PlayerWalk.InWalkUpRange(stop, (portal.X, portal.Y), AreaTransitionObjectSize)) return true;
+        if (!portals.TryGetValue(use.TargetId, out var active) || !ReferenceEquals(active, portal)) return true;
+
+        ulong targetInstance;
+        lock (portal)
+        {
+            if (portal.InFlight || portal.UsesLeft is <= 0) return true;
+            portal.InFlight = true;
+            targetInstance = portal.ResolvedInstance;
+        }
+
+        bool spent = false;
+        try
+        {
+            ushort destArea = portal.TargetArea;
+            bool newInstance = targetInstance == 0 && portal.Options.NewInstance;
+            (int X, int Y)? arriveAt = portal.Options.ArriveAt;
+            if (targetInstance != 0 && await AreaInstances.Gone(player, destArea, targetInstance))
+            {
+                CustomReturnOrigins.TryRemove((destArea, targetInstance), out _);
+                if (AreaInstances.RecreatedOnEntry(destArea))
+                {
+                    targetInstance = 0;
+                    newInstance = false;
+                }
+                else if (portal.IsReturnPortal)
+                {
+                    (destArea, targetInstance) = ResolveReturnWorldArea(player, null, null);
+                    newInstance = false;
+                    arriveAt = null;
+                }
+                else
+                {
+                    await Send(player, InstanceChat.ChatLine("The instance does not exist."), "0x0017 custom portal instance expired");
+                    await RemoveCustomPortal(player, portal.Id);
+                    return true;
+                }
+            }
+            if (!PlayerActionCurrent(player, action) || player.PendingTransfer is not null) return true;
+
+            ushort originArea = player.Layout.Hash;
+            ulong originInstance = player.InstanceNumber;
+            int originX = portal.X, originY = portal.Y;
+            var transfer = new PendingTransfer(destArea, targetInstance, newInstance, ArriveAt: arriveAt)
+            {
+                Done = response =>
+                {
+                    if (!response.Ok || response.Instance == 0) return;
+                    lock (portal)
+                    {
+                        if (targetInstance == 0 || portal.ResolvedInstance == 0)
+                            portal.ResolvedInstance = response.Instance;
+                        if (portal.UsesLeft is int left && left > 0)
+                        {
+                            portal.UsesLeft = left - 1;
+                            spent = portal.UsesLeft == 0;
+                        }
+                    }
+                    if (portal.Options.SpawnReturnPortal)
+                        RecordCustomReturnOrigin(destArea, response.Instance,
+                            originArea, originInstance, originX, originY, portal.Options.Owner, portal.Options.Variation);
+                },
+            };
+            await ChangeArea(player, transfer, $"custom portal to 0x{destArea:x4}");
+        }
+        finally
+        {
+            lock (portal) portal.InFlight = false;
+        }
+        if (spent) await RemoveCustomPortal(player, portal.Id);
+        return true;
+    }
+
+    /// <summary>Spawns an automatic return portal when entering an instance opened with <see cref="PortalOptions.SpawnReturnPortal"/>.</summary>
+    public static async Task SpawnCustomReturnPortal(Player player)
+    {
+        if (player.InstanceNumber == 0
+            || !CustomReturnOrigins.TryGetValue((player.Layout.Hash, player.InstanceNumber), out var origin))
+            return;
+        if (player.Instance is { } instance)
+            CustomReturnInstanceKeys.GetValue(instance, _ => new CustomReturnKey(player.Layout.Hash, player.InstanceNumber));
+        var (x, y) = player.Layout.Near((player.Layout.SpawnX, player.Layout.SpawnY));
+        var opts = new PortalOptions(
+            TargetInstance: origin.Instance,
+            NewInstance: false,
+            ArriveAt: (origin.X, origin.Y),
+            UsesLeft: null,
+            SpawnReturnPortal: false,
+            Owner: origin.Owner,
+            Variation: origin.Variation);
+        await SpawnCustomPortalCore(player, x, y, origin.Area, opts, isReturnPortal: true, standing: true);
+    }
+
     // One 0x8f without a device for every portal of SinglePortals that still stands, each with the worn portal effect.
     // With an id, only while that portal stands. False when nothing was sent.
     static async Task<bool> SendSinglePortals(Player player, string why, uint only = 0)
@@ -209,7 +456,7 @@ public static partial class Game
         if (player.Closed || !SinglePortals.TryGetValue(player, out var portals)) return false;
         bool Stands(uint id)
         {
-            if (player.ReturnPortal?.Id == id || player.BackPortal?.Id == id) return true;
+            if (player.ReturnPortal?.Id == id || player.BackPortal?.Id == id || HasCustomPortal(player, id)) return true;
             lock (player.PeerPortals) return player.PeerPortals.ContainsKey(id);
         }
         foreach (uint gone in portals.Keys.Where(id => !Stands(id)).ToList()) portals.TryRemove(gone, out _);
@@ -244,6 +491,7 @@ public static partial class Game
 
     static ushort MapPortalVariation(MapDevice.OpenMap run, int index)
     {
+        if (run.PortalVariation != 0) return run.PortalVariation;   // the recipe's own portal (MapDeviceRecipes)
         byte mode = CharacterSaves.Cosmetics(run.Owner).GetValueOrDefault(InstanceMicrotransactions.PortalSlot) is
             { Record: 0, Option: 1 or 2 } choice ? choice.Option : (byte)0;
         if (mode == 0 || Cosmetics.Portals.Count == 0) return CharacterSaves.PortalCosmetic(run.Owner);

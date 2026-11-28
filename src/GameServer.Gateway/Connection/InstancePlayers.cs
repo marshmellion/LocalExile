@@ -139,6 +139,18 @@ public static class InstanceEvents
         return [.. states.Select(p => (p.Key, p.Value))];
     }
 
+    /// <summary>An area instance expired or was removed from <see cref="InstanceStore"/>. Invoked outside the store lock
+    /// so subscribers may safely release per-instance encounter state and timers.</summary>
+    public static readonly GameEvent<Action<InstanceState>> InstanceClosing = new();
+
+    /// <summary>Notifies all <see cref="InstanceClosing"/> subscribers outside any store lock.</summary>
+    public static void RunInstanceClosing(InstanceState instance)
+    {
+        if (!InstanceClosing.Any) return;
+        foreach (var subscriber in InstanceClosing.Snapshot)
+            GameEventOwners.Guard(subscriber.Owner, nameof(InstanceClosing), () => subscriber.Run(instance));
+    }
+
     /// <summary>Two stat lists summed (the area stats and the league's own, both sent in 0x1d's first list).</summary>
     public static IReadOnlyDictionary<uint, int>? Merge(IReadOnlyDictionary<uint, int>? a, IReadOnlyDictionary<uint, int>? b)
     {
@@ -171,7 +183,7 @@ public sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedM
 public partial class Program
 {
     /// <summary>The connections in game now (entered an area, not yet gone), for what plays beside them without one of its
-    /// own: server-driven players (the PlayerBots module) look up the towns players are in.</summary>
+    /// own: whoever drives a player with no client looks up the towns players are in.</summary>
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<Player, byte> InGame = new();
 
     /// <summary>Sets the player's party size; a change tells the client the players in the area (S→C 0x231: the party
@@ -234,7 +246,7 @@ public sealed partial class Player
     }
     /// <summary>This player's shares of the instance host's kills, for its own loop to apply (SharedKills.cs).</summary>
     public readonly System.Collections.Concurrent.ConcurrentQueue<Func<Player, Task>> KillShares = new();
-    /// <summary>The party this player is in, counting the player (1: none): Social's parties and PlayerBots' (SetPartySize).
+    /// <summary>The party this player is in, counting the player (1: none): Social's parties, and what else sets it (SetPartySize).
     /// Each member beyond the first gives Game.PartyBonus.</summary>
     public int PartySize = 1;
     public readonly Dictionary<(uint Peer, ushort Skill), AuraCatalog.Aura> ReceivedAuras = [];

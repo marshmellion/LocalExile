@@ -191,13 +191,19 @@ public sealed class BlightEncounter
 
     public readonly Store<InstanceState, Run> Runs = new();
 
+    public bool IsActivePause(Player player)
+    {
+        if (player.Instance is not { } instance || !Runs.TryGetValue(instance, out var run)) return false;
+        lock (run.Gate) return run.Defences.Any(d => d.Phase is Phase.Building or Phase.Running);
+    }
+
     static double Frames(int frames) => frames * Program.FrameMs / 1000.0;
 
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
 
     static List<Player> Members(Player player)
     {
-        var members = InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && Current(c)).ToList();
+        var members = InGame.Keys.Where(c => c.HasClient && ReferenceEquals(c.Instance, player.Instance) && Current(c)).ToList();
         if (!members.Contains(player) && Current(player)) members.Insert(0, player);
         return members;
     }

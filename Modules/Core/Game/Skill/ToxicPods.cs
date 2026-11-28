@@ -6,11 +6,12 @@ using GameServer.Core.World;
 public static partial class Game
 {
     // Monsters are shared by the instance. Count the vines of every caster when updating movement.
-    sealed class ToxicPod(int slow, int cap, double until, double? withered)
+    sealed class ToxicPod(int slow, int cap, double until, double? withered, uint? source)
     {
         public readonly int Slow = slow, Cap = cap;
         public readonly double Until = until;
         public readonly double? Withered = withered;
+        public readonly uint? Source = source;
     }
     static readonly RuleTable<SpawnedMonster, HashSet<ToxicPod>> ToxicVines = new();
 
@@ -61,7 +62,9 @@ public static partial class Game
             double dps, int slow, int cap, string? burst, double? withered = null)
         {
             long previous = Runtime.Now, end = previous + Math.Max(1, ProjectileRuntime.Time(duration));
-            var pod = new ToxicPod(slow, cap, end / (double)ProjectileRuntime.QuantaPerSecond, withered);
+            uint? source = use.Payload is ProjectileOffense { ActualCaster: null, FromTrapOrMine: false, FromTotem: false, Mirage: false }
+                ? use.Owner.Id : null;
+            var pod = new ToxicPod(slow, cap, end / (double)ProjectileRuntime.QuantaPerSecond, withered, source);
             var victims = podVictims[pod] = [];
             void Tick()
             {
@@ -85,7 +88,8 @@ public static partial class Game
                         if (pod.Withered is not null) monster.PresentationChanged?.Invoke();
                     }
                     var carry = dotRemainders.GetValue(monster, _ => new PodDamage());
-                    double total = carry.Fraction + seconds * dps * MonsterDotTaken(monster, DamageType.Chaos, at);
+                    double total = carry.Fraction + seconds * dps
+                        * MonsterDotTakenOver(monster, DamageType.Chaos, at - seconds, at, at);
                     int damage = (int)Math.Clamp(Math.Floor(total), 0, int.MaxValue);
                     carry.Fraction = total - Math.Floor(total);
                     if (damage == 0) continue;

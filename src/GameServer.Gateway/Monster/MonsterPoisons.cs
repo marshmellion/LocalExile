@@ -142,22 +142,32 @@ public sealed class MonsterPoisons
     /// <summary>The same advance, also reporting the end of the last cut where the active stacks dealt positive damage:
     /// not the frame time, and null when no positive mitigated subinterval existed.</summary>
     public int Advance(double until, double factor, out double? lastDamageAt, uint? lifeAtStart = null)
+        => Advance(until, factor, out lastDamageAt, lifeAtStart, null, null);
+
+    public double AccruedThrough => last;
+
+    public int Advance(double until, IEnumerable<double> boundaries, Func<double, double> factorAt, uint? lifeAtStart) =>
+        Advance(until, 0, out _, lifeAtStart, boundaries, factorAt);
+
+    int Advance(double until, double factor, out double? lastDamageAt, uint? lifeAtStart,
+        IEnumerable<double>? boundaries, Func<double, double>? factorAt)
     {
         lastDamageAt = null;
         if (active.Count == 0 || !(until > last)) return 0;
         advancedDeath = null;
-        var cuts = active.SelectMany(p => new[] { p.From, p.Until }).Where(t => last < t && t < until)
-            .Append(last).Append(until).Distinct().Order().ToArray();
+        var deadlines = active.SelectMany(p => new[] { p.From, p.Until });
+        if (boundaries is not null) deadlines = deadlines.Concat(boundaries);
+        var cuts = deadlines.Where(t => last < t && t < until).Append(last).Append(until).Distinct().Order().ToArray();
         double damage = carry;
         for (int k = 1; k < cuts.Length; k++)
         {
             double mid = (cuts[k - 1] + cuts[k]) / 2;
             double sumDps = active.Where(p => p.From <= mid && mid < p.Until).Sum(p => p.DamagePerSecond);
             double seconds = cuts[k] - cuts[k - 1];
-            double mitigated = sumDps * Math.Max(0, factor);
+            double mitigated = sumDps * Math.Max(0, factorAt?.Invoke(mid) ?? factor);
             if (mitigated > 0 && seconds > 0) lastDamageAt = cuts[k];
 
-            double stepDamage = sumDps * Math.Max(0, factor) * (cuts[k] - cuts[k - 1]);
+            double stepDamage = mitigated * seconds;
             // Preserve the stacks at the lethal contact, even when this advance also expires them. Death callbacks
             // run after the step and cannot recover that state from the live list.
             if (advancedDeath is null && lifeAtStart is > 0 && mitigated > 0 && damage + stepDamage >= lifeAtStart.Value)
@@ -188,13 +198,15 @@ public sealed class MonsterPoisons
     }
 
     /// <summary>Freeze the poison on an accepted death before asynchronous kill presentation can outlive it.</summary>
-    public void RememberDeath(double now)
+    public void RememberDeath(double now) => RememberDeath(now, poisonDeath: false);
+
+    public void RememberDeath(double now, bool poisonDeath)
     {
-        cleared = CaptureDeath(now, now);
+        cleared = (poisonDeath ? advancedDeath : null) ?? CaptureDeath(now, now);
         DiedPoisoned = cleared is not null;
     }
 
-    readonly record struct DeathPoison(double At, double Remaining, (double DamagePerSecond, double Until) Strongest);
+    readonly record struct DeathPoison(double At, double Remaining, (double DamagePerSecond, double Until) Strongest, int Stacks);
     DeathPoison? cleared, advancedDeath;
 
     /// <summary>The death's timestamp and remaining poison damage before target mitigation. A deferred death callback
@@ -205,20 +217,24 @@ public sealed class MonsterPoisons
         return death is { } value ? (value.At, value.Remaining) : null;
     }
 
+    public int StacksAtDeath(double now) => cleared?.Stacks ?? Stacks(now);
+
     DeathPoison? CaptureDeath(double at, double sample)
     {
         (double DamagePerSecond, double Until)? strongest = null;
         double remaining = 0;
+        int count = 0;
         foreach (var poison in active)
         {
             if (poison.From <= at && at < poison.Until)
                 remaining += poison.DamagePerSecond * (poison.Until - at) * expiryRate;
-            if (poison.From <= sample && sample < poison.Until
-                && (strongest is not { } old || poison.DamagePerSecond > old.DamagePerSecond
-                    || poison.DamagePerSecond == old.DamagePerSecond && poison.Until > old.Until))
+            if (!(poison.From <= sample && sample < poison.Until)) continue;
+            count++;
+            if (strongest is not { } old || poison.DamagePerSecond > old.DamagePerSecond
+                || poison.DamagePerSecond == old.DamagePerSecond && poison.Until > old.Until)
                 strongest = (poison.DamagePerSecond, poison.Until);
         }
-        return strongest is { } best ? new(at, remaining, best) : null;
+        return strongest is { } best ? new(at, remaining, best, count) : null;
     }
 
     /// <summary>The highest damage stack still running at <paramref name="now"/>, or the one the death that cleared the

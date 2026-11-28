@@ -3,11 +3,20 @@ using GameServer.Core.World;
 public static partial class Game
 {
     static bool ApplyUtilityResourceEffectsLocked(Player player, IReadOnlyDictionary<uint, int> local,
-        int spent, double now, double effectPower)
+        int spent, double now, double effectPower, Func<uint, int> character)
     {
-        if (local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRecoversPctMaximumLife) is int heal and > 0)
+        double lifeRecovery = 0;
+        if (local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRecoversPctMaximumLife) is > 0 and var heal)
+            lifeRecovery = Math.Floor(player.PlayerMaxLife * (double)heal * effectPower / 100);
+        if (local.GetValueOrDefault(Stat.LocalFlaskLoseAllEnduranceChargesAndRecoverPctLifeForEachOnUse) is > 0 and var healPerCharge)
         {
-            uint life = (uint)Math.Min(LifeCap(player), player.PlayerLife + Math.Floor(player.PlayerMaxLife * (double)heal * effectPower / 100));
+            int consumed = SpendCharacterChargesOnFlaskUse(player, ChargeType.Endurance, int.MaxValue, now);
+            if (consumed > 0 && player.PlayerLife > 0 && !LifeRecovery.NonLeechBlocked(character))
+                lifeRecovery += Math.Floor(player.PlayerMaxLife * (double)consumed * healPerCharge / 100);
+        }
+        if (lifeRecovery > 0)
+        {
+            uint life = (uint)Math.Min(LifeCap(player), player.PlayerLife + lifeRecovery);
             if (life > player.PlayerLife)
             {
                 player.PlayerLife = life;
@@ -17,7 +26,7 @@ public static partial class Game
         if (local.GetValueOrDefault(Stat.LocalFlaskGainChargesConsumedAsVaalSoulsOnUse) == 0
             || player.VaalSoulsRetired || player.VaalPreventionUntil > VaalResourceTime(player)
             || VaalImmortalCallActive(player, now)
-            || CharacterPlayerStats(player).GetValueOrDefault(Stat.HasSoulGainPrevention) != 0) return false;
+            || SoulGainPreventedByStats(CharacterPlayerStats(player))) return false;
         RefreshVaalSouls(player);
         int gained = 0;
         while (gained < spent && player.VaalSouls.Gain()) gained++;
@@ -36,7 +45,7 @@ public static partial class Game
         // Equal flask effects overlap at their strongest rate. Every start and expiry splits the elapsed interval.
         while (from < now)
         {
-            int rate = 0;
+            int percentRate = 0, flatRate = 0;
             double next = now;
             foreach (var effect in active)
             {
@@ -45,10 +54,12 @@ public static partial class Game
                 else
                 {
                     next = Math.Min(next, effect.Ends);
-                    rate = Math.Max(rate, effect.SelfChaosDamageLifePctPerMinute);
+                    percentRate = Math.Max(percentRate, effect.SelfChaosDamageLifePctPerMinute);
+                    flatRate = Math.Max(flatRate, effect.SelfChaosDamageFlatPerMinute);
                 }
             }
-            progress.Pending += player.PlayerMaxLife * (double)rate / 6000 * (next - from);
+            double perSecond = player.PlayerMaxLife * (double)percentRate / 6000 + flatRate / 60d;
+            progress.Pending += perSecond * (next - from);
             from = next;
         }
     }
