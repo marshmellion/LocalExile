@@ -181,7 +181,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "Imprint", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -261,6 +261,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     break;
                 case "Quality": w.U8(AlternateQualityType is null ? Quality : (byte)0); break; // 0x1424b5720
                 // The transformed original uses an unframed ordinary item payload.
+                case "Imprint": w.U8((byte)(OriginalItem is null ? 0 : 1)); if (OriginalItem is { } imprinted) w.Bytes(imprinted.Payload()); break; // local: 0x1424aefb0, u8 flags (bit 0: an item follows)
                 case "Transformed":
                     if (OriginalItem is { } original) w.Bytes(original.Payload());
                     else w.U32(0);
