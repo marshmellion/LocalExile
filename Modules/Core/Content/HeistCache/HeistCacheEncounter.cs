@@ -84,8 +84,7 @@ public sealed class HeistCacheEncounter
     {
         var player = area.Player;
         var layout = player.Layout;
-        if (layout.Walkable is null || InTown(player)
-            || HideoutCatalog.ByArea(layout.Hash) is not null
+        if (layout.Walkable is null || IsNonCombatHub(player)
             || layout.Id == TutorialObjects.Strand
             || LabyrinthTrials.InLabyrinth(layout.Id)) return;
         var state = For(player);
@@ -124,7 +123,8 @@ public sealed class HeistCacheEncounter
         for (int i = 0; i < count; i++)
         {
             if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, layout.Walkable!, (layout.SpawnX, layout.SpawnY),
-                    transitions, takenCells, rng, HeistCacheTables.PlaceApart) is not { } cell) break;
+                    transitions, takenCells, rng, HeistCacheTables.PlaceApart,
+                    featureAreas: layout.Level?.FeatureAreas) is not { } cell) break;
             takenCells.Add(cell);
             var box = new Box { Cell = cell, Level = level };
             state.Boxes.Add(box);

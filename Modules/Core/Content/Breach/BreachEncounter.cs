@@ -106,7 +106,7 @@ public sealed class BreachWorldHost
             Unstable.OnExperience(gain);
         });
         // C->S 0x02ca for Rulesets#165 (EstablishedBrequelEncounterRules): BrequelActivateEncounterSkill
-        // (payload: u8 0x00, u32 LE skillObjectEntityId — sent both by clicking the floating widget and hotkey #44).
+        // (payload: u8 0x00, u32 LE skillObjectEntityId â€” sent both by clicking the floating widget and hotkey #44).
         if (EstablishedRulesetRow is { } estRow)
         {
             Client.OnRuleset(id, estRow, async (channel, payload) =>
@@ -392,8 +392,11 @@ public sealed class BreachEncounter
             await Send(player, InstanceProtocol.AddRuleset(row), $"0x001f ruleset ExpandingBrequelEncounterRules (row {row})");
             foreach (var breach in encounter.Breaches.Where(b => !b.Gone && b.Line >= 0))
                 await Send(player, LineFor(row, breach, breach.Line, atlas), $"0x02c9 Breach {breach.Index} ruleset (state {breach.State})");
-            if (encounter.EnvironmentOn && Override(true) is { } on)
-                await Send(player, on, "0x00df Breach environment override");
+            if (encounter.EnvironmentOn && EnvRow is { } onEnv)
+            {
+                AreaEnvironments.EnsureState(player, "breach", (onEnv, (float)EnvSeconds));
+                await AreaEnvironments.Sync(player, "0x00df Breach environment override");
+            }
         }
         finally { encounter.Gate.Release(); }
     }
@@ -588,9 +591,11 @@ public sealed class BreachEncounter
                     if (encounter.Breaches.Count(b => !b.Gone && b.Open) >= MaxOpen || !members.Any(m => Touches(m, breach))) break;
                     breach.TouchedAt = now;
                     breach.OpenedOrder = ++encounter.BreachesOpened;
-                    if (!encounter.EnvironmentOn && Override(true) is { } on)
+                    // The environment first, then the state: the order Delirium's start sends them in.
+                    if (!encounter.EnvironmentOn && EnvRow is { } onEnv)
                     {
-                        await Broadcast(members, on, $"0x00df Breach environment override [{EnvRow} slot 0], {EnvSeconds:0.0} s");
+                        await AreaEnvironments.Set(runner, "breach", onEnv, (float)EnvSeconds,
+                            $"0x00df Breach environment override [{onEnv} slot 0], {EnvSeconds:0.0} s");
                         encounter.EnvironmentOn = true;
                     }
                     await SetState(runner, breach, Expanding, now);
@@ -649,7 +654,7 @@ public sealed class BreachEncounter
         }
         if (encounter.EnvironmentOn && !encounter.Breaches.Any(b => !b.Gone && b.Open))
         {
-            await Broadcast(members, InstanceEnvironments.Data(), "0x00df Breach environment override cleared");
+            await AreaEnvironments.Clear(runner, "breach", log: "0x00df Breach environment override cleared");
             encounter.EnvironmentOn = false;
             changed = true;
         }
@@ -826,8 +831,13 @@ public sealed class BreachEncounter
         return InstanceRulesets.Data(row, body);
     }
 
-    static byte[]? Override(bool on) => !on ? InstanceEnvironments.Data() : EnvRow is { } env ? InstanceEnvironments.Data((env, EnvSeconds)) : null;
-
+    /// <summary>
+    /// The wave members due by now: the measured per-second curve (<see cref="WaveRates"/>) integrated to the age, at
+    /// most <see cref="MaxWavePerTick"/> a tick. Each draw is a whole pack of the Breach packs (their members, counts and
+    /// bosses as the area's packs place them), at the area's monster level with the Breach life scaling, around a cell
+    /// up to <see cref="WaveMaxDistance"/> from the Breach that its cell walks to. The members are created transitioned:
+    /// every Breach variety inherits BrequelMonster.ot, whose create_untransitioned removes collision and rendering.
+    /// </summary>
     static async Task SpawnWave(Player runner, Encounter encounter, Breach breach, BreachAtlas atlas, double now)
     {
         if (breach.TouchedAt is not { } touched || BreachTables.Packs.Count == 0) return;

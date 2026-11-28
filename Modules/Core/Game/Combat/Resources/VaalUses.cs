@@ -19,7 +19,7 @@ public static partial class Game
     public static bool VaalExecutor(Player player, int effect)
     {
         string id = SkillsFor(player).EffectId(effect) ?? "";
-        return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap" or "VaalSweep" or VaalReaveEffect
+        return id is "VaalGroundSlam" or "VaalColdSnap" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap" or "VaalSweep" or VaalReaveEffect
             or VaalImmortalCallEffect or VaalArcticArmourEffect or VaalRejuvenationTotemEffect
             or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike" or VaalMoltenShellEffect or VaalLightningWarpEffect
             or VaalAncestralWarchiefEffect or "VaalDetonateDead" or VaalArcEffect or VaalBladeVortexEffect or VaalVenomGyreEffect
@@ -67,7 +67,7 @@ public static partial class Game
                 mana = 0;
             }
         }
-        if (Get(Stat.NoManaCost) != 0) mana = 0;
+        if (mana > 0 && NoManaCostFor(player, Get(Stat.NoManaCost))) mana = 0;
         int preventionMs = SkillsFor(player).SoulGainPreventionMs(gem.Effect, gem.Level);
         // Vaal auras: "Modifiers to Buff Duration also apply to this Skill's Soul Gain Prevention".
         bool buffScaled = Get(Stat.ModifiersToBuffEffectDurationAlsoAffectSoulPreventionDuration) != 0;

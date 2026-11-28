@@ -14,7 +14,7 @@ public static partial class Game
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(Player player, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
         double now, string by, StunHit? stun = null, SpawnedMonster? source = null, IReadOnlyDictionary<uint, int>? skill = null,
-        GolemState.Golem? fighter = null, bool damageOverTime = false)
+        GolemState.Golem? fighter = null, bool damageOverTime = false, bool secondary = false)
     {
         OwnedKillLocked(monster, hit.Life);
         if (monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
@@ -33,6 +33,9 @@ public static partial class Game
         CommitAcceptedHitLocked(player, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
         if (!damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
             ReleaseIntuitiveLinkLocked(player, fighter, monster.Walk.Position(now), now);
+        if (hit.Life == 0 && !damageOverTime && !secondary && monster.Hostile && fighter is { Definition.Kind: "Zombie" }
+            && ReferenceEquals(source, fighter.Monster))
+            ResolveZombieKillExplosionLocked(player, id, monster, fighter, now);
         if (hit.Life == 0 && source is not null) ResolveCursedMinionKillLocked(player, id, monster, source, skill, now);
         if (hit.Life == 0 && !damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster)
             && skill is not null)
@@ -89,6 +92,7 @@ public static partial class Game
 
     public static void CommitAcceptedKillLocked(Player player, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
+        if (monster.ShockedAtDeath is null) CaptureLootAilmentsAtDeath(monster, now);
         SpreadPestilentStrike(player, victimId, monster, now);
         RememberCursedCorpse(player, victimId, monster);
         QueueInfernalBlowDeath(monster, now);
@@ -171,8 +175,11 @@ public static partial class Game
                 state.OutputQueue.Add(new([], "0x0033 current passive skill tree (accepted level)", Kind: PlayerMinions.OutputKind.Passives));
             }
         }
-        if (!MonsterGivesNoRewards(monster))
-            state.FlaskRewards.Add(new(monster.Rarity));
+        if (MonsterGrantsKillFlaskCharges(monster))
+            state.FlaskRewards.Add(new(monster.Rarity)
+            {
+                KillChargesPct = BleedingKillFlaskChargesPct(player, monster.BleedSourcesAtDeath?.Contains(player.Id) == true),
+            });
         var rng = AreaRng(player);
         var stacked = RollKillLoot(player, monster, at, rng, firstBossKill);
         if (stacked.Count == 0) return;
@@ -371,9 +378,9 @@ public static partial class Game
                         || ItemsFor(player).FlaskChargesOf(type) is not { } basis) continue;
                     var local = ItemModStats.Local(flask.Item, ItemsFor(player).Mods); var charges = FlaskCharges.Of(basis, local);
                     if (flask.Item.Charges >= charges.MaxCharges) continue;
-                    double gain = reward.CritGains is { } gains ? gains.GetValueOrDefault(flask.Id) : FlaskCharges.FullShortcut ? int.MaxValue : FlaskCharges.KillCharges(reward.Rarity, ItemsFor(player).Mods);
+                    double gain = reward.CritGains is { } gains ? gains.GetValueOrDefault(flask.Id) : FlaskCharges.FullShortcut ? int.MaxValue : FlaskCharges.KillCharges(reward.Rarity, ItemsFor(player).Mods, reward.KillChargesPct);
                     int whole = player.FlaskChargeCarry.Take(flask.Id,
-                        gain * FlaskCharges.GainMultiplier(local, Get, areaIncrease));
+                        gain * FlaskGainMultiplier(player, flask.Id, local, Get, areaIncrease));
                     if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, item => Flasks.Gain(item, charges, whole)) is { } done) changed.Add(done);
                 }
                 return ([.. changed.Select(i => i.Id)], changed);

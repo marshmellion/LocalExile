@@ -51,13 +51,19 @@ public static partial class Game
     // the hit's own increases and the monster's resistance, already in <paramref name="mitigated"/>, must not reach it.
     public static void PoisonOnHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated,
         bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
-        MonsterPoisons.Settings settings, double now, Random random) =>
+        MonsterPoisons.Settings settings, double now, Random random, SkillPoisonStats poisonSkill = default) =>
         TryPoisonOnHitLocked(player, target, mitigated, spell, critical, playerStats, skill, settings, now, random,
-            out _, out _);
+            poisonSkill, out _, out _);
+    public static bool TryPoisonOnHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated,
+        bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
+        MonsterPoisons.Settings settings, double now, Random random, out double perSecond, out double seconds) =>
+        TryPoisonOnHitLocked(player, target, mitigated, spell, critical, playerStats, skill, settings, now, random,
+            default, out perSecond, out seconds, playerOwned: true);
 
     public static bool TryPoisonOnHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated,
         bool spell, bool critical, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
-        MonsterPoisons.Settings settings, double now, Random random, out double perSecond, out double seconds)
+        MonsterPoisons.Settings settings, double now, Random random, SkillPoisonStats poisonSkill, out double perSecond, out double seconds,
+        bool playerOwned = true)
     {
         perSecond = seconds = 0;
         if (target.Dead || target.Life == 0 || settings.Seconds <= 0) return false;
@@ -67,7 +73,7 @@ public static partial class Game
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
         int Get(uint name) => Player(name) + Skill(name);
-        bool allDamage = Get(Stat.AllDamageCanPoison) != 0 || !spell && !settings.Secondary && settings.AllDamageWithWeapon;
+        bool allDamage = poisonSkill.AllDamage || Get(Stat.AllDamageCanPoison) != 0 || !spell && !settings.Secondary && settings.AllDamageWithWeapon;
         if ((allDamage ? mitigated.MinTotal : phys + chaos) <= 0) return false;
 
         if (MonsterPoisons.Prohibited(Get)) return false;
@@ -95,21 +101,27 @@ public static partial class Game
         bool additionalAllowed = Get(Stat.CannotInflictAdditionalPoisons) == 0;
         int extraOnFreshTarget = additionalAllowed ? Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies) : 0;
         int extraWithWeapon = additionalAllowed && !spell && !settings.Secondary ? settings.AdditionalWithWeapon : 0;
-        if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds,
-            extraOnFreshTarget, doubleChance, random, extraWithWeapon)) return false;
-        InflictedLocked(player, target, AilmentType.Poison, now + seconds);
+        int stacksBefore = target.Poisons.Stacks(now);
+        if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds, extraOnFreshTarget, doubleChance, random, extraWithWeapon, poisonSkill)) return false;
+        int addedStacks = Math.Max(1, target.Poisons.Stacks(now) - stacksBefore);
+        if (playerOwned)
+        {
+            PlagueBearerOnPoisonInflictedLocked(player, perSecond, seconds, addedStacks);
+            InflictedLocked(player, target, AilmentType.Poison, now + seconds / target.RecipientDebuffRate);
+        }
         ReservationPoisonLocked(player, now);
         return true;
     }
 
     static bool ApplyHitPoisonsLocked(MonsterPoisons target, double now, double perSecond, double seconds, int additional,
-        int doubleChance = 0, Random? random = null, int additionalAlways = 0)
+        int doubleChance = 0, Random? random = null, int additionalAlways = 0, SkillPoisonStats poisonSkill = default)
     {
         // Decide whether Lethal Dose applies before inserting any poisons from this hit.
         int extra = additional > 0 && target.Stacks(now) == 0 ? additional : 0;
         extra = ActorScale.Saturate((long)extra + Math.Max(0, additionalAlways));
+        int totalDouble = Math.Clamp(doubleChance + poisonSkill.DoubleChance, 0, 100);
         bool AddPoison() => target.Add(now,
-            doubleChance > 0 && random is not null && RandomRolls.Chance(doubleChance, 100, random) ? perSecond * 2 : perSecond, seconds);
+            totalDouble > 0 && random is not null && RandomRolls.Chance(totalDouble, 100, random) ? perSecond * 2 : perSecond, seconds);
         bool applied = AddPoison();
         for (int i = 0; i < extra; i++) applied |= AddPoison();
         return applied;
@@ -151,7 +163,10 @@ public static partial class Game
                     if (m.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0
                         || m.Effects[Stat.VirtualChaosDamageDoesNotBypassEnergyShield] != 0)
                         damageToKill = (uint)Math.Min(uint.MaxValue, (long)m.Life + MonsterEnergyShieldOf(m).Current);
-                    damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), damageToKill);
+                    if (MaimDotTaken.TryGetValue(m, out var maim) && maim.Overlaps(m.Poisons.AccruedThrough, now))
+                        damage = m.Poisons.Advance(now, maim.Boundaries(m.Poisons.AccruedThrough, now),
+                            at => MonsterDotTaken(m, DamageType.Chaos, at), damageToKill);
+                    else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now, maimTaken: 0), damageToKill);
                 }
                 if (damage > 0)
                 {
