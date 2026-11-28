@@ -104,18 +104,19 @@ public static partial class Game
             AttackKillExplosions.AddOrUpdate(victim, new(Math.Max(0, physical), Math.Max(0, chaos)));
     }
 
-    // Oriath's End is secondary damage: global/elemental/area modifiers and conversion apply, but attack/spell
-    // modifiers and their added damage do not. Keep the older physical/chaos explosion policy separate.
+    // Secondary kill-explosion damage: global/type/area modifiers and conversion apply, but attack/spell modifiers
+    // and their added damage do not. Keep the fixed 25-cell KillExplosionRadius unchanged.
     internal static DamagePacket OriathExplosionPacket(uint maximumLife, DamageType element,
-        IReadOnlyDictionary<uint, int> player) => ElementalKillExplosionPacket(maximumLife, element, 10, player);
+        IReadOnlyDictionary<uint, int> player) => SecondaryKillExplosionPacket(maximumLife, element, 10, player);
 
-    static DamagePacket ElementalKillExplosionPacket(uint maximumLife, DamageType element, int percent,
-        IReadOnlyDictionary<uint, int> player)
+    internal static DamagePacket SecondaryKillExplosionPacket(uint maximumLife, DamageType type, long percent,
+        IReadOnlyDictionary<uint, int> player, DamageConversion? conversion = null)
     {
+        if (percent <= 0 || maximumLife == 0) return DamagePacket.Empty;
         int Get(uint key) => player.GetValueOrDefault(key);
         double raw = (double)maximumLife * percent / 100;
-        return PlayerHitDamage.Resolve(DamagePacket.Of(element, raw, raw), Get,
-            DamageStats.Conversion(player, Stats, attack: null), spell: false, area: true, secondary: true);
+        return PlayerHitDamage.Resolve(DamagePacket.Of(type, raw, raw), Get,
+            conversion ?? DamageStats.Conversion(player, Stats, attack: null), spell: false, area: true, secondary: true);
     }
 
     static void ReleaseSkillCorpseExplosion(ProjectileSession session, uint corpseId, SpawnedMonster corpse,
@@ -236,28 +237,39 @@ public static partial class Game
         // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
         // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).
         // K'Tash's Magnificence (Demonic Power): 40% chance for killed enemies to explode for 10% of life as fire.
+        // Roll Oriath's End and 10% Fire independently so having both can trigger both explosions on the same kill.
         int elementalChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct);
         int fireChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsFireOnKillChancePct);
         DamageType? element = elementalChance > 0 && AreaRng(player).Next(100) < elementalChance
             ? (DamageType)AreaRng(player).Next((int)DamageType.Lightning, (int)DamageType.Fire + 1)
-            : fireChance > 0 && AreaRng(player).Next(100) < fireChance ? DamageType.Fire : null;
-        int physical = (int)Math.Clamp(corpse.MaxLife * (long)percent / 100, 0, int.MaxValue);
-        int chaos = (int)Math.Clamp(corpse.MaxLife * (long)chaosPercent / 100, 0, int.MaxValue);
-        int elemental = element is null ? 0 : (int)Math.Clamp((long)corpse.MaxLife / 10, 0, int.MaxValue);
+            : null;
+        bool fireTen = fireChance > 0 && AreaRng(player).Next(100) < fireChance;
         int fireOnHit = corpse.HitFireExplosionPercent;
         corpse.HitFireExplosionPercent = 0;
-        int hitFire = (int)Math.Clamp((long)corpse.MaxLife * fireOnHit / 100, 0, int.MaxValue);
-        if (physical == 0 && chaos == 0 && elemental == 0 && hitFire == 0) return false;
-        // The modifiers can trigger on the same kill; preserve each damage type through mitigation.
-        var packet = DamagePacket.Of(DamageType.Physical, physical, physical)
-            .Add(DamagePacket.Of(DamageType.Chaos, chaos, chaos));
-        var elementalPacket = element is { } e ? OriathExplosionPacket(corpse.MaxLife, e, playerStats) : DamagePacket.Empty;
-        if (hitFire > 0)
-            elementalPacket = elementalPacket.Add(ElementalKillExplosionPacket(corpse.MaxLife, DamageType.Fire, fireOnHit, playerStats));
-        var elementalPenetration = Penetration.Of(playerStats, Stats, attack: false);
-        long amount = (long)physical + chaos + elemental + hitFire;
-        string type = string.Join(" and ", new[] { physical > 0 ? "physical" : null, chaos > 0 ? "chaos" : null,
-            element is { } t ? t.ToString().ToLowerInvariant() : null, hitFire > 0 && element != DamageType.Fire ? "fire" : null }
+        long totalFirePercent = (fireTen ? 10L : 0L) + fireOnHit;
+        if (percent <= 0 && chaosPercent <= 0 && element is null && totalFirePercent <= 0) return false;
+        var conversion = DamageStats.Conversion(playerStats, Stats, attack: null);
+        // The modifiers can trigger on the same kill; scale each base component as secondary area damage and preserve
+        // every converted/resulting damage type through monster mitigation.
+        var totalPacket = DamagePacket.Empty;
+        if (percent > 0)
+            totalPacket = totalPacket.Add(SecondaryKillExplosionPacket(corpse.MaxLife, DamageType.Physical, percent, playerStats, conversion));
+        if (chaosPercent > 0)
+            totalPacket = totalPacket.Add(SecondaryKillExplosionPacket(corpse.MaxLife, DamageType.Chaos, chaosPercent, playerStats, conversion));
+        if (element is { } oriathElement)
+            totalPacket = totalPacket.Add(SecondaryKillExplosionPacket(corpse.MaxLife, oriathElement, 10, playerStats, conversion));
+        if (totalFirePercent > 0)
+            totalPacket = totalPacket.Add(SecondaryKillExplosionPacket(corpse.MaxLife, DamageType.Fire, totalFirePercent, playerStats, conversion));
+        var penetration = Penetration.Of(playerStats, Stats, attack: false);
+        int cannotPenetrate = Get(Stat.CannotPenetrateOrIgnoreElementalResistances);
+        bool lowestResist = Get(Stat.ElementalDamageResistedByLowestElementalResistance) != 0;
+        long basePhysical = percent > 0 ? (long)Math.Clamp(corpse.MaxLife * (long)percent / 100, 0, int.MaxValue) : 0;
+        long baseChaos = chaosPercent > 0 ? (long)Math.Clamp(corpse.MaxLife * (long)chaosPercent / 100, 0, int.MaxValue) : 0;
+        long baseElemental = element is null ? 0 : Math.Clamp((long)corpse.MaxLife / 10, 0, int.MaxValue);
+        long baseFire = totalFirePercent > 0 ? (long)Math.Clamp((long)corpse.MaxLife * totalFirePercent / 100, 0, int.MaxValue) : 0;
+        long amount = basePhysical + baseChaos + baseElemental + baseFire;
+        string type = string.Join(" and ", new[] { percent > 0 ? "physical" : null, chaosPercent > 0 ? "chaos" : null,
+            element is { } t ? t.ToString().ToLowerInvariant() : null, totalFirePercent > 0 && element != DamageType.Fire ? "fire" : null }
             .Where(x => x is not null));
         int radius = KillExplosionRadius;
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit)>();
@@ -267,43 +279,23 @@ public static partial class Game
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return false;
         double now = AreaTime(player);
         var rng = AreaRng(player);
-        DamageConversion? elementalConversion = null;
         foreach (var (id, m) in player.Area.Monsters.ToArray())
         {
             if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
             if (Dist(m.Walk.Position(now), at) > radius) continue;
             var added = PoachersAddedPhysical(m, now);
-            var legacyContact = packet;
-            var elementalContact = elementalPacket;
+            var contact = totalPacket;
             if (!added.IsZero)
             {
-                if (physical > 0 || chaos > 0)
-                {
-                    int rolled = added.Roll(rng);
-                    legacyContact = packet.Add(DamageType.Physical, new(rolled, rolled));
-                }
-                else
-                {
-                    elementalConversion ??= DamageStats.Conversion(playerStats, Stats, attack: null);
-                    var addedPacket = PlayerHitDamage.Resolve(DamagePacket.Of(DamageType.Physical, added), Get,
-                        elementalConversion, spell: false, area: true, secondary: true);
-                    elementalContact = elementalPacket.Add(addedPacket.Roll(rng));
-                }
+                var addedPacket = PlayerHitDamage.Resolve(DamagePacket.Of(DamageType.Physical, added), Get,
+                    conversion, spell: false, area: true, secondary: true);
+                contact = contact.Add(addedPacket.Roll(rng));
             }
-            var resisted = GameServer.Core.World.DamageModel.Mitigate(legacyContact, t => MonsterHitResistance(m, t, default, now));
-            int damage = MonsterTakesMitigated(m, resisted, false, now);
-            int bypass = MonsterHitChaosDamage(m, resisted, false, now, damage);
-            if (!elementalContact.IsZero)
-            {
-                var mitigated = MitigateMonsterHit(m, elementalContact, now, elementalPenetration,
-                    playerStats.GetValueOrDefault(Stat.CannotPenetrateOrIgnoreElementalResistances),
-                    playerStats.GetValueOrDefault(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
-                int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, playerStats);
-                int elementalDamage = MonsterTakesMitigated(m, mitigated, false, now, additionalElementalTakenPct: witheredElemental);
-                damage = (int)Math.Min(int.MaxValue, (long)damage + elementalDamage);
-                if (!added.IsZero && physical == 0 && chaos == 0)
-                    bypass = MonsterHitChaosDamage(m, mitigated, false, now, elementalDamage, new HitTakenRules(0, witheredElemental, false));
-            }
+            var mitigated = MitigateMonsterHit(m, contact, now, penetration, cannotPenetrate, lowestResist);
+            int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, playerStats);
+            int damage = MonsterTakesMitigated(m, mitigated, false, now, additionalElementalTakenPct: witheredElemental);
+            int bypass = MonsterHitChaosDamage(m, mitigated, false, now, damage,
+                new HitTakenRules(0, witheredElemental, false));
             if (ApplyTypedMonsterHitLocked(player, m, damage, bypass, allyAt: at) is not { } hit) continue;
             hits.Add((id, m, hit));
         }
@@ -324,7 +316,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
                 $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed" +
                 (showArt ? "" : ", no art (burst budget)"));
-        string art = chaos > 0 ? ChaosExplosionAo : KillExplosionAo;
+        string art = chaosPercent > 0 ? ChaosExplosionAo : KillExplosionAo;
         var effectBytes = showArt ? InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(at.X, at.Y, art).Blob()) : null;
         try
