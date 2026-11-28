@@ -748,16 +748,18 @@ public static partial class Game
             return item;
         }
         var wornItems = worn
-            .Select(i => (i, t: ItemsFor(player).ByHash(i.Item.TypeHash)))
-            .Select(x =>
+            .Select(i =>
             {
-                if (x.t is not { } t) return new ItemModStats.Worn(x.i.Id, x.i.Item, 0, 0, 0, 0);
-                var (str, dex, intel) = ItemModStats.AttributeRequirements(ItemsFor(player), x.i.Item, t);
-                return new ItemModStats.Worn(x.i.Id, x.i.Item, Req(str), Req(dex), Req(intel),
-                    ItemModStats.LevelRequirement(x.i.Item, t.DropLevel, ItemsFor(player).Mods));
-            })
-            .Select(w => ItemModStats.ApplyBaseRequirementOverrides(w, ItemsFor(player).Mods))
-            .Select(WithGems).ToList();
+                // The native transformed item keeps the original sword's socket and equipment requirements.
+                var basis = i.Item.OriginalItem ?? i.Item;
+                if (catalog.ByHash(basis.TypeHash) is not { } type)
+                    return new ItemModStats.Worn(i.Id, i.Item, 0, 0, 0, 0);
+                var (str, dex, intel) = ItemModStats.AttributeRequirements(catalog, basis, type);
+                var requirements = new ItemModStats.Worn(i.Id, basis, Req(str), Req(dex), Req(intel),
+                    ItemModStats.LevelRequirement(basis, type.DropLevel, catalog.Mods));
+                return WithGems(ItemModStats.ApplyBaseRequirementOverrides(requirements, catalog.Mods))
+                    with { Item = i.Item };
+            }).ToList();
         // The mod catalog lets the resolver see the hidden modifier that waives requirements.
         var (inactive, active) = ItemModStats.ResolveEquipment(wornItems, level ?? player.Pools.Level, active =>
         {
@@ -1794,8 +1796,12 @@ public static partial class Game
             };
         }
         int shieldEqualsLife = EquipmentInput(Stat.MaximumEnergyShieldIsXPctOfMaximumLife);
+        // The native maximum-ES calculation (3.29.3c 0x142531880) returns the Life-based value from its own branch.
         if (!bonus.NoEnergyShield && shieldEqualsLife > 0)
             pools = pools with { EnergyShield = (uint)Math.Min(int.MaxValue, (long)pools.Life * shieldEqualsLife / 100) };
+        else if (sources.GetValueOrDefault(Stat.StormBladeEnergyShieldPlusPctFinal) is int bladeShield and not 0)
+            pools = pools with { EnergyShield = (uint)Math.Min(uint.MaxValue,
+                pools.EnergyShield * Math.Max(0, 100L + bladeShield) / 100) };
         if (EquipmentInput(Stat.KeystoneMedvedsExchange) != 0)
             pools = pools with { Ward = (uint)(pools.Ward * 60L / 100) };
         player.Ward.SetMaximum(player.PlayerLife > 0 ? pools.Ward : 0);
@@ -2897,7 +2903,7 @@ public static partial class Game
             // Accepted output may wait behind a hook/refund/item move. Keep ids for a current row projection.
             if (projectRows is not null) projectRows.Add((row.Key, ids));
             else packets.Add(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
-                ids, [.. row.Select(c => c.Item)]));
+                ids, [.. row.Select(c => EnergyBladeItem(player, row.Key, c.Item))]));
         }
         return (packets, leveled);
     }
