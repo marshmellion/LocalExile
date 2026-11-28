@@ -72,7 +72,7 @@ public static partial class Game
                 + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
                 + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
         if (critical && shot.ActualCaster is null) CommitProjectileCritFlasks(session, now, random);
-        if (hit.Life == 0 && shot.FromTotem) OwnedKillLocked(target, 0);
+        if (hit.Life == 0 && shot.FromTotem) TotemKillLocked(target, 0);
         if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource, playerKill: shot.ActualCaster is null, skillStats: shot.SkillStats);
         if (hit.StageStarts) CommitProjectileBossStage(session, id, target, contact.At);
         // Charges affect the next chronological hit/use, rather than waiting for the presentation ticker.
@@ -134,6 +134,10 @@ public static partial class Game
     {
         var player = session.Player;
         if (player.Area.Owned) player.Area.Delta.DiscardActions(id);
+        double now = at / (double)ProjectileRuntime.QuantaPerSecond;
+        var position = monster.Walk.Position(now);
+        if (monster.ShockedAtDeath is null) CaptureLootAilmentsAtDeath(monster, now);
+        if (!playerKill && GravebindCreditsKill(player, position, now)) playerKill = true;
         // The projectile's lethal hit froze this decision before the output queue can publish it.
         TinctureKillBonus? tinctureKill;
         bool destroyCorpse;
@@ -143,13 +147,13 @@ public static partial class Game
         if (!destroyCorpse || HardcoreProgressBlocked(player) || monster.Variety is null || !monster.Hostile)
             StopCorpseBlocking(player, id, monster);
         DetonateExplosiveFusesOnDeath(monster, session);
-        QueueInfernalBlowDeath(monster, at / (double)ProjectileRuntime.QuantaPerSecond, session);
-        QueueInfernalCryDeath(id, monster, at / (double)ProjectileRuntime.QuantaPerSecond, session);
+        QueueInfernalBlowDeath(monster, now, session);
+        QueueInfernalCryDeath(id, monster, now, session);
+        QueueVoltaxicBurstDeath(id, monster, now, session);
         SpreadPestilentStrike(player, id, monster, at / (double)ProjectileRuntime.QuantaPerSecond);
         // A soul only moves on some kills: an unchanged balance must not take a gate turn through the presentation.
         if (VaalSoulsUnpresented(player))
             session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
-        double now = at / (double)ProjectileRuntime.QuantaPerSecond;
         if (playerKill && monster.Hostile)
         {
             IndexExistingHitMarksLocked(player);
@@ -157,7 +161,6 @@ public static partial class Game
                 HitSummonsOnDeathLocked(player, id, monster, now);
         }
         TransferMarksOnDeathLocked(player, monster, now);
-        var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(player) || monster.Variety is not { } variety || !monster.Hostile) return;
         // Hit-kill corpse destruction (Axe Mastery, Kitava's Feast, Unhinged, Pyre, Cremator): remove the corpse before
@@ -189,16 +192,21 @@ public static partial class Game
                 session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(PlayerOf(killer), modMonster)));
             if (OnslaughtOnKill(player, now, monster.TauntedAtDeath))
                 session.EnqueueLater(() => SendKillOnslaught(player));
-            ChargesOnKill(player, monster, skillStats ?? TakeAcceptedKillSkill(player));
+            var killSkill = skillStats ?? TakeAcceptedKillSkill(player);
+            ChargesOnKill(player, monster, killSkill);
             if (RecoverOnKill(player, monster, tinctureKill) is int deathEpoch)
                 session.EnqueueLater(() => PlayerDiedAtEpoch(player, "death from life lost on kill", deathEpoch));
             else if (player.PlayerLife > 0)
                 GainPhasingOnKill(player);
             var explosionStats = PlayerStatValues(player);
             var explosionEquipment = CaptureKillEquipment(player, monster, position, now, explosionStats);
-            if (MayExplodeOnKill(player, monster, explosionEquipment, explosionStats))
-                session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment));
+            SporeguardOnKillLocked(player, position, now);
+            if (MayExplodeOnKill(player, monster, explosionEquipment, explosionStats, killSkill))
+                session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment, killSkill));
         }
+        else if (IsTotemKill(monster)
+            && PlayerStatValues(player).GetValueOrDefault(Stat.ExplodeEnemiesFor500PctLifeAsFireOnKillPctChance) > 0)
+            session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, totemOnly: true));
         SoulEaterSoul(player, id, position);
         MonsterKits.GrantKinDeathChargesLocked(player.Area, id, monster, now);
         session.EnqueueLater(() => MonsterKits.ExecuteDeathSkills(player, id, monster, position));

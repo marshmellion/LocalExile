@@ -25,6 +25,7 @@ public static partial class Game
             _ => StatConditions.GainedEnduranceCharge,
         }, at), () => ResourceEffectsTime(player), (from, until) => player.Walk.MovingSeconds(from, until))
         {
+            DegenerationDamageTime = () => GuardDamageOverTime(player, DamageType.Fire),
             OnslaughtFromFrenzy = (at, seconds) =>
             {
                 if (player.PlayerLife == 0 || !KillOnslaughtOf(player).Gain(at, seconds)) return;
@@ -424,7 +425,7 @@ public static partial class Game
             bool intimidating = effectId == "IntimidatingCry";
             int taunted = intimidating
                 ? ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, !suppressBuffs, skillId, radius)
-                : TauntLocked(player, here, radius, now, taunt);
+                : TauntLocked(player, here, radius, now, taunt, fromWarcry: true);
             Console.WriteLine($"[gateway] {effectId}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
             int affectedAllies = 0;
             if (!intimidating && !suppressBuffs)

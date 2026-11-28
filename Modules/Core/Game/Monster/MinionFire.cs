@@ -11,6 +11,8 @@ public static partial class Game
 
     sealed class InfernalLegionSelfBurn { public double Carry; }
 
+    public const string MinionInstabilityAo = "Metadata/Effects/Spells/monsters_effects/act3/experimenter/gore_explosion_fire.ao";
+
     static readonly RuleTable<Player, InfernalLegionField> InfernalLegionFields = new();
     static readonly RuleTable<GolemState.Golem, InfernalLegionSelfBurn> InfernalLegionSelfBurns = new();
     static readonly HashSet<int> MinionAreaDamageTags = [7, 28];
@@ -139,10 +141,17 @@ public static partial class Game
         if (percent <= 0) return false;
         var at = monster.Walk.Position(now);
         double radius = MinionFireRadius(minion, 22);
-        double raw = MinionFireDamage(minion, monster.MaxLife * (percent / 100d), damageOverTime: false);
+        double basis = monster.MaxLife * (percent / 100d);
+        double raw = MinionFireDamage(minion, basis, damageOverTime: false);
         var damagePacket = DamagePacket.Of(DamageType.Fire, raw, raw);
+        var ignite = raw > 0 ? MinionInstabilityIgnite(minion, basis) : MonsterIgnites.Settings.None;
+        int cannotPenetrate = monster.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances];
+        var basePenetration = Penetration.Of(monster.Mods.Effects.Stats, Stats, attack: false);
+        int cursedPen = cannotPenetrate == 0 ? GolemStat(minion.Player, Stat.MinionsPenetrateElementalResistancesPctVsCursedEnemies) : 0;
         var rng = AreaRng(player);
         GolemDieLocked(player, minion, now);
+        if (TakeExplosionArt(player, now))
+            QueueExplosionEffect(player, at, MinionInstabilityAo, "Minion Instability explosion");
         foreach (var (id, target) in player.Area.Monsters.ToArray())
         {
             if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || target.Asleep
@@ -150,24 +159,60 @@ public static partial class Game
             var added = PoachersAddedPhysical(target, now);
             int physical = added.IsZero ? 0 : added.Scale(MinionAreaDamageFactor(monster, DamageType.Physical, minion.Own)).Roll(rng);
             var contact = damagePacket.Add(DamageType.Physical, new(physical, physical));
-            var mitigated = MitigateMonsterHit(target, contact, now,
-                cannotPenetrateOrIgnore: monster.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances]);
+            var penetration = cursedPen != 0 && target.HasCurses && target.Curses.HasActive(now)
+                ? new Penetration.PerType(basePenetration.Fire + cursedPen, basePenetration.Cold + cursedPen,
+                    basePenetration.Lightning + cursedPen, basePenetration.Chaos, basePenetration.ColdVsChilled)
+                : basePenetration;
+            var mitigated = MitigateMonsterHit(target, contact, now, penetration,
+                cannotPenetrateOrIgnore: cannotPenetrate);
             int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
-            if (damage > 0) CommitMinionFireDamage(player, id, target, damage, at, now, "Minion Instability", minion);
+            if (damage > 0 && CommitMinionFireDamage(player, id, target, damage, at, now, "Minion Instability", minion)
+                && target.Life > 0 && !target.Dead && ignite.Max > 0
+                && IgniteOnHitLocked(player, id, target, ignite, critical: false, now, playerIgnite: false) is { } ignitePackets)
+                foreach (var packet in ignitePackets)
+                    player.Minions.OutputQueue.Add(new(packet, "Minion Instability ignite", id, target));
         }
         return true;
     }
 
-    static void CommitMinionFireDamage(Player player, uint id, SpawnedMonster target, int damage,
+    static MonsterIgnites.Settings MinionInstabilityIgnite(GolemState.Golem minion, double basis)
+    {
+        var effects = minion.Monster.Effects;
+        int Own(uint stat) => minion.Own.GetValueOrDefault(stat);
+        if (GemSupportDamage.Prohibited(DamageType.Fire, minion.Own.Select(p => (p.Key, p.Value))))
+            return MonsterIgnites.Settings.None;
+        bool spiritAlwaysIgnites = minion.Definition.Kind == "RagingSpirit"
+            && GolemStat(minion.Player, Stat.RagingSpiritsAlwaysIgnite) != 0;
+        int MinionStat(uint name)
+        {
+            int value = effects[name];
+            if (name == Stat.BaseChanceToIgnitePct)
+            {
+                value = ActorScale.Saturate((long)value + effects[Stat.ChanceToIgnitePct]);
+                if (spiritAlwaysIgnites) value = Math.Max(100, value);
+            }
+            return value;
+        }
+        double more = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionDamagePlusPctFinal) / 100d)
+            * Math.Max(0, 1 + Own(Stat.SupportMinionDamagePlusPctFinal) / 100d)
+            * Math.Max(0, 1 + effects[Stat.NecromancerMinionDamagePlusPctFinal] / 100d);
+        var rows = AilmentPanelStats.Compute(new("secondary", false),
+            DamagePacket.Of(DamageType.Fire, basis * more, basis * more), new DamageConversion(), MinionStat);
+        return WithIgniteSpread(IgniteSettingsFrom(rows, "secondary", MinionStat),
+            effects.Stats, null, spell: false, "secondary", includeActorBaseArea: true);
+    }
+
+    static bool CommitMinionFireDamage(Player player, uint id, SpawnedMonster target, int damage,
         (int X, int Y) at, double now, string effect, GolemState.Golem minion)
     {
         var cull = MinionIgniteKillRule(PlayerStatValues(player), target, now);
-        if (ApplyMonsterHitLocked(player, target, damage, allyAt: at, cull: cull) is not { } hit) return;
+        if (ApplyMonsterHitLocked(player, target, damage, allyAt: at, cull: cull) is not { } hit) return false;
         if (hit.StageStarts)
         {
             CommitBossStage(player, id, target, now);
             hit = hit with { StageStarts = false };
         }
         CommitMinionHitLocked(player, id, target, hit, damage, now, effect, source: minion.Monster, skill: minion.Own, fighter: minion, secondary: true);
+        return true;
     }
 }

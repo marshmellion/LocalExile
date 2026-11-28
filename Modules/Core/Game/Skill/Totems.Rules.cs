@@ -39,6 +39,7 @@ public static partial class Game
     static readonly Dictionary<string, (ushort Buff, int Radius)> TotemAuras = new()
     {
         ["RejuvenationTotem"] = (172, 10),
+        ["RejuvenationTotemRoyale"] = (172, 10),
         [VaalRejuvenationTotemEffect] = (2201, 10),
     };
 
@@ -914,11 +915,14 @@ public static partial class Game
         WorldRecordBuilder bytes)
     {
         if (now < devour.NextUse) return;
-        bool life = devour.Life > 0 && player.PlayerLife < player.PlayerMaxLife;
+        var leech = LeechOf(player);
+        bool life = devour.Life > 0 && (leech.ConvertsLifeToEnergyShield
+            ? player.EnergyShield.Current < player.EnergyShield.Maximum
+            : player.PlayerLife < LifeCap(player));
         bool mana = devour.Mana > 0 && player.PlayerMana < UnreservedMana(player);
         if (!life && !mana) return;
         var playerStats = CharacterPlayerStats(player);
-        life &= !LifeRecovery.NonLeechBlocked(name => GolemStat(playerStats, name));
+        life &= leech.ConvertsLifeToEnergyShield || GolemStat(playerStats, Stat.CannotRecoverLife) == 0;
         mana &= GolemStat(playerStats, Stat.Of("cannot_recover_mana")) == 0;
         if (!life && !mana) return;
         double range = TotemTargetRange(player, totem.SkillId);
@@ -934,17 +938,14 @@ public static partial class Game
         if (corpse is null) return;
         ConsumeSummonCorpseLocked(player, corpse, playerConsumesCorpse: false);
         player.Area.Monsters.Remove(corpseId);
-        if (life) player.PlayerLife = (uint)Math.Min(player.PlayerMaxLife, (long)player.PlayerLife + devour.Life);
-        if (mana) player.PlayerMana = (uint)Math.Min(UnreservedMana(player), (long)player.PlayerMana + devour.Mana);
+        ApplyOwnedLeechLocked(player, leech, life ? devour.Life : 0, mana ? devour.Mana : 0, ProjectileWorldTime(player));
         if (totem.GrantedId != 0)
             bytes.Presentation(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, at.X, at.Y,
                 totem.GrantedId, ++totem.Sequence, 0x0408));
         if (!corpse.CreatedAsCorpse) bytes.Remove(corpseId);
-        bytes.Presentation(player.Id, InstanceProtocol.LifeUpdate(player.Id, player.PlayerLife, player.PlayerReservedLife));
-        bytes.Presentation(player.Id, InstanceProtocol.LifeUpdate(player.Id, player.PlayerMana, (uint)ReservedMana(player), pool: ManaPool));
         devour.NextUse = now + (TotemCastSeconds(player, totem.SkillId) ?? 1);
         Console.WriteLine($"[gateway] totem 0x{totem.Id:x} devours corpse 0x{corpseId:x} at ({at.X}, {at.Y}): "
-            + $"+{(life ? devour.Life : 0)} life, +{(mana ? devour.Mana : 0)} mana (player {player.PlayerLife}/{player.PlayerMaxLife})");
+            + $"leech {(life ? devour.Life : 0)} life, {(mana ? devour.Mana : 0)} mana");
     }
 
     // A nova's contact, on the projectile runtime (under the XP gate and the area's frame): every targetable hostile
@@ -1064,6 +1065,7 @@ public static partial class Game
             ConsumeNativeKnockbackLocked(m, ref hitFlags, ref hitKind, ref hitAngle, out ushort u3c, out ushort u3e);
             session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: hitFlags,
                 kind: hitKind, code: hitCode, angle: hitAngle, u3c: u3c, u3e: u3e));
+            TotemKillLocked(m, accepted.Life);
             CommitAcceptedHitLocked(player, id, m, accepted, damage, now, "totem", playerKill: false);
         }
 

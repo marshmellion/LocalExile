@@ -20,6 +20,8 @@ public sealed partial class MercenaryModule
         public bool Escort { get; set; }
         public string Name { get; set; } = "";
         public int Difficulty { get; set; }
+        /// <summary>An escort that has joined the duel as a fighter (<see cref="JoinEscorts"/>).</summary>
+        public bool Joined { get; set; }
     }
 
     /// <summary>Mercenary blueprint encoded onto a <c>MercenaryWarrant</c> rematch item.</summary>
@@ -126,6 +128,7 @@ public sealed partial class MercenaryModule
                     {
                         Name = wildName, Team = MercenaryWire.MercenaryTeam, MercenaryBuild = pick.Build.Hash16,
                         StateMachine = States(variety, MercenaryWire.PartyIdleStates), HasDialogue = false, NpcFlags = 0, InteractionFlags = 0,
+                        Skills = WithPortalOut(player, variety, area.Level, o.Skills),
                     })
                 : await SpawnMonster(player, variety, area.Level, MonsterRarity.Unique, at.X, at.Y, instanceOwned: true,
                     ownedLooks: MercenaryEquipment.Looks(equipment, fallback), extraMods: MercenaryEquipment.Effects(equipment, difficulty),

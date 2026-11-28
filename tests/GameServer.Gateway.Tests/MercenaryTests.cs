@@ -117,6 +117,9 @@ public sealed class MercenaryTests
             Assert.Equal(0, opponent.Kit[0].TriggerThreshold);
             var skills = Game.SkillsFor(owner.Player);
             Assert.DoesNotContain(opponent.Kit, k => BossKits.IsLeavePortal(skills, k.Effect));
+            // Its create carries EASMercenaryPortalOut last, so a lost duel can play portal_out_01.
+            var duelSkills = instance.World.MonsterOrigins[duel.Body].Object.Skills!;
+            Assert.Equal(MercenaryWire.PortalOutSkillId, duelSkills[^1].Id);
 
             var kept = Assert.Single(SavedMonster.Save([opponent], Game.AreaTime(owner.Player),
                 origin: m => instance.World.MonsterOrigins[m.ObjectId].Object));

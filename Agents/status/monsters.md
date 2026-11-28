@@ -213,6 +213,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   gem Rucksack, show the `MercenaryEncounter` map icon, and exclude the empty Bladereach build.
   Infamous encounters roll at 20% (1.5x to 2x in T1-T16 maps) with an Infamous modifier from level 68 and at least
   one unique item.
+  A lost duel (death or leaving the area) keeps the wager; the Mercenary plays its failed state (3) and leaves with
+  its Scarab of Infamy escorts, none of them dropping items. Rematch is offered only in maps. Their
+  `EASMercenaryPortalOut` exit (`portal_out_01`) is sent before removal; its portal is not yet confirmed visible live.
   Verified live on 3.29.3d.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Ritual: maps and Act 2 campaign altars, waves, Tribute, Favour window, Vessels, Scarabs, Atlas, and Omens.
