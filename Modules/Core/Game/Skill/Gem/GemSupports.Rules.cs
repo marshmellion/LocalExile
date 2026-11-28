@@ -141,6 +141,7 @@ public static partial class Game
         candidates.AddRange(OffhandSupportsForMainHand(player, skillId, selected.Place.ItemId, equipment, places, requirements));
         var supports = ResolveEquippedSupports(player, selected.Effect, ItemsFor(player).GemLevel(selected.Place.Gem),
             candidates, equipment, requirements?.Inactive ?? inactive, sourceIsGem: true);
+        supports = LocalHooks.WithSupports(player, host, supports);
         int Value(uint k) => supports.Sum(s => s.Stats.Where(v => v.Key == k).Sum(v => v.Value));
         // "+1 to Supported <type> Skill Gems" (Awakened supports): every supported_*_skill_gem_level_+ counts, the
         // generic active-gem one included.
@@ -161,6 +162,7 @@ public static partial class Game
         var own = SkillsFor(player).EffectStats(selected.Effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         ApplySupportStats(player, own, supports);
         ApplySocketedGolemEquipment(player, selected.Effect, host, local, own);
+        LocalHooks.RunSkillStats(player, skillId, selected.Effect, level, quality, selected.Place.Gem, host, own);
         AddIntensityBaseStats(player, own);
         if (CrueltySupportedStat is var crueltyFlag && own.GetValueOrDefault(crueltyFlag) != 0
             && CrueltyActivePct(player, skillId) is int crueltyPct and > 0

@@ -1792,6 +1792,7 @@ public static partial class Game
     /// AreaRng(player) normally and <see cref="ItemRolls.ForeseeRandom"/> for a Hinekora preview/commit.</summary>
     internal static Item? CurrencyResult(Player player, Item target, uint currencyTypeHash, Random random)
     {
+        if (LocalHooks.RunCurrencyUse(player, target, currencyTypeHash, random) is { } local) return local;
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
         var type = ItemsFor(player).ByHash(currencyTypeHash);
         bool isEssence = type is not null && EssencesFor(player).Contains(type.Hash);
@@ -1898,6 +1899,7 @@ public static partial class Game
         // not its.
         bool foreseeing = target.Item.Foreseeing;
         var random = foreseeing ? ItemRolls.ForeseeRandom(target.Item, used.Item.TypeHash) : AreaRng(player);
+        LocalHooks.UsedItem = used.Item;
         Item? own = type is null || type.Id == CurrencyEffects.HinekorasLock ? null
             : GameEvents.RunCurrencyOnItem(player, target.Item, used.Item, type, random);
         if (own is null && RefusedByState(player, used.Item, target.Item) is ushort stateError)
