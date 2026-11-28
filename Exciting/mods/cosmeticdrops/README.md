@@ -1,5 +1,8 @@
 # Cosmetic Drops
 
+> **Needs:** the Exciting build of LocalExile (github.com/marshmellion/LocalExile, branch exciting).  
+> **Works with:** Body Auras (body auras drop too and are locked until found).
+
 With this mod on, an account no longer owns every cosmetic (microtransaction) and hideout. It owns what it unlocked,
 and the rest drop.
 
@@ -10,6 +13,11 @@ and the rest drop.
 - **Cosmetic Caches:** a cache drops from monsters, bosses and strongboxes. A right click unlocks a random cosmetic you
   don't own yet.
 - **Hybrid** (the default) does both.
+- **Never dropped** (unless turned on in the ownership settings): mystery boxes, the shop's upgrade and convert
+  scrolls, and the "Premium Expired Pet" cosmetics.
+- **Other mods' cosmetics:** a mod folder beside this one with a `cosmeticdrops.json` (a `cosmetics` list in
+  `cosmetics.json`'s form) adds its cosmetics to the drops, once they are in the game data (Body Auras' body auras drop
+  where their weapon effects do).
 
 When one unlocks: the game's own reward pop-up on the right of the screen with the cosmetic's picture, as a league
 challenge reward gets ("New cosmetic: <name> (Complete)", "<name> unlocked!"), a chat line, a pop-up with a chime on the
