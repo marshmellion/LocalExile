@@ -218,7 +218,8 @@ public static partial class Game
                 CommitProjectileBossStage(session, id, m, session.Runtime.Now);
                 accepted = accepted with { StageStarts = false };
             }
-            OwnedKillLocked(m, accepted.Life);
+            if (totem) TotemKillLocked(m, accepted.Life);
+            else OwnedKillLocked(m, accepted.Life);
             CommitAcceptedHitLocked(player, id, m, accepted, damage, now, totem ? "Arc totem" : "placed Arc", playerKill: false);
         }
 

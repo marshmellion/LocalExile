@@ -162,6 +162,7 @@ public static partial class Game
     /// <summary>The explosion's art: the server effect's MiscAnimated row 2877, `HolyExplosion` (official 3.29.3b,
     /// 2026-11-05). It plays for about two seconds at the corpse.</summary>
     public const string KillExplosionAo = "Metadata/Effects/Spells/holy_explode/holy_explode.ao";
+    public const string LightningExplosionAo = "Metadata/Effects/Spells/lightning_explode_02/lightning_explode.ao";
     /// <summary>How long each explosion art plays, read from the client's own rig for it: the .ao's single animation
     /// (`explode`, once), which is what the client plays on the EffectObject. HolyExplosion's
     /// `Art/Models/Effects/holy_explode/holy_explode.amd` is 2000 ms, and so is ChaosExplode's
@@ -171,6 +172,7 @@ public static partial class Game
     static readonly Dictionary<string, int> KillExplosionArtMs = new(StringComparer.OrdinalIgnoreCase)
     {
         [KillExplosionAo] = 2000,
+        [LightningExplosionAo] = 2000,
         [ChaosExplosionAo] = 2000,
     };
 
@@ -189,17 +191,23 @@ public static partial class Game
     /// client removes it 0-6 ms after the death), and a kill by the explosion is the player's and can trigger another
     /// explosion.</summary>
     internal static bool MayExplodeOnKill(Player player, SpawnedMonster? corpse = null,
-        KillEquipmentSnapshot? equipment = null, IReadOnlyDictionary<uint, int>? stats = null)
+        KillEquipmentSnapshot? equipment = null, IReadOnlyDictionary<uint, int>? stats = null,
+        IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         if (corpse is { HitFireExplosionPercent: > 0 } || equipment is { Any: true }
-            || corpse is not null && AttackKillExplosions.TryGetValue(corpse, out _)) return true;
+            || corpse is not null && AttackKillExplosions.TryGetValue(corpse, out _)
+            || (skillStats?.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillingBlowChancePct) ?? 0) > 0)
+            return true;
         stats ??= PlayerStatValues(player);
         if (stats.GetValueOrDefault(Stat.EnemiesExplodeForPctLifeAsPhysicalDamage) > 0
             || stats.GetValueOrDefault(Stat.BleedingEnemiesExplodeForPctLifeAsPhysicalDamage) > 0
             || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct) > 0
             || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct) > 0
             || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct) > 0
-            || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsFireOnKillChancePct) > 0)
+            || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsFireOnKillChancePct) > 0
+            || stats.GetValueOrDefault(Stat.ExplodeEnemiesFor500PctLifeAsFireOnKillPctChance) > 0
+            || stats.GetValueOrDefault(Stat.ShockedEnemiesExplodeForPctLifeAsLightningDamage) > 0
+            || stats.GetValueOrDefault(Stat.ExplodeBurningEnemiesFor10PctLifeAsFireOnKillChancePct) > 0)
             return true;
         if (equipment is not null) return false;
         return stats.GetValueOrDefault(CursedCorpseBlast) > 0
@@ -209,45 +217,76 @@ public static partial class Game
     }
 
     public static async Task<bool> ExplodeOnKill(Player player, uint corpseId, SpawnedMonster corpse, (int X, int Y) at,
-        KillEquipmentSnapshot? equipment = null)
+        KillEquipmentSnapshot? equipment = null, IReadOnlyDictionary<uint, int>? skillStats = null, bool totemOnly = false)
     {
         var playerStats = PlayerStatValues(player);
         int Get(uint key) => playerStats.GetValueOrDefault(key);
-        int generic = Get(Stat.EnemiesExplodeForPctLifeAsPhysicalDamage);
-        int bleedingPercent = Get(Stat.BleedingEnemiesExplodeForPctLifeAsPhysicalDamage);
-        bool bleeding;
-        // The killing bleed tick clears the list before the death runs (MonsterIgnites.Clear keeps DiedBurning for this).
-        bleeding = corpse.Bleeds.Burning || corpse.Bleeds.DiedBurning;
-        // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
-        // are separate sources on the same kill).
-        var captured = equipment ?? CaptureKillEquipment(player, corpse, at, AreaTime(player), playerStats);
-        long percent = (long)generic + (bleeding ? bleedingPercent : 0) + captured.CursedCorpsePhysicalPct;
-        long physicalChance = (long)Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct)
-            + captured.PrideChance + captured.BannerPhysicalChance;
-        long chaosChance = (long)Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct) + captured.CursedVictimChaosChance;
-        if (AttackKillExplosions.TryGetValue(corpse, out var attack))
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return false;
+        double now = AreaTime(player);
+        var rng = AreaRng(player);
+
+        int hinekoraChance = Get(Stat.ExplodeEnemiesFor500PctLifeAsFireOnKillPctChance);
+        bool hinekoraProc = hinekoraChance > 0 && rng.Next(100) < hinekoraChance;
+
+        long percent = 0;
+        int chaosPercent = 0;
+        int inpulsaPercent = 0;
+        DamageType? element = null;
+        DamageType? annihilationElement = null;
+        bool bleeding = false;
+        long totalFirePercent = hinekoraProc ? 500L : 0L;
+
+        if (!totemOnly)
         {
-            physicalChance += attack.PhysicalChance;
-            chaosChance += attack.WandChaosChance;
-            AttackKillExplosions.Remove(corpse);
+            int generic = Get(Stat.EnemiesExplodeForPctLifeAsPhysicalDamage);
+            int bleedingPercent = Get(Stat.BleedingEnemiesExplodeForPctLifeAsPhysicalDamage);
+            // The killing bleed tick clears the list before the death runs (MonsterIgnites.Clear keeps DiedBurning for this).
+            bleeding = corpse.Bleeds.Burning || corpse.Bleeds.DiedBurning;
+            // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
+            // are separate sources on the same kill).
+            var captured = equipment ?? CaptureKillEquipment(player, corpse, at, now, playerStats);
+            percent = (long)generic + (bleeding ? bleedingPercent : 0) + captured.CursedCorpsePhysicalPct;
+            long physicalChance = (long)Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct)
+                + captured.PrideChance + captured.BannerPhysicalChance;
+            long chaosChance = (long)Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct) + captured.CursedVictimChaosChance;
+            if (AttackKillExplosions.TryGetValue(corpse, out var attack))
+            {
+                physicalChance += attack.PhysicalChance;
+                chaosChance += attack.WandChaosChance;
+                AttackKillExplosions.Remove(corpse);
+            }
+            if (physicalChance > 0 && rng.Next(100) < physicalChance) percent += 10;
+            // Quarter-life chaos sources share the same roll and damage.
+            chaosPercent = chaosChance > 0 && rng.Next(100) < chaosChance ? 25 : 0;
+            // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
+            // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).
+            // K'Tash's Magnificence (Demonic Power): 40% chance for killed enemies to explode for 10% of life as fire.
+            // Roll Oriath's End and 10% Fire independently so having both can trigger both explosions on the same kill.
+            int elementalChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct);
+            int fireChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsFireOnKillChancePct);
+            element = elementalChance > 0 && rng.Next(100) < elementalChance
+                ? (DamageType)rng.Next((int)DamageType.Lightning, (int)DamageType.Fire + 1)
+                : null;
+            // Annihilation Support: reads only from the killing skill's own stats, never global character stats.
+            int annihilationChance = skillStats?.GetValueOrDefault(Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillingBlowChancePct) ?? 0;
+            annihilationElement = annihilationChance > 0 && rng.Next(100) < annihilationChance
+                ? (DamageType)rng.Next((int)DamageType.Lightning, (int)DamageType.Fire + 1)
+                : null;
+            bool fireTen = fireChance > 0 && rng.Next(100) < fireChance;
+            // Fire Mastery (Fire3): burning enemies you kill have a chance to explode for 10% of their maximum Life as Fire Damage.
+            bool burning = corpse.Ignites.Burning || corpse.Ignites.DiedBurning || corpse.Ignites.IgnitedAt(now);
+            int burningChance = burning ? Get(Stat.ExplodeBurningEnemiesFor10PctLifeAsFireOnKillChancePct) : 0;
+            bool burningFireProc = burningChance > 0 && rng.Next(100) < burningChance;
+            // Inpulsa's Broken Heart: shocked enemies you kill explode for X% of their maximum Life as Lightning Damage (cannot shock).
+            bool shocked = corpse.ShockedAtDeath ?? corpse.Ailments.ShockedAtDeath(now);
+            inpulsaPercent = shocked ? Get(Stat.ShockedEnemiesExplodeForPctLifeAsLightningDamage) : 0;
+            int fireOnHit = corpse.HitFireExplosionPercent;
+            corpse.HitFireExplosionPercent = 0;
+            totalFirePercent += (fireTen ? 10L : 0L) + (burningFireProc ? 10L : 0L) + fireOnHit;
         }
-        if (physicalChance > 0 && AreaRng(player).Next(100) < physicalChance) percent += 10;
-        // Quarter-life chaos sources share the same roll and damage.
-        int chaosPercent = chaosChance > 0 && AreaRng(player).Next(100) < chaosChance ? 25 : 0;
-        // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
-        // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).
-        // K'Tash's Magnificence (Demonic Power): 40% chance for killed enemies to explode for 10% of life as fire.
-        // Roll Oriath's End and 10% Fire independently so having both can trigger both explosions on the same kill.
-        int elementalChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct);
-        int fireChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsFireOnKillChancePct);
-        DamageType? element = elementalChance > 0 && AreaRng(player).Next(100) < elementalChance
-            ? (DamageType)AreaRng(player).Next((int)DamageType.Lightning, (int)DamageType.Fire + 1)
-            : null;
-        bool fireTen = fireChance > 0 && AreaRng(player).Next(100) < fireChance;
-        int fireOnHit = corpse.HitFireExplosionPercent;
-        corpse.HitFireExplosionPercent = 0;
-        long totalFirePercent = (fireTen ? 10L : 0L) + fireOnHit;
-        if (percent <= 0 && chaosPercent <= 0 && element is null && totalFirePercent <= 0) return false;
+        if (percent <= 0 && chaosPercent <= 0 && inpulsaPercent <= 0 && element is null
+            && annihilationElement is null && totalFirePercent <= 0)
+            return false;
         var conversion = DamageStats.Conversion(playerStats, Stats, attack: null);
         // The modifiers can trigger on the same kill; scale each base component as secondary area damage and preserve
         // every converted/resulting damage type through monster mitigation.
@@ -256,8 +295,12 @@ public static partial class Game
             totalPacket = totalPacket.Add(SecondaryKillExplosionPacket(corpse.MaxLife, DamageType.Physical, percent, playerStats, conversion));
         if (chaosPercent > 0)
             totalPacket = totalPacket.Add(SecondaryKillExplosionPacket(corpse.MaxLife, DamageType.Chaos, chaosPercent, playerStats, conversion));
+        if (inpulsaPercent > 0)
+            totalPacket = totalPacket.Add(SecondaryKillExplosionPacket(corpse.MaxLife, DamageType.Lightning, inpulsaPercent, playerStats, conversion));
         if (element is { } oriathElement)
             totalPacket = totalPacket.Add(SecondaryKillExplosionPacket(corpse.MaxLife, oriathElement, 10, playerStats, conversion));
+        if (annihilationElement is { } annElement)
+            totalPacket = totalPacket.Add(SecondaryKillExplosionPacket(corpse.MaxLife, annElement, 10, playerStats, conversion));
         if (totalFirePercent > 0)
             totalPacket = totalPacket.Add(SecondaryKillExplosionPacket(corpse.MaxLife, DamageType.Fire, totalFirePercent, playerStats, conversion));
         var penetration = Penetration.Of(playerStats, Stats, attack: false);
@@ -265,20 +308,20 @@ public static partial class Game
         bool lowestResist = Get(Stat.ElementalDamageResistedByLowestElementalResistance) != 0;
         long basePhysical = percent > 0 ? (long)Math.Clamp(corpse.MaxLife * (long)percent / 100, 0, int.MaxValue) : 0;
         long baseChaos = chaosPercent > 0 ? (long)Math.Clamp(corpse.MaxLife * (long)chaosPercent / 100, 0, int.MaxValue) : 0;
-        long baseElemental = element is null ? 0 : Math.Clamp((long)corpse.MaxLife / 10, 0, int.MaxValue);
+        long baseLightning = inpulsaPercent > 0 ? (long)Math.Clamp(corpse.MaxLife * (long)inpulsaPercent / 100, 0, int.MaxValue) : 0;
+        long baseElemental = (element is null ? 0 : Math.Clamp((long)corpse.MaxLife / 10, 0, int.MaxValue))
+            + (annihilationElement is null ? 0 : Math.Clamp((long)corpse.MaxLife / 10, 0, int.MaxValue));
         long baseFire = totalFirePercent > 0 ? (long)Math.Clamp((long)corpse.MaxLife * totalFirePercent / 100, 0, int.MaxValue) : 0;
-        long amount = basePhysical + baseChaos + baseElemental + baseFire;
+        long amount = basePhysical + baseChaos + baseLightning + baseElemental + baseFire;
         string type = string.Join(" and ", new[] { percent > 0 ? "physical" : null, chaosPercent > 0 ? "chaos" : null,
-            element is { } t ? t.ToString().ToLowerInvariant() : null, totalFirePercent > 0 && element != DamageType.Fire ? "fire" : null }
-            .Where(x => x is not null));
+            inpulsaPercent > 0 ? "lightning" : null, element is { } t ? t.ToString().ToLowerInvariant() : null,
+            annihilationElement is { } at2 ? at2.ToString().ToLowerInvariant() : null,
+            totalFirePercent > 0 ? "fire" : null }.Where(x => x is not null).Distinct());
         int radius = KillExplosionRadius;
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit)>();
         uint effect;
         bool showArt;
         bool removeCorpse;
-        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return false;
-        double now = AreaTime(player);
-        var rng = AreaRng(player);
         foreach (var (id, m) in player.Area.Monsters.ToArray())
         {
             if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
@@ -316,7 +359,9 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
                 $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed" +
                 (showArt ? "" : ", no art (burst budget)"));
-        string art = chaosPercent > 0 ? ChaosExplosionAo : KillExplosionAo;
+        string art = chaosPercent > 0 ? ChaosExplosionAo
+            : inpulsaPercent > 0 && percent <= 0 && totalFirePercent <= 0 ? LightningExplosionAo
+            : KillExplosionAo;
         var effectBytes = showArt ? InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(at.X, at.Y, art).Blob()) : null;
         try

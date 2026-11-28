@@ -1064,6 +1064,7 @@ public static partial class Game
             ConsumeNativeKnockbackLocked(m, ref hitFlags, ref hitKind, ref hitAngle, out ushort u3c, out ushort u3e);
             session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: hitFlags,
                 kind: hitKind, code: hitCode, angle: hitAngle, u3c: u3c, u3e: u3e));
+            TotemKillLocked(m, accepted.Life);
             CommitAcceptedHitLocked(player, id, m, accepted, damage, now, "totem", playerKill: false);
         }
 

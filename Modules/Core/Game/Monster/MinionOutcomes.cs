@@ -130,6 +130,9 @@ public static partial class Game
             var explosionEquipment = CaptureKillEquipment(player, monster, at, now);
             ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, explosionEquipment));
         }
+        else if (IsTotemKill(monster)
+            && PlayerStatValues(player).GetValueOrDefault(Stat.ExplodeEnemiesFor500PctLifeAsFireOnKillPctChance) > 0)
+            ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, totemOnly: true));
         var packets = new List<(byte[] Packet, string? Log)>();
         bool firstBossKill = HasUnsetKillQuestFlag(player, variety.Id);
         if (CommitQuestFlags(player, QuestFlagsOnKill(player, variety.Id)) is { } quest)

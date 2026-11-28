@@ -5,6 +5,7 @@
 public static partial class Game
 {
     static readonly RuleTable<SpawnedMonster, object> OwnedKills = new();
+    static readonly RuleTable<SpawnedMonster, object> TotemKills = new();
     static readonly object Owned = new();
 
     /// <summary>Marks that the player's own totem, trap, mine or minion dealt the killing hit (<paramref name="life"/>
@@ -13,6 +14,17 @@ public static partial class Game
     {
         if (life == 0) OwnedKills.AddOrUpdate(m, Owned);
     }
+
+    /// <summary>Marks that the player's own totem dealt the killing hit (<paramref name="life"/> 0).</summary>
+    public static void TotemKillLocked(SpawnedMonster m, uint life)
+    {
+        if (life != 0) return;
+        OwnedKills.AddOrUpdate(m, Owned);
+        TotemKills.AddOrUpdate(m, Owned);
+    }
+
+    /// <summary>Whether the monster was killed by the player's totem.</summary>
+    public static bool IsTotemKill(SpawnedMonster m) => TotemKills.TryGetValue(m, out _);
 
     /// <summary>The player's own kill, or their totem's, trap's, mine's or minion's.</summary>
     public static bool KilledByPlayerOrOwned(KillContext kill) =>

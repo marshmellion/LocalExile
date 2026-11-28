@@ -72,7 +72,7 @@ public static partial class Game
                 + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
                 + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
         if (critical && shot.ActualCaster is null) CommitProjectileCritFlasks(session, now, random);
-        if (hit.Life == 0 && shot.FromTotem) OwnedKillLocked(target, 0);
+        if (hit.Life == 0 && shot.FromTotem) TotemKillLocked(target, 0);
         if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource, playerKill: shot.ActualCaster is null, skillStats: shot.SkillStats);
         if (hit.StageStarts) CommitProjectileBossStage(session, id, target, contact.At);
         // Charges affect the next chronological hit/use, rather than waiting for the presentation ticker.
@@ -191,16 +191,20 @@ public static partial class Game
                 session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(PlayerOf(killer), modMonster)));
             if (OnslaughtOnKill(player, now, monster.TauntedAtDeath))
                 session.EnqueueLater(() => SendKillOnslaught(player));
-            ChargesOnKill(player, monster, skillStats ?? TakeAcceptedKillSkill(player));
+            var killSkill = skillStats ?? TakeAcceptedKillSkill(player);
+            ChargesOnKill(player, monster, killSkill);
             if (RecoverOnKill(player, monster, tinctureKill) is int deathEpoch)
                 session.EnqueueLater(() => PlayerDiedAtEpoch(player, "death from life lost on kill", deathEpoch));
             else if (player.PlayerLife > 0)
                 GainPhasingOnKill(player);
             var explosionStats = PlayerStatValues(player);
             var explosionEquipment = CaptureKillEquipment(player, monster, position, now, explosionStats);
-            if (MayExplodeOnKill(player, monster, explosionEquipment, explosionStats))
-                session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment));
+            if (MayExplodeOnKill(player, monster, explosionEquipment, explosionStats, killSkill))
+                session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment, killSkill));
         }
+        else if (IsTotemKill(monster)
+            && PlayerStatValues(player).GetValueOrDefault(Stat.ExplodeEnemiesFor500PctLifeAsFireOnKillPctChance) > 0)
+            session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, totemOnly: true));
         SoulEaterSoul(player, id, position);
         MonsterKits.GrantKinDeathChargesLocked(player.Area, id, monster, now);
         session.EnqueueLater(() => MonsterKits.ExecuteDeathSkills(player, id, monster, position));
