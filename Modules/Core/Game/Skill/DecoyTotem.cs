@@ -170,7 +170,7 @@ public static partial class Game
                 double now = AreaTime(player);
                 var from = attacker.Walk.Position(now);
                 if (Dist(from, totem.At) > attack.Range + totem.BodySize + 2
-                    || !DecoyTakeHitLocked(player, totem, attacker, attack, now, 1)) return null;
+                    || !TotemTakeHitLocked(player, totem, id, attacker, attack, now, 1)) return null;
                 return InstanceProtocol.ActionHit(id, sequence, totem.Id, flags: MonsterHitFlags(blocked: false, critical: false), kind: 0x03,
                     code: HitCode(attack.Damage), angle: HitAngle(totem.At.X - from.X, totem.At.Y - from.Y));
             });
@@ -180,6 +180,10 @@ public static partial class Game
     }
 
     public static bool DecoyTakeHitLocked(Player player, TotemState.Totem totem, SpawnedMonster attacker,
+        MonsterAttack attack, double now, double multiplier) =>
+        TotemTakeHitLocked(player, totem, 0, attacker, attack, now, multiplier);
+
+    static bool TotemTakeHitLocked(Player player, TotemState.Totem totem, uint attackerId, SpawnedMonster attacker,
         MonsterAttack attack, double now, double multiplier)
     {
         double clock = AreaTime(player);
@@ -190,12 +194,19 @@ public static partial class Game
         // Totems/Totem.ot (the variety's base type) has -80% inherent damage taken. Its elemental and chaos resistances
         // are from MonsterTypes.
         var variety = Monsters.Find(totem.VarietyId);
-        var resisted = variety is null ? rolled : rolled.Select((type, range) =>
-            range.Scale(1 - DamageModel.Capped(Monsters.BaseResistance(variety, totem.Level, type) ?? 0) / 100.0));
+        var resisted = rolled.Select((type, range) => range.Scale(type == DamageType.Physical
+            ? 1 - Math.Clamp(totem.PhysicalDamageReductionPct, 0, 90) / 100d
+            : 1 - DamageModel.Capped(variety is null ? 0 : Monsters.BaseResistance(variety, totem.Level, type) ?? 0) / 100d));
         long damage = Math.Max(0, (long)Math.Round(resisted.AverageTotal * .2));
         uint before = totem.Life;
         totem.Life = (uint)Math.Max(0, before - damage);
         RecoupTotemHitLocked(player, (uint)Math.Min(uint.MaxValue, damage), clock);
+        if (attacker.Hostile && totem.Life > 0 && FlamewoodTotems.TryGetValue(totem, out var flamewood))
+        {
+            if (attackerId == 0)
+                attackerId = player.Area.Monsters.FirstOrDefault(entry => ReferenceEquals(entry.Value, attacker)).Key;
+            TriggerFlamewoodLocked(player, totem, flamewood, attackerId, attacker, Math.Max(now, clock));
+        }
         if (totem.Life == 0)
         {
             totem.DiedAt = clock;

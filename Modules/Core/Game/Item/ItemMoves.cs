@@ -89,6 +89,8 @@ public static class ItemMoves
             if (tab < 0 || tab >= stash.Count) { reason = "no such tab"; return null; }
             if (items.RowOf(itemId) is not byte from || items.Items(from).FirstOrDefault(i => i.Id == itemId) is not { } item)
             { reason = "the item is not in the inventories"; return null; }
+            if (from == PlayerInventories.MercenaryTemporary) { reason = "temporary mercenary gear is locked"; return null; }
+            if (item.Item.MercenaryLocked) { reason = "locked mercenary gear cannot be removed"; return null; }
             if (shapeOf(item.Item) is not { } shape) { reason = "unknown item type"; return null; }
             tab = stash.UniqueDestination(tab, item.Item);
             if (tab < 0) { reason = "the item has no collection slot"; return null; }
@@ -110,6 +112,48 @@ public static class ItemMoves
                 throw new InvalidOperationException($"stash tab {tab} refused item {itemId} at its free cell: {reason}");   // CellFor said it fits
             stash.SetLastTab(tab);
             return new Transfer(from, itemId, null, tab, [], [placed], [], []);
+        });
+        why = result is null && reason == "" ? "refused" : reason;
+        return result;
+    }
+
+    /// <summary>
+    /// Lists an item from <paramref name="sourceRow"/> into a shown merchant <paramref name="tab"/> with
+    /// <paramref name="note"/> in one transaction (C→S 0x01a2): the source inventory item is never mutated on refusal,
+    /// and any unmoved stack remainder keeps its original note.
+    /// </summary>
+    public static Transfer? ListInMerchantTab(AccountStash stash, PlayerInventories items, int tab, byte sourceRow,
+        uint itemId, string? note, Func<Item, PlayerInventories.Shape?> shapeOf, out string why)
+    {
+        string? normalized = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (normalized is { Length: > 250 }) normalized = normalized[..250];
+        string reason = "";
+        var result = Saves.Atomically(() =>
+        {
+            if (!stash.IsShownTab(tab) || stash.TabType(tab) != StashRules.Trade)
+            { reason = "no merchant tab"; return null; }
+            if (items.RowOf(itemId) != sourceRow || items.Items(sourceRow).FirstOrDefault(i => i.Id == itemId) is not { } item)
+            { reason = "not in the inventory"; return null; }
+            if (sourceRow == PlayerInventories.MercenaryTemporary) { reason = "temporary mercenary gear is locked"; return null; }
+            if (item.Item.MercenaryLocked) { reason = "locked mercenary gear cannot be removed"; return null; }
+            if (shapeOf(item.Item) is not { } shape) { reason = "unknown item type"; return null; }
+            if (!stash.Holds(tab, item.Item)) { reason = $"the {stash.TypeOf(tab)} tab doesn't hold that item"; return null; }
+            var listed = item.Item with { Note = normalized };
+            if (shape.MaxStack > 1 || listed.Components.Contains("Stack"))
+            {
+                if (stash.AddStacked(tab, listed, shapeOf, out reason) is not { } stacked) return null;
+                if (stacked.Left == listed.StackSize) { reason = "the tab is full"; return null; }
+                var left = stacked.Left == 0 ? null : items.SetStackSize(sourceRow, itemId, stacked.Left);
+                if (stacked.Left == 0) items.Remove(sourceRow, itemId);
+                stash.SetLastTab(tab);
+                return new Transfer(sourceRow, itemId, left, tab, stacked.Changed, stacked.Added, [], []);
+            }
+            if (stash.CellFor(tab, listed, shapeOf) is not { } cell) { reason = "the tab is full"; return null; }
+            var removed = items.Remove(sourceRow, itemId)!;
+            if (stash.Place(tab, cell.X, cell.Y, removed with { Item = listed }, shapeOf, out reason) is not var (placed, _))
+                throw new InvalidOperationException($"stash tab {tab} refused item {itemId} at its free cell: {reason}");
+            stash.SetLastTab(tab);
+            return new Transfer(sourceRow, itemId, null, tab, [], [placed], [], []);
         });
         why = result is null && reason == "" ? "refused" : reason;
         return result;
@@ -190,6 +234,33 @@ public static class ItemMoves
         if (items.FreeCell(to, shape.Width, shape.Height, shapeOf) is not { } cell
             || items.Remove(from, itemId) is not { } outItem) return null;
         return new(from, to, items.Put(to, outItem with { X = cell.X, Y = cell.Y }));
+    });
+
+    /// <summary>Result of a mercenary Ctrl+click quick-move (C→S 0x010c): <see cref="Placed"/> moved from
+    /// <see cref="From"/> to <see cref="To"/>, and if an unlocked slot item was swapped out it moved to <see cref="SwappedToRow"/>
+    /// as <see cref="SwappedOut"/>. If a locked rolled item was replaced in-place, it was discarded and its id is <see cref="DestroyedId"/>.</summary>
+    public sealed record MercenaryMove(byte From, byte To, InventoryItem Placed, InventoryItem? SwappedOut = null,
+        byte SwappedToRow = 0, uint? DestroyedId = null);
+
+    /// <summary>Quick-moves an equipment item between carried inventory (main/expanded) and a permanent mercenary row
+    /// (rows 95..97, C→S 0x010c). <paramref name="target"/> accepts either roster key 0..3 or <c>Inventories._row</c>
+    /// 95..97/107.</summary>
+    public static MercenaryMove? MoveMercenaryEquipment(PlayerInventories items, byte target, uint itemId,
+        bool toMercenary, bool fromExpanded, bool expandedAllowed, Func<Item, PlayerInventories.Shape?> shapeOf,
+        Func<byte, Item, bool>? canEquip = null) => Saves.Atomically<MercenaryMove?>(() =>
+    {
+        if (PlayerInventories.MercenaryRowForTarget(target) is not byte mercRow
+            || !PlayerInventories.IsPermanentMercenaryRow(mercRow)) return null;
+        if (toMercenary)
+        {
+            return items.QuickMoveToMercenary(mercRow, itemId, fromExpanded, expandedAllowed, shapeOf, canEquip)
+                is var (fromRow, placed, swapped, swappedToRow, destroyedId)
+                ? new MercenaryMove(fromRow, mercRow, placed, swapped, swappedToRow, destroyedId)
+                : null;
+        }
+        return items.QuickMoveFromMercenary(mercRow, itemId, expandedAllowed, shapeOf) is var (toRow, moved)
+            ? new MercenaryMove(mercRow, toRow, moved)
+            : null;
     });
 
     /// <summary>A price paid: what it took from the main inventory's stacks and from the stash's (either may be null).</summary>
@@ -351,7 +422,7 @@ public static class ItemMoves
     /// no room. The item's current inventory wins if the packet's direction flag disagrees.
     /// </summary>
     public static BenchMove? MoveToMapDevice(PlayerInventories items, uint itemId,
-        Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically<BenchMove?>(() =>
+        Func<Item, PlayerInventories.Shape?> shapeOf, Player? player = null) => Saves.Atomically<BenchMove?>(() =>
     {
         byte main = Main, device = PlayerInventories.MapDevice;
         byte from;
@@ -361,7 +432,7 @@ public static class ItemMoves
         else return null;
         byte to = from == main ? device : main;
         if (shapeOf(item.Item) is not { } shape) return null;
-        if (to == device && !MapDevice.AcceptsItem(item.Item.TypeHash, shape.Class)) return null;
+        if (to == device && !MapDevice.AcceptsItem(item.Item.TypeHash, shape.Class, player)) return null;
         if (items.FreeCell(to, shape.Width, shape.Height, shapeOf) is not { } cell
             || items.Remove(from, itemId) is not { } taken) return null;
         return new(from, to, items.Put(to, taken with { X = cell.X, Y = cell.Y }));
@@ -416,11 +487,20 @@ public static class ItemMoves
     {
         var targets = items.Items(row);
         if (targets.Count != 1 || craftIt(targets[0].Item) is not { } craft) return null;
+        var totals = new Dictionary<uint, long>();
         foreach (var (currency, amount) in craft.Costs)
-            if (amount < 0 || (long)items.Count(Main, currency) + stash.CountOf(currency) < amount) return null;
+        {
+            if (amount < 0) return null;
+            if (amount == 0) continue;
+            long sum = totals.GetValueOrDefault(currency) + amount;
+            if (sum > int.MaxValue) return null;
+            totals[currency] = sum;
+        }
+        foreach (var (currency, amount) in totals)
+            if ((long)items.Count(Main, currency) + stash.CountOf(currency) < amount) return null;
         var payments = new List<Price>();
-        foreach (var (currency, amount) in craft.Costs)
-            if (amount > 0) payments.Add(Pay(items, stash, currency, amount)
+        foreach (var (currency, amount) in totals)
+            payments.Add(Pay(items, stash, currency, (int)amount)
                 ?? throw new InvalidOperationException("Craft payment changed after validation"));
         var changed = items.Change(row, targets[0].Id, _ => craft.Item)
             ?? throw new InvalidOperationException("Crafted item disappeared after payment");

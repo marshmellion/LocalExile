@@ -260,7 +260,7 @@ public partial class Program
                 var rules = GameEvents.AreaRulesets(player);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(player)),
-                    TerrainData: terrainData,
+                    TerrainData: terrainData, B20: UnownedHideout(player, areaHash) ? AreaInstance.UnownedHideoutKind : (byte)0,
                     AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory,
                     ReturnAreaHash: player.ReturnAreaHash,
                     DisplayStats: preparedArea.AreaDisplayStats, Rulesets: rules.Rows, PreloadGroups: rules.PreloadGroups);
@@ -419,6 +419,7 @@ public partial class Program
                 if (saved && prepared && !left.TransferAccepted) await GameEvents.RunCharacterAtRest(left);
                 if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
                 ForgetCommands(left);
+                Client.Release(left);
                 Instances.Leave(left.Instance);
                 CharacterBuildImports.Release(left);
             }
@@ -804,23 +805,32 @@ public partial class Program
 
     // The wire itself: the keystream must be applied and written in one order, so encryption and the write share this
     // short gate. Send's gate orders the packets and runs their state callbacks; it never holds this one while waiting.
+    // Encrypts into a pooled copy so caller buffers (shared broadcasts, retries) are never mutated in place.
     public static async Task Write(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes)
     {
-        if (HasNoWire(ciphers)) return;
+        if (HasNoWire(ciphers) || bytes.Length == 0) return;
         var wire = WireGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
         var performance = MetricsFor(ciphers);
         long waitingAt = Stopwatch.GetTimestamp();
         await wire.WaitAsync().ConfigureAwait(false);
         performance.Elapsed(LatencyPhase.WireWait, waitingAt);
         long heldAt = Stopwatch.GetTimestamp();
+        byte[]? rented = null;
         try
         {
-            ciphers.Send.Process(bytes);
+            rented = System.Buffers.ArrayPool<byte>.Shared.Rent(bytes.Length);
+            Buffer.BlockCopy(bytes, 0, rented, 0, bytes.Length);
+            ciphers.Send.Process(rented.AsSpan(0, bytes.Length));
             long writeAt = Stopwatch.GetTimestamp();
-            try { await stream.WriteAsync(bytes).ConfigureAwait(false); }
+            try { await stream.WriteAsync(rented.AsMemory(0, bytes.Length)).ConfigureAwait(false); }
             finally { performance.Elapsed(LatencyPhase.SocketWrite, writeAt); }
         }
-        finally { wire.Release(); performance.Elapsed(LatencyPhase.WireHold, heldAt); }
+        finally
+        {
+            if (rented is not null) System.Buffers.ArrayPool<byte>.Shared.Return(rented);
+            wire.Release();
+            performance.Elapsed(LatencyPhase.WireHold, heldAt);
+        }
     }
 
     /// <summary>The client sent both Predictive-only and Lockstep-only messages in this area (ClientPackets), which one
@@ -841,6 +851,28 @@ public partial class Program
     public static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
     /// <summary>A reply written at once, outside the send gate's order (the lockstep probe's AFK request).</summary>
     public static Task SendPong(Player player, byte[] bytes) => Write(player.Connection.Session.Stream, player.Connection.Session.Ciphers, bytes);
+
+    /// <summary>A hideout instance that belongs to someone else (a visit: <see cref="Player.InstanceOwner"/>): its 0x1d carries
+    /// <see cref="AreaInstance.UnownedHideoutKind"/>, so the client shows its own "Leave Hideout" button.</summary>
+    static bool UnownedHideout(Player player, ushort areaHash)
+    {
+        if (HideoutCatalog.ByArea(areaHash) is null || player.InstanceOwner is not { Length: > 0 } owner) return false;
+        if (string.Equals(owner, CharacterName(player), StringComparison.OrdinalIgnoreCase)) return false;
+        if (player.Character.Account is { Length: > 0 } account)
+        {
+            if (string.Equals(owner, account, StringComparison.OrdinalIgnoreCase)) return false;
+            // InstanceOwner is a character name (InstanceDirectory), so another character on the same account owns
+            // the same account hideout (matching HideoutEditing.OwnHideout / AccountHideout.HideoutAccount).
+            if (Saves.IsOpen)
+            {
+                var store = new SqliteAccountStore(Saves.Db);
+                if (store.FindCharacter(owner) is { } ownerChar
+                    && string.Equals(store.GetAccount(ownerChar.AccountId)?.Name, account, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+        }
+        return true;
+    }
 
     // Composes every AreaHeader subscriber so an AchievementSets-only contributor cannot shadow a later module's
     // Terrain or Level override (e.g. Delve mine terrain or Simulacrum wave level).

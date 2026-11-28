@@ -15,6 +15,84 @@ namespace GameServer.Gateway.Tests;
 public class DeliriumHeistTests
 {
     [Fact]
+    public void Delirium_scarab_inputs_and_generated_maps_keep_provenance_and_prepare_once()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        DeliriumModule.LoadData();
+        MapScarabContent.LoadGameData();
+        var runs = MapRunCatalog.Load("data");
+        var beach = AreaTransitionCatalog.HashOf("MapWorldsBeach")!.Value;
+        var area = new MapDevice.MapArea(beach, "MapWorldsBeach", "Beach", 3);
+        for (int n = 1; n <= 5; n++)
+        {
+            var type = Program.Items.Find($"Metadata/Items/Scarabs/ScarabDelirium{n}")!;
+            var slot = new MapDevice.Slot(type.Hash, type.Class, type.Name, type.Row, [], 0) { BaseId = type.Id };
+            var request = new MapOpening(fixture.Player, [slot], false, new(area, runs.Of([slot], Program.Items.Mods)), "");
+            MapScarabContent.Describe(request);
+            Assert.Contains(type.Id, Assert.Single(request.UnhandledContent));
+            DeliriumScarabs.Opening(request);
+            Assert.Empty(request.UnhandledContent);
+            Assert.NotNull(request.Opening);
+        }
+        Assert.True(DeliriumScarabs.Eligible(beach, new Dictionary<uint, int> { [Stat.MapDisableLeagues] = 1 }));
+        Assert.False(DeliriumScarabs.Eligible(beach, new Dictionary<uint, int> { [Stat.MapDisableLeagues] = 1 << LeagueChances.Delirium }));
+        Assert.Equal(60, DeliriumScarabs.MonsterDepth(40, 50));
+        Assert.Equal(100, DeliriumScarabs.MonsterDepth(80, 50));
+        var normal = new DeliriumMirrorEncounter.MirrorState { Stage = DeliriumMirrorEncounter.MirrorStage.Active, Rewards = [0] };
+        var mania = new DeliriumMirrorEncounter.MirrorState { Stage = DeliriumMirrorEncounter.MirrorStage.Active, Rewards = [0] };
+        normal.RecordKill(MonsterRarity.Rare, 0);
+        mania.RecordKill(MonsterRarity.Rare, 0, 100);
+        Assert.Equal(2 * normal.KillPoints, mania.KillPoints);
+
+        var map = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Maps/MapKeyTier3")!);
+        var rng = new Random(505);
+        for (int i = 0; i < 25; i++)
+        {
+            var enchanted = DeliriumScarabs.Enchant(map, Program.Items, 100, rng);
+            var layers = Assert.Single(enchanted.Mods, m => Program.Items.Mods.ByHash(m.Hash)?.Id == "AfflictionMapDeliriumStacks");
+            Assert.InRange(layers.Values[0], 20, 100);
+            Assert.Equal(0, layers.Values[0] % 20);
+            Assert.Equal(layers.Values[0] / 20 + 1, enchanted.Mods.Count);
+            Assert.All(enchanted.Mods, m => Assert.Single(m.Values));
+            Assert.Same(enchanted, DeliriumScarabs.Enchant(enchanted, Program.Items, 100, rng));
+            Assert.NotEmpty(enchanted.Payload());
+        }
+        Assert.Same(map, DeliriumScarabs.Enchant(map, Program.Items, 0, rng));
+        var unique = map with { Rarity = ItemRarity.Unique };
+        Assert.Same(unique, DeliriumScarabs.Enchant(unique, Program.Items, 100, rng));
+        int calls = 0;
+        using var hook = GameEvents.GroundItemPreparing.Add("Game", (_, item) =>
+        {
+            calls++;
+            return DeliriumScarabs.Enchant(item, Program.Items, 100, rng);
+        });
+        var ground = new WorldItemObject(1, 1, map);
+        var store = fixture.Player.Instance.Ground;
+        uint id = store.Add(ground, fixture.Player);
+        Assert.Same(ground, store.Get(id));
+        Assert.NotEmpty(ground.Item.Mods);
+        store.Take(id);
+        store.Add(ground, fixture.Player);
+        var copy = new WorldItemObject(4, 1, map);
+        store.Add(copy, fixture.Player);
+        Assert.Same(ground.Item, copy.Item);
+        var dropped = new WorldItemObject(2, 1, map) { PlayerDropped = true };
+        store.Add(dropped, fixture.Player);
+        var restored = new WorldItemObject(3, 1, map);
+        store.Restore(123, restored, fixture.Player, true);
+        Assert.Same(map, dropped.Item);
+        Assert.Same(map, restored.Item);
+        Assert.Equal(1, calls);
+        var value = new WorldItemObject(9, 9, map);
+        var equivalent = value with { };
+        int hash = value.GetHashCode(), attempts = 0;
+        Parallel.For(0, 32, _ => value.Prepare(item => { Interlocked.Increment(ref attempts); return item; }));
+        Assert.Equal(1, attempts);
+        Assert.Equal(equivalent, value);
+        Assert.Equal(hash, value.GetHashCode());
+    }
+
+    [Fact]
     public void Delirium_mirror_ruleset_encoding_progress_and_fog_math()
     {
         AfflictionRuleset.LoadGameData();
@@ -37,7 +115,7 @@ public class DeliriumHeistTests
         Assert.Null(DeliriumMirrorEncounter.PlanTerrain(beach with
             { AreaStats = new Dictionary<uint, int> { [Stat.MapDisableDeliriumFromChance] = 1 } }));
         Assert.Null(DeliriumMirrorEncounter.PlanTerrain(beach with
-            { AreaStats = new Dictionary<uint, int> { [Stat.MapAfflictionLeague] = 1, [Stat.MapDisableLeagues] = 1 } }));
+            { AreaStats = new Dictionary<uint, int> { [Stat.MapAfflictionLeague] = 1, [Stat.MapDisableLeagues] = 1 << LeagueChances.Delirium } }));
 
         var islands = new AreaLayout(beach.Area, "MapWorldsBeach", 138, 69, 20, 24,
             (x, y) => x >= 0 && x < 138 && y >= 0 && y < 69 && (x < 30 || x > 75), []);
@@ -135,6 +213,14 @@ public class DeliriumHeistTests
         Assert.True(state.RewardCounts[0] >= 3);
         Assert.True(state.Rewards.Length >= 2);
         Assert.True(state.Splinters > 0);
+
+        // Tile 25 (Delirium) includes Cluster Jewels plus active Kalguuran (Perandus) and Challenging (Metamorphosis)
+        // Delirium Orbs, and excludes retired Harbinger/Prophecies/HardMode orbs.
+        var noGems = new HashSet<int>();
+        Assert.Contains(Program.Items.All, t => t.Cluster is not null && DeliriumModule.Eligible(25, t, noGems));
+        Assert.True(DeliriumModule.Eligible(25, Program.Items.Find("Metadata/Items/Currency/CurrencyAfflictionOrbPerandus")!, noGems));
+        Assert.True(DeliriumModule.Eligible(25, Program.Items.Find("Metadata/Items/Currency/CurrencyAfflictionOrbMetamorphosis")!, noGems));
+        Assert.False(DeliriumModule.Eligible(25, Program.Items.Find("Metadata/Items/Currency/CurrencyAfflictionOrbHarbinger")!, noGems));
     }
 
     [Fact]
@@ -187,6 +273,81 @@ public class DeliriumHeistTests
     }
 
     [Fact]
+    public async Task Heist_locker_0x00fc_quick_moves_and_0x002a_enforces_layout_regions()
+    {
+        Assert.Equal(8, ClientPackets.Find(InstanceHeist.LockerMoveId)?.FixedLength);
+        var decoded = InstanceHeist.ReadLockerMove([0x00, 0xfc, 0x00, 0x00, 0x00, 0x2a, 0x01, 0x01]);
+        Assert.Equal(new InstanceItems.LeagueWindowMove(42u, FromExpanded: true, Into: true), decoded);
+
+        using var host = new ModHost("Modules", _ => { }, modules: true) { Wanted = () => new HashSet<string>(["Game", "Heist"]) };
+        host.Start(watch: false);
+        Assert.True(GameEvents.WantsPacket(InstanceHeist.LockerMoveId));
+
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        player.LeagueModule = new(new League("heist-locker", "Standard", false, false), new HashSet<string>(["Game", "Heist"]));
+        var sent = new List<byte[]>();
+        player.Connection.Outbox = (bytes, _) => { sent.Add(bytes); return Task.CompletedTask; };
+        var items = Game.ItemsOf(player);
+        const byte lockerRow = 56;
+        uint lockerInvId = PlayerInventories.InventoryId(lockerRow);
+
+        var bpItem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Heist/HeistBlueprintMines")!);
+        var bp = items.Add(PlayerInventories.MainInventory, 0, 0, bpItem);
+        byte[] IntoPkt(uint id, bool expanded = false, bool into = true)
+        {
+            byte[] p = [0x00, 0xfc, 0, 0, 0, 0, (byte)(expanded ? 1 : 0), (byte)(into ? 1 : 0)];
+            BinaryPrimitives.WriteUInt32BigEndian(p.AsSpan(2, 4), id);
+            return p;
+        }
+
+        // Closed locker refuses 0x00fc without moving.
+        Assert.True(await GameEvents.AnyPacket(player, InstanceHeist.LockerMoveId, IntoPkt(bp.Id)));
+        Assert.Single(items.Items(PlayerInventories.MainInventory), i => i.Id == bp.Id);
+        Assert.Empty(items.Items(lockerRow));
+        Assert.Empty(sent);
+
+        // Open locker: BlueprintMines lands in its HeistStorageLayout region (11, 6, 11, 6) and emits a 0x00bf pair.
+        player.ModuleWindow = "heist";
+        Assert.True(await GameEvents.AnyPacket(player, InstanceHeist.LockerMoveId, IntoPkt(bp.Id)));
+        Assert.DoesNotContain(items.Items(PlayerInventories.MainInventory), i => i.Id == bp.Id);
+        var storedBp = Assert.Single(items.Items(lockerRow));
+        Assert.Equal((bp.Id, (byte)11, (byte)6), (storedBp.Id, storedBp.X, storedBp.Y));
+        Assert.Equal(2, sent.Count);
+        Assert.All(sent, pkt => Assert.Equal(InstanceItems.InventoryChangeId, BinaryPrimitives.ReadUInt16BigEndian(pkt)));
+        sent.Clear();
+
+        // Rogue's Markers stack onto an existing stack inside region (99, 0, 7, 3) first.
+        var coinType = Program.Items.Find("Metadata/Items/Heist/HeistCoin")!;
+        var existingCoins = items.Add(lockerRow, 99, 0, ItemCatalog.Create(coinType) with { StackSize = 50 });
+        var bagCoins = items.Add(PlayerInventories.MainInventory, 0, 0, ItemCatalog.Create(coinType) with { StackSize = 25 });
+        Assert.True(await GameEvents.AnyPacket(player, InstanceHeist.LockerMoveId, IntoPkt(bagCoins.Id)));
+        Assert.DoesNotContain(items.Items(PlayerInventories.MainInventory), i => i.Id == bagCoins.Id);
+        var merged = Assert.Single(items.Items(lockerRow), i => i.Id == existingCoins.Id);
+        Assert.Equal((ushort)75, merged.Item.StackSize);
+        Assert.Equal(2, sent.Count);
+
+        // Ctrl+click out of the locker returns the blueprint to MainInventory.
+        Assert.True(await GameEvents.AnyPacket(player, InstanceHeist.LockerMoveId, IntoPkt(storedBp.Id, into: false)));
+        Assert.Single(items.Items(PlayerInventories.MainInventory), i => i.Id == bp.Id);
+        Assert.DoesNotContain(items.Items(lockerRow), i => i.Id == bp.Id);
+
+        // Manual 0x002a drops enforce HeistStorageLayout regions, guard uint overflow, and reject non-Heist items.
+        items.Add(PlayerInventories.Cursor, 0, 0, bpItem);
+        Assert.True(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, 0, 0, 0, 0, 0, 0)));
+        Assert.True(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, 22, 6, 0, 0, 0, 0)));
+        Assert.True(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, int.MaxValue, 6, 0, 0, 0, 0)));
+        Assert.True(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, uint.MaxValue, 6, 0, 0, 0, 0)));
+        Assert.False(await GameEvents.AnyInventoryPlace(player, new InstanceItems.PlaceItem(lockerInvId, 11, 6, 0, 0, 0, 0)));
+        Assert.Null(GameEvents.FirstInventoryRefusal(player, lockerRow, bpItem));
+
+        var scroll = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyIdentification")!);
+        var questContract = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Heist/QuestContracts/HeistContractTutorial")!);
+        Assert.NotNull(GameEvents.FirstInventoryRefusal(player, lockerRow, scroll));
+        Assert.NotNull(GameEvents.FirstInventoryRefusal(player, lockerRow, questContract));
+    }
+
+    [Fact]
     public async Task Delirium_mirror_coop_broadcasts_encrypt_independently_per_peer_and_keep_last_tiles_plaintext()
     {
         using var fixture = new TriggeredSummonTests.Fixture();
@@ -199,7 +360,12 @@ public class DeliriumHeistTests
         var beachStats = new AreaStatsRequest("Exile", "Standard", beachHash, null)
         {
             Seed = 314159,
-            AreaStats = new Dictionary<uint, int> { [Stat.MapAfflictionLeague] = 1 },
+            AreaStats = new Dictionary<uint, int>
+            {
+                [Stat.MapAfflictionLeague] = 1, [Stat.MapAfflictionEncounterRewardTypesPlus] = 2,
+                [Stat.MapAfflictionContainsBosses] = 1,
+                [Stat.MapAfflictionPctChanceAdditionalRewardOnAfflictionUniqueMonsterKilled] = 100,
+            },
         };
         var terrain = Assert.Single(DeliriumMirrorEncounter.PlanTerrain(beachStats)!);
         var layout = new AreaLayout(beachHash, "MapWorldsBeach", 138, 69, 20, 24, (_, _) => true, []);
@@ -248,6 +414,12 @@ public class DeliriumHeistTests
         {
             Assert.NotEmpty(encounter.BeforeEnterMessages(peer1.Player));
             Assert.NotEmpty(encounter.BeforeEnterMessages(peer2.Player));
+            Assert.Equal(["IsMapOwner"], encounter.QuestFlags(peer1.Player));
+            Assert.Contains(2020, Game.PlayerQuestFlags(peer1.Player));
+            var fragmentRewards = DeliriumModule.RollMirrorRewards(peer1.Player, 84,
+                Enumerable.Repeat(13, 80).ToArray(), Enumerable.Repeat(1, 80).ToArray(), 0);
+            Assert.NotEmpty(fragmentRewards);
+            Assert.All(fragmentRewards, item => Assert.True(Program.Items.Stash.Holds(StashRules.Fragment, item.TypeHash)));
             var state = encounter.For(peer1.Player);
 
             // Walk peer1 onto the mirror so OnTick activates it and broadcasts fog, ruleset snapshot, and animation.
@@ -255,6 +427,67 @@ public class DeliriumHeistTests
             peer2.Player.Walk.Place(state.MirrorX, state.MirrorY, Game.AreaTime(peer2.Player));
             await encounter.OnTick(peer1.Player, 0.1);
             Assert.Equal(DeliriumMirrorEncounter.MirrorStage.Active, state.Stage);
+            Assert.Equal(3, state.Rewards.Length);
+            Assert.Equal(2, state.Bosses.Count);
+            // Two batches overlap while the first waits at a real connection's send gate.
+            var concurrent = new DeliriumMirrorEncounter.MirrorState { Stage = DeliriumMirrorEncounter.MirrorStage.Active, Level = 70 };
+            var spawn = typeof(DeliriumMirrorEncounter).GetMethod("SpawnPack", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            var sendGate = Program.SendGates.GetValue(peer1.Player.Connection.Session.Ciphers, _ => new SemaphoreSlim(1, 1));
+            await sendGate.WaitAsync();
+            Task batch1, batch2;
+            try
+            {
+                batch1 = (Task)spawn.Invoke(encounter, [peer1.Player, concurrent])!;
+                Assert.False(batch1.IsCompleted);
+                batch2 = (Task)spawn.Invoke(encounter, [peer1.Player, concurrent])!;
+            }
+            finally { sendGate.Release(); }
+            await Task.WhenAll(batch1, batch2);
+            Assert.Equal(5, concurrent.Spawned);
+            Assert.Equal(new[] { SimulacrumRules.Kosis, SimulacrumRules.Omniphobia }.Order(), concurrent.Bosses.Values.Order());
+            foreach (uint id in concurrent.Monsters)
+            {
+                peer1.Player.Area.Monsters.Remove(id);
+                instance.World.MonsterOrigins.TryRemove(id, out _);
+            }
+            foreach (uint id in state.Bosses.Keys)
+            {
+                var boss = peer1.Player.Area.Monsters[id];
+                Assert.Equal(MonsterRarity.Unique, boss.Rarity);
+                // Solo reentry restores a surviving body under a different world id.
+                peer1.Player.Area.Monsters.Remove(id);
+                instance.World.MonsterOrigins.TryRemove(id, out _);
+                uint rebound = await Game.RestoreMonster(peer1.Player, boss.Variety!,
+                    new(boss.Variety!.Row, boss.Level, boss.Rarity, true, layout.SpawnX + 10, layout.SpawnY + 10, boss.Life) { Mods = boss.Mods });
+                Assert.NotEqual(id, rebound);
+                var kill = new KillContext(peer1.Player, peer1.Player.Area.Monsters[rebound], state.Bosses[id], (layout.SpawnX, layout.SpawnY));
+                encounter.OnKill(kill);
+                int after = state.KillPoints;
+                encounter.OnKill(kill);
+                Assert.Equal(after, state.KillPoints);
+            }
+            Assert.Equal(5, state.Rewards.Length);
+            Assert.Equal(5, state.Rewards.Distinct().Count());
+            var resumedEncounter = new DeliriumMirrorEncounter();
+            resumedEncounter.Attach(context);
+            Assert.NotEmpty(resumedEncounter.BeforeEnterMessages(peer2.Player));
+            Assert.Equal(2, resumedEncounter.For(peer2.Player).RewardedBosses.Count);
+            Assert.Equal(2, resumedEncounter.For(peer2.Player).RewardedBossVarieties.Count);
+            Assert.Equal(2, resumedEncounter.For(peer2.Player).SpawnedBosses.Count);
+
+            // An active league encounter pauses the fog timer and marks FogPaused while engaged.
+            bool pausedLeague = true;
+            using (Game.RegisterDeliriumPauseSource(_ => pausedLeague))
+            {
+                float pausedElapsed = state.OuterElapsed;
+                await encounter.OnTick(peer1.Player, 2.0);
+                Assert.Equal(pausedElapsed, state.OuterElapsed);
+                Assert.True(state.FogPaused);
+                pausedLeague = false;
+                await encounter.OnTick(peer1.Player, 1.0);
+                Assert.True(state.OuterElapsed > pausedElapsed);
+                Assert.False(state.FogPaused);
+            }
 
             // Dirty reward tiles past 3 and push OuterElapsed past trailing clear so both peers leave fog and receive 0x02c9 + 0x0163.
             for (int i = 0; i < 80; i++) state.RecordKill(MonsterRarity.Unique, progressBonusPct: 0);
@@ -307,6 +540,168 @@ public class DeliriumHeistTests
             peer2.Reader.Dispose();
             peer1.Listener.Stop();
             peer2.Listener.Stop();
+        }
+    }
+
+    static async Task<(DeliriumMirrorEncounter Encounter, InstanceState Instance, Player Player, TcpListener Listener, TcpClient Writer, TcpClient Reader, MemoryStream Capture, Task Drain, byte[] Key, MirrorTestContext Context)>
+        OpenDeliriumPlayer(string namePrefix, uint seed, byte keyFill, uint life)
+    {
+        AfflictionRuleset.LoadGameData();
+        var context = new MirrorTestContext();
+        var encounter = new DeliriumMirrorEncounter();
+        encounter.Attach(context);
+
+        var beachHash = AreaTransitionCatalog.HashOf("MapWorldsBeach")!.Value;
+        var beachStats = new AreaStatsRequest("Exile", "Standard", beachHash, null)
+        {
+            Seed = seed,
+            AreaStats = new Dictionary<uint, int> { [Stat.MapAfflictionLeague] = 1 },
+        };
+        var terrain = Assert.Single(DeliriumMirrorEncounter.PlanTerrain(beachStats)!);
+        var layout = new AreaLayout(beachHash, "MapWorldsBeach", 138, 69, 20, 24, (_, _) => true, []);
+        var instance = new InstanceState();
+        instance.TerrainPluginStates(() => [terrain]);
+        instance.AreaStats(() => beachStats.AreaStats!);
+        var league = new LeagueRuntime(new League(namePrefix, "Standard", false, false),
+            new HashSet<string>(["Game", "Delirium"]));
+
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var accept = listener.AcceptTcpClientAsync();
+        var writer = new TcpClient();
+        await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+        var reader = await accept;
+        var capture = new MemoryStream();
+        var drain = reader.GetStream().CopyToAsync(capture);
+        var key = Enumerable.Repeat(keyFill, 64).ToArray();
+        var player = new Player(layout, 1, seed)
+        {
+            Instance = instance,
+            PlayerLife = life,
+            LeagueModule = league,
+            Character = { Name = $"{namePrefix}-{Guid.NewGuid():N}", Experience = CharacterStats.ExperienceFor(90) },
+            Pools = new(90, life, life, 2, 0),
+            Connection =
+            {
+                LockstepClient = false,
+                PlayerSent = true,
+                Session = new(namePrefix, writer.GetStream(), new ConnectionCiphers(key, false)),
+            },
+        };
+        player.Connection.Outbox = (bytes, log) => Program.Send(player, bytes, log);
+        player.Clock.Start();
+        instance.AddPlayer(player);
+        Program.InGame[player] = 0;
+        return (encounter, instance, player, listener, writer, reader, capture, drain, key, context);
+    }
+
+    [Fact]
+    public async Task Delirium_environments_pause_and_volatile_pods_work_together()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var peer = await OpenDeliriumPlayer("DeliriumEnv", 424242, 0x33, 2000);
+        using var context = peer.Context;
+        var (encounter, instance, player, listener, writer, reader, capture, drain, key, _) = peer;
+
+        try
+        {
+            Assert.NotEmpty(encounter.BeforeEnterMessages(player));
+            var state = encounter.For(player);
+            player.Walk.Place(state.MirrorX, state.MirrorY, Game.AreaTime(player));
+            await encounter.OnTick(player, 0.1);
+            Assert.Equal(DeliriumMirrorEncounter.MirrorStage.Active, state.Stage);
+
+            ushort fogRow = AfflictionRuleset.FogEnvironmentRow!.Value;
+            const ushort breachRow = 1187;
+            const ushort ritualRow = 1279;
+
+            // Breach opening/closing and Ritual starting/ending must never drop Delirium's 1193 layer.
+            await AreaEnvironments.Set(player, "breach", breachRow, 2f);
+            Assert.Equal(InstanceEnvironments.Data((fogRow, 2f), (breachRow, 2f)), AreaEnvironments.BuildPacket(player));
+
+            await AreaEnvironments.Clear(player, "breach");
+            Assert.Equal(InstanceEnvironments.Data((fogRow, 2f)), AreaEnvironments.BuildPacket(player));
+
+            await AreaEnvironments.Set(player, "ritual", ritualRow, 0f);
+            Assert.Equal(InstanceEnvironments.Data((fogRow, 2f), (ritualRow, 0f)), AreaEnvironments.BuildPacket(player));
+
+            await AreaEnvironments.Clear(player, "ritual", -1e-7f);
+            Assert.Equal(InstanceEnvironments.Data((fogRow, 2f)), AreaEnvironments.BuildPacket(player));
+
+            // Fallback rows still transmit a fade-out if a layer was cleared by a hot-reload.
+            await AreaEnvironments.Clear(player, "ritual", -1e-7f, fallbackRows: [ritualRow]);
+            Assert.Equal(InstanceEnvironments.Data((fogRow, 2f)), AreaEnvironments.BuildPacket(player));
+
+            // Escape-menu pause emits EncounterPause(true) then EncounterPause(false) and keeps OuterElapsed frozen.
+            float elapsedBeforePause = state.OuterElapsed;
+            player.Clock.Stop();
+            await encounter.OnTick(player, 0.5);
+            Assert.True(state.FogPaused);
+            Assert.Equal(elapsedBeforePause, state.OuterElapsed);
+            player.Clock.Start();
+            await encounter.OnTick(player, 0.2);
+            Assert.False(state.FogPaused);
+            Assert.True(state.OuterElapsed > elapsedBeforePause);
+
+            // >255 fog regions compact without dropping a large distant corridor.
+            var manyRegions = new List<AfflictionRuleset.FogRegion>
+            {
+                new(0, 0, 20, 20, 10, 10, 0f),
+            };
+            for (int i = 1; i <= 270; i++)
+                manyRegions.Add(new(i * 4, 0, i * 4 + 1, 1, i * 4, 0, i));
+            manyRegions.Add(new(900, 900, 1200, 1200, 1000, 1000, 999f));
+            var compacted = AfflictionRuleset.CompactRegions(manyRegions);
+            Assert.Equal(byte.MaxValue, compacted.Count);
+            Assert.Contains(compacted, r => r.DistanceOffset == 999f);
+
+            // Volatile pod spawns visible, pops on proximity into chasing AfflictionVolatile cores, and detonates cleanly.
+            int podX = Math.Clamp(state.MirrorX + 4, 4, player.Layout.GridW - 5);
+            int podY = Math.Clamp(state.MirrorY, 4, player.Layout.GridH - 5);
+            double t0 = Game.AreaTime(player);
+            uint podId = await DeliriumVolatiles.SpawnPodAt(player, state, DeliriumVolatiles.BloodBagPodPaths[1], podX, podY, 68, t0);
+            Assert.NotEqual(0u, podId);
+            var sm = instance.World.MonsterOrigins[podId].Object.StateMachine!;
+            Assert.Equal(1, sm.SharedStates[sm.IndexOf("visible")]);
+
+            player.Walk.Place(podX + 1, podY, t0);
+            await DeliriumVolatiles.Tick(player, state, t0 + 0.05, 0.05f, activeLifetime: true);
+            var pod = Assert.Single(state.Volatiles.Pods);
+            Assert.True(pod.Popped);
+            Assert.NotEmpty(state.Volatiles.Cores);
+            var core = state.Volatiles.Cores[0];
+            Assert.Equal(24.0, core.Speed);
+            Assert.True(player.Area.Monsters.ContainsKey(core.Id));
+
+            uint lifeBefore = player.PlayerLife;
+            double detonateTime = t0 + DeliriumVolatiles.PodRemoveDelaySeconds + 0.1;
+            await DeliriumVolatiles.Tick(player, state, detonateTime, 0.1f, activeLifetime: true);
+            Assert.Empty(state.Volatiles.Cores);
+            Assert.Empty(state.Volatiles.Pods);
+            Assert.False(player.Area.Monsters.ContainsKey(core.Id));
+            Assert.False(instance.World.MonsterOrigins.ContainsKey(core.Id));
+            Assert.False(player.Area.Monsters.ContainsKey(podId));
+            Assert.True(player.PlayerLife < lifeBefore, $"Expected AfflictionVolatile detonation to damage player (before={lifeBefore}, after={player.PlayerLife})");
+
+            player.Closed = true;
+            writer.Dispose();
+            await drain;
+
+            byte[] wire = capture.ToArray();
+            new ConnectionCiphers(key, true).Receive.Process(wire);
+            byte[] emptyEnv = InstanceEnvironments.Data();
+            Assert.True(wire.AsSpan().IndexOf(emptyEnv) < 0, "0x00df must never clear Delirium fog while active");
+            Assert.True(wire.AsSpan().IndexOf(InstanceEnvironments.Data((fogRow, 2f), (ritualRow, -1e-7f))) >= 0);
+            Assert.True(wire.AsSpan().IndexOf(AfflictionRuleset.EncounterPause(0f, paused: true)!) >= 0);
+            Assert.True(wire.AsSpan().IndexOf(AfflictionRuleset.EncounterPause(0f, paused: false)!) >= 0);
+        }
+        finally
+        {
+            Program.InGame.TryRemove(player, out _);
+            player.Closed = true;
+            writer.Dispose();
+            reader.Dispose();
+            listener.Stop();
         }
     }
 

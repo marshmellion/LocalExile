@@ -260,7 +260,7 @@ public static partial class Game
                 ? Math.Max(0, GolemStat(playerStats, attribute)) / step : 0;
             value += (long)PerAttribute(Stat.Strength, Stat.NumberOfZombiesAllowedPlus1PerXStrength)
                 + PerAttribute(Stat.Intelligence, Stat.NumberOfZombiesAllowedPlus1PerXIntelligenceFromFoulbornBaron);
-            value = (long)Math.Clamp(value * (1 + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct) / 100d), 0, 200);
+            value = (long)Math.Clamp(value * Math.Max(0, 100L + GolemStat(playerStats, Stat.NumberOfZombiesAllowedPlusPct)) / 100, 0, 200);
         }
         if (definition.Family == "Skeleton")
             value += GolemStat(playerStats, Stat.NumberOfSkeletonsAllowedPer2Old) / 2;
@@ -352,8 +352,11 @@ public static partial class Game
         int Read(uint key) => key == SkillDurationModifiers.IncreasedDuration && familyDuration != 0
             ? ActorScale.Saturate((long)GolemStat(playerStats, key) + GolemStat(playerStats, familyDuration))
             : GolemStat(playerStats, key);
-        return SkillDurationModifiers.Seconds(ms, Read, n => GolemStat(gem.Stats, n),
+        double seconds = SkillDurationModifiers.Seconds(ms, Read, n => GolemStat(gem.Stats, n),
             DurationKinds(player, gem.Effect) | (secondary ? SkillDurationModifiers.Kinds.Secondary : 0));
+        if (definition.Family is "AnimatedWeapon" or "VaalAnimatedWeapon")
+            seconds *= Math.Max(0, 100d + GolemStat(playerStats, Stat.JorrhastsBlacksteelAnimateWeaponDurationPlusPctFinal)) / 100d;
+        return seconds;
     }
 
     static bool SummonNeedsCorpse(SummonCatalog.Definition definition, IReadOnlyDictionary<uint, int> playerStats) =>
@@ -405,6 +408,8 @@ public static partial class Game
                 Stat.NumberOfMageSkeletonsToSummon }.Sum(n => GolemStat(gem.Stats, n)));
         if (definition.Family == "RagingSpirit")
             return random.Next(100) < Math.Clamp(GolemStat(gem.Stats, Stat.SummonedRagingSpiritChanceToSpawnAdditionalMinionPct), 0, 100) ? 2 : 1;
+        if (definition.Family == "Hiveborn")
+            return Math.Max(1, GolemStat(gem.Stats, Stat.GraftSkillTulSummonNumberOfDemonsToSummon));
         return Math.Max(1, GolemStat(gem.Stats, Stat.NumberOfMonstersToSummon));
     }
 
@@ -433,7 +438,7 @@ public static partial class Game
                         GolemReserveLocked(player, reaper, ultimate, target, player.Area.Monsters.GetValueOrDefault(target), aim, AreaTime(player));
                         return true;
                     }
-                if (definition.Id is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY")
+                if (definition.Id is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY" or "BlinkArrowRoyale")
                 {
                     var origin = player.Walk.Position(AreaTime(player));
                     var landing = MovementLanding(player, gem.Effect, origin, aim);
@@ -453,13 +458,29 @@ public static partial class Game
                             () => current() && (clone == 0 || player.Summons.Fighters.ContainsKey(clone))) is null) return false;
                     released = true;
                 }
-                else if (await SummonFighterCore(player, source, definition, aim, target,
-                    current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse, plannedCorpse: plannedCorpse) != 0)
+                else
+                {
+                    uint summoned = await SummonFighterCore(player, source, definition, aim, target,
+                        current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse, plannedCorpse: plannedCorpse);
+                    if (summoned == 0) continue;
                     released = true;
+                    if (definition.Family == "AnimatedWeapon" && current()
+                        && player.Summons.Fighters.TryGetValue(summoned, out var original) && original.Equipment.Count > 0)
+                    {
+                        int copies = Math.Min(Math.Max(0, SummonLimit(player, definition, gem) - 1), Math.Max(0,
+                            PlayerStat(player, Stat.AnimateWeaponNumberOfAdditionalCopies)));
+                        if (copies == 0) continue;
+                        var copiedWeapon = new AnimatedSource(0, null, new(original.Equipment));
+                        for (int copy = 0; copy < copies && current(); copy++)
+                            if (await SummonFighterCore(player, source, definition, aim,
+                                current: current, triggered: triggered, playerConsumesCorpse: false, preparedEquipment: copiedWeapon) == 0)
+                                break;
+                    }
+                }
             }
             if (released) SaveSummons(player);
             return released;
-        });
+        }, firstReleaseDelay: !triggered && definition.Family == "Clone" ? CloneArrowLandingDelay(player, source) : null);
 
     public static Task<uint> SummonFighter(Player player,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,

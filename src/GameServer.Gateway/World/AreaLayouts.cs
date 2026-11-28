@@ -57,23 +57,37 @@ public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, in
 
     /// <summary>Where a player entering this area appears: the room's authored entrance point for
     /// <paramref name="cameFrom"/> when available, else next to the exit leading back to <paramref name="cameFrom"/>,
-    /// else the spawn (logins, Resurrect in Town, no exit back).</summary>
+    /// else an unslotted entrance fallback, else the spawn (logins, Resurrect in Town, no exit back).</summary>
     public (int X, int Y) Arrival(ushort? cameFrom, int? entrance = null)
     {
         if (cameFrom is not { } from) return (SpawnX, SpawnY);
         if (OneWayArrivals.TryGetValue((Hash, from), out var point)) return point;
-        if (EntranceFrom?.Invoke(from, entrance) is { } authored)
+        var authored = EntranceFrom?.Invoke(from, entrance);
+        if (authored is { NamedPoint: true } named)
         {
-            var pt = (authored.X, authored.Y);
+            var pt = (named.X, named.Y);
             bool onTransition = AreaTransitions.Any(t => t.Transition.DestinationHash16 == from && t.Transition.TeleportTo is null
                 && Math.Abs(t.Transition.GridX - pt.X) <= 4 && Math.Abs(t.Transition.GridY - pt.Y) <= 4);
-            if (authored.NamedPoint && !onTransition && (Walkable is null || Walkable(pt.X, pt.Y)))
+            if (!onTransition && (Walkable is null || Walkable(pt.X, pt.Y)))
                 return pt;
-            return Near(pt);
+            var near = Near(pt);
+            if (Walkable is null || Walkable(near.X, near.Y))
+                return near;
         }
         foreach (var (_, t) in AreaTransitions)
             if (t.DestinationHash16 == from && t.TeleportTo is null
-                && (entrance is null || t.Entrance == entrance)) return Near((t.GridX, t.GridY));
+                && (entrance is null || t.Entrance == entrance))
+            {
+                var near = Near((t.GridX, t.GridY));
+                if (Walkable is null || Walkable(near.X, near.Y))
+                    return near;
+            }
+        if (authored is { } fallback)
+        {
+            var near = Near((fallback.X, fallback.Y));
+            if (Walkable is null || Walkable(near.X, near.Y))
+                return near;
+        }
         return (SpawnX, SpawnY);
     }
 
@@ -162,7 +176,7 @@ public static class AreaLayouts
         // An area the port reproduces is generated here from the seed; any other needs the client's capture.
         if (ServerLevels.For(id, seed) is { } generated)
             return WithCells(hash, id, seed, generated.Walk, generated.Width, generated.Height,
-                SightOf(generated.Projectile, generated.Width, generated.Height), generated.Start) with
+                SightOf(generated.Projectile, generated.Width, generated.Height), generated.Start, generated.FeatureAreas, generated.Entrance) with
             {
                 CellHeights = generated.Heights,
                 EntranceFrom = (from, entrance) => AreaTransitionCatalog.EntrancePoint(hash, generated.Entrances, from, entrance),
@@ -173,15 +187,17 @@ public static class AreaLayouts
     }
 
     static AreaLayout WithCells(ushort hash, string id, uint seed, byte[]? cells, int w, int h, Func<int, int, int>? sight,
-        (int X, int Y, float Angle)? start = null)
+        (int X, int Y, float Angle)? start = null, IReadOnlyList<(int X0, int Y0, int X1, int Y1)>? featureAreas = null,
+        (int X, int Y, float Angle)? entrance = null)
     {
-        var layout = WithTransitions(hash, id, seed, cells, w, h, start);
+        var layout = WithTransitions(hash, id, seed, cells, w, h, start, featureAreas, entrance);
         return layout with { Effects = AreaTransitionCatalog.Effects(id, seed), Sight = sight };
     }
 
     /// <param name="start">The start a terrain plugin marks (<see cref="ServerLevels.Level.Start"/>): the spawn, without
     /// the room fit.</param>
-    static AreaLayout WithTransitions(ushort hash, string id, uint seed, byte[]? cells, int w, int h, (int X, int Y, float Angle)? start = null)
+    static AreaLayout WithTransitions(ushort hash, string id, uint seed, byte[]? cells, int w, int h, (int X, int Y, float Angle)? start = null,
+        IReadOnlyList<(int X0, int Y0, int X1, int Y1)>? featureAreas = null, (int X, int Y, float Angle)? entrance = null)
     {
         var notes = new List<string>();
         var transitions = AreaTransitionCatalog.For(hash, id, seed, notes);
@@ -197,9 +213,10 @@ public static class AreaLayouts
         }
         if (cells is not null)
         {
-            // The area's start point (a room's "default", e.g. The Twilight Strand's beach), else the deepest cell.
+            // The area's start point (a room's "default", e.g. The Twilight Strand's beach), else the generator's entrance room, else the deepest cell.
             if (start is null && AreaPopulation.LoadPoints(id, seed, []).FirstOrDefault(p => p.Name == "default") is { } point)
                 start = (point.X, point.Y, point.Angle);
+            start ??= entrance;
             var walkable = Walkable(cells, w, h);
             (int X, int Y) spawn;
             if (start is { } marker)
@@ -207,7 +224,7 @@ public static class AreaLayouts
                 spawn = (marker.X, marker.Y);
                 if (!walkable(spawn.X, spawn.Y)) spawn = NearestWalkableSpawn(cells, w, h, spawn);
             }
-            else spawn = DeepestCell(cells, w, h);
+            else spawn = DeepestCell(cells, w, h, featureAreas);
             return new AreaLayout(hash, id, w, h, spawn.X, spawn.Y, walkable, transitions)
                 { Clearance = Clearance(cells, w, h), SpawnRotation = start?.Angle ?? 0 };
         }
@@ -356,8 +373,9 @@ public static class AreaLayouts
         return nearest;
     }
 
-    /// <summary>The walkable cell farthest from any blocked cell (multi-source BFS from blocked cells).</summary>
-    static (int X, int Y) DeepestCell(byte[] cells, int w, int h)
+    /// <summary>The walkable cell farthest from any blocked cell (multi-source BFS from blocked cells), preferring
+    /// primary map cells outside <paramref name="featureAreas"/>.</summary>
+    static (int X, int Y) DeepestCell(byte[] cells, int w, int h, IReadOnlyList<(int X0, int Y0, int X1, int Y1)>? featureAreas = null)
     {
         // Run for every connection to an area without a start point, a hideout's five million cells among them: plain
         // arrays (a cell is queued once, when its distance is set) instead of a Queue, a tuple loop and LINQ per cell.
@@ -375,12 +393,31 @@ public static class AreaLayouts
             if (i + w < n && dist[i + w] > next) { dist[i + w] = next; queue[tail++] = i + w; }
             if (i >= w && dist[i - w] > next) { dist[i - w] = next; queue[tail++] = i - w; }
         }
-        // The first cell with the greatest distance; a grid without a blocked cell has none, as before.
-        int best = -1, deepest = -1;
+        bool hasFeatures = featureAreas is { Count: > 0 };
+        static bool InFeature(IReadOnlyList<(int X0, int Y0, int X1, int Y1)> areas, int x, int y)
+        {
+            for (int j = 0; j < areas.Count; j++)
+            {
+                var (x0, y0, x1, y1) = areas[j];
+                if (x >= x0 && x < x1 && y >= y0 && y < y1) return true;
+            }
+            return false;
+        }
+        int best = -1, deepest = -1, fallback = -1, fallbackDeepest = -1;
         for (int i = 0; i < n; i++)
-            if (dist[i] != int.MaxValue && dist[i] > deepest) { deepest = dist[i]; best = i; }
-        if (best < 0) throw new InvalidOperationException("Sequence contains no elements");
-        return (best % w, best / w);
+        {
+            int d = dist[i];
+            if (d == int.MaxValue || (d <= deepest && (best >= 0 || !hasFeatures || d <= fallbackDeepest))) continue;
+            if (hasFeatures && InFeature(featureAreas!, i % w, i / w))
+            {
+                if (best < 0 && d > fallbackDeepest) { fallbackDeepest = d; fallback = i; }
+                continue;
+            }
+            if (d > deepest) { deepest = d; best = i; }
+        }
+        int chosen = best >= 0 ? best : fallback;
+        if (chosen < 0) throw new InvalidOperationException("Sequence contains no elements");
+        return (chosen % w, chosen / w);
     }
 
 }

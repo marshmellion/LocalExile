@@ -53,6 +53,9 @@ public static class SupportedAttackDamage
     internal static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get, int skillProjectileSpeed)
     {
         int increased = WeaponTypeDamage.Any(weapon, get);
+        if (get(Stat.ClawDamagePlusPctWhileOnLowLife) is int lowLifeClaw and not 0 && get(Stat.OnLowLife) != 0
+            && WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw"))
+            increased = ActorScale.Saturate((long)increased + lowLifeClaw);
         if (weapon.Bow && get(Stat.ArrowSpeedAdditiveModifiersAlsoApplyToBowDamage) != 0)
             increased = ActorScale.Saturate((long)increased + get(Stat.ProjectileSpeedPlusPct) + skillProjectileSpeed);
         return increased;
@@ -162,7 +165,11 @@ public static class SupportedAttackDamage
             conversion.AddGain(DamageType.Physical, DamageType.Lightning, gain)
                 .AddGain(DamageType.Physical, DamageType.Cold, gain)
                 .AddGain(DamageType.Physical, DamageType.Fire, gain);
-        if (weapon.WieldingWand && get is not null) AddWandGains(conversion, get);
+        if (weapon.WieldingWand && get is not null)
+        {
+            conversion.AddGlobal(DamageType.Physical, DamageType.Lightning, get(Stat.WandPhysicalDamagePctToConvertToLightning));
+            AddWandGains(conversion, get);
+        }
         return conversion;
     }
 

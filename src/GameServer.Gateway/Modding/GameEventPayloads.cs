@@ -79,7 +79,57 @@ public sealed record GambleOffer(ItemCatalog.BaseType Shown, uint Gold, Func<Ran
 public sealed record InventoryPlacement(Player Player, byte Row, GameServer.Core.Protocol.Instance.Item Item,
     GameServer.Core.Protocol.Instance.InventoryItem? Replaced)
 {
+    /// <summary>Target cell X within the inventory row (0 for single-item rows or callers without grid coordinates).</summary>
+    public byte X { get; init; }
+    /// <summary>Target cell Y within the inventory row.</summary>
+    public byte Y { get; init; }
     public IPlayer ModPlayer => Program.PlayerOf(Player);
+}
+
+/// <summary>An optional area encounter evaluating whether and at what level to spawn (<see cref="GameEvents.EncounterSpawn"/>).</summary>
+public sealed class EncounterSpawnRequest(Player player, string kind, byte level, long chance, bool allowed)
+{
+    public Player Player { get; } = player;
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    /// <summary>Lowercase encounter kind identifier (e.g. <c>"mercenary"</c>).</summary>
+    public string Kind { get; } = kind;
+    /// <summary>Encounter level to spawn at (defaults to area level).</summary>
+    public byte Level { get; set; } = level;
+    /// <summary>Spawn chance percentage (0..100+).</summary>
+    public long Chance { get; set; } = chance;
+    /// <summary>Whether the current area is eligible to spawn this encounter.</summary>
+    public bool Allowed { get; set; } = allowed;
+    /// <summary>When true, guarantees spawning without a random roll.</summary>
+    public bool Force { get; set; }
+}
+
+/// <summary>Evaluates companion follower eligibility and equipment rule overrides (<see cref="GameEvents.CompanionRules"/>).</summary>
+public sealed class CompanionRuleCheck(Player player, bool canHavePermanentFollower)
+{
+    public Player Player { get; } = player;
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    /// <summary>Whether the player may hire and bring a permanent companion follower.</summary>
+    public bool CanHavePermanentFollower { get; set; } = canHavePermanentFollower;
+    /// <summary>When true, permanent companions ignore per-slot unique item restrictions (retaining disabled-unique,
+    /// level, armour tag, weapon class, and socket checks).</summary>
+    public bool AllowAllUniqueSlots { get; set; }
+}
+
+/// <summary>Evaluates whether a companion may equip an item in an equipment slot (<see cref="GameEvents.CompanionEquip"/>).</summary>
+public sealed class CompanionEquipCheck(Player player, byte equipmentRow, GameServer.Core.Protocol.Instance.Item item,
+    int companionLevel, bool isPermanent)
+{
+    public Player Player { get; } = player;
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    /// <summary>Equipment slot row (<see cref="PlayerInventories.BodyArmour"/>..<see cref="PlayerInventories.Belt"/>).</summary>
+    public byte EquipmentRow { get; } = equipmentRow;
+    public GameServer.Core.Protocol.Instance.Item Item { get; } = item;
+    public int CompanionLevel { get; } = companionLevel;
+    public bool IsPermanent { get; } = isPermanent;
+    /// <summary>When true, waives per-slot unique item restrictions for this placement.</summary>
+    public bool AllowUnique { get; set; }
+    /// <summary>Optional refusal reason; non-null blocks equipping.</summary>
+    public string? Refusal { get; set; }
 }
 
 /// <summary>What an area's first message carries for a module: terrain data, achievement sets.</summary>
@@ -247,3 +297,160 @@ public enum ExchangeRatesLeague
 public sealed record ExchangeOptions(ExchangeRatesLeague StandardPrices = ExchangeRatesLeague.Standard, ExchangeRatesLeague LeaguePrices = ExchangeRatesLeague.Current,
     int OrderSlots = 20, double SpreadScale = 1, double VolumeShare = .1, double PatientRange = 1, double PatientSpeed = 1, int CatchUpHours = 168, double GoldFee = 1,
     double MaxRateAgeDays = 7, bool FaustusSpeaks = true);
+
+/// <summary>A chat message or slash command sent by the client (<c>C->S 0x0015</c>, <see cref="GameEvents.ClientMessage"/>).</summary>
+public sealed record ClientMessage(Player Player, string Text, IReadOnlyList<uint> Links)
+{
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    public bool IsCommand => Text.StartsWith('/');
+}
+
+/// <summary>A cosmetic slot or skill-gem cosmetic was changed by the player (<see cref="GameEvents.CosmeticChanged"/>).</summary>
+public sealed record CosmeticChange(Player Player, byte Slot, uint RecordId, uint MtxTypeHash, byte Option = 0, uint GemHash = 0)
+{
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    public bool IsSkillCosmetic => GemHash != 0;
+}
+
+/// <summary>A brand-new character was committed in Auth and has not yet entered its first area (<see cref="GameEvents.CharacterCreated"/>).
+/// Subscribers may inspect <see cref="CreationOptions"/> and set <see cref="StartingAreaId"/>, <see cref="StartingLevel"/>,
+/// or <see cref="SuppressStartKit"/> before Auth sends S→C 0x15 / 0x13 and assigns the first area.</summary>
+public sealed class CharacterCreatedContext(
+    string account,
+    Guid characterId,
+    string name,
+    GameServer.Core.Accounts.CharacterClass @class,
+    string league,
+    bool hardcore,
+    bool ssf,
+    string? leagueForm,
+    IReadOnlyDictionary<string, string> creationOptions)
+{
+    public string Account { get; } = account;
+    public Guid CharacterId { get; } = characterId;
+    public string Name { get; } = name;
+    public GameServer.Core.Accounts.CharacterClass Class { get; } = @class;
+    public string League { get; } = league;
+    public bool Hardcore { get; } = hardcore;
+    public bool Ssf { get; } = ssf;
+    public string? LeagueForm { get; } = leagueForm;
+    public IReadOnlyDictionary<string, string> CreationOptions { get; } = creationOptions;
+
+    /// <summary>Optional town <c>WorldAreas</c> Id (e.g. <c>"2_11_endgame_town"</c>) to assign as <c>LastTown</c> before first login.</summary>
+    public string? StartingAreaId { get; set; }
+
+    /// <summary>Optional starting character level (<c>1..100</c>) to apply before S→C 0x15 / 0x13.</summary>
+    public int? StartingLevel { get; set; }
+
+    /// <summary>When true, pre-seeds an empty save (<c>StartWeapon = null</c>, <c>Tutorial = null</c>) so the first login
+    /// skips the starter weapon, starter flasks/scrolls, and opening tutorial.</summary>
+    public bool SuppressStartKit { get; set; }
+}
+
+/// <summary>Result of evaluating a vendor sale quote (<see cref="GameEvents.VendorQuote"/>).</summary>
+public sealed record VendorQuoteResult(
+    IReadOnlyList<GameServer.Core.Protocol.Instance.Item> Rewards,
+    IReadOnlyList<string> Recipes,
+    string? Error = null);
+
+/// <summary>The player died in an area (<see cref="GameEvents.PlayerDeath"/>), after death state and death screen presentation.</summary>
+public sealed record PlayerDiedContext(Player Player, byte DeathKind, int DeathCount, bool Hardcore, uint ExperienceLost = 0)
+{
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+}
+
+/// <summary>
+/// Offered vendor sale items evaluated by <see cref="GameEvents.VendorRecipe"/> subscribers before built-in vendor
+/// recipes and basic sale pricing run. Consumed counts reduce what later subscribers and built-in recipes see.
+/// </summary>
+public sealed class VendorRecipeContext
+{
+    readonly List<GameServer.Core.Protocol.Instance.InventoryItem> _offered;
+    readonly Dictionary<uint, int> _remaining;
+    readonly List<GameServer.Core.Protocol.Instance.Item> _rewards = [];
+    readonly List<string> _recipes = [];
+
+    public VendorRecipeContext(
+        Player player,
+        IReadOnlyList<GameServer.Core.Protocol.Instance.InventoryItem> offered,
+        ItemCatalog catalog,
+        Random random)
+    {
+        Player = player;
+        Catalog = catalog;
+        Random = random;
+        _offered = [.. offered];
+        _remaining = new Dictionary<uint, int>(_offered.Count);
+        foreach (var item in _offered)
+            _remaining[item.Id] = item.Item.StackSize;
+    }
+
+    public Player Player { get; }
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    public ItemCatalog Catalog { get; }
+    public Random Random { get; }
+
+    /// <summary>All items originally offered in the sale window (check <see cref="Remaining"/> for unconsumed stacks).</summary>
+    public IReadOnlyList<GameServer.Core.Protocol.Instance.InventoryItem> Offered => _offered;
+
+    /// <summary>Rewards added by custom vendor recipes so far.</summary>
+    public IReadOnlyList<GameServer.Core.Protocol.Instance.Item> Rewards => _rewards;
+
+    /// <summary>Recipe names matched so far.</summary>
+    public IReadOnlyList<string> Recipes => _recipes;
+
+    /// <summary>Remaining unconsumed stack count for the offered item <paramref name="itemId"/>.</summary>
+    public int Remaining(uint itemId) => _remaining.GetValueOrDefault(itemId);
+
+    /// <summary>Consumes <paramref name="count"/> items from offered stack <paramref name="itemId"/>; false if insufficient.</summary>
+    public bool TryConsume(uint itemId, int count = 1)
+    {
+        if (count <= 0) return false;
+        if (_remaining.GetValueOrDefault(itemId) < count) return false;
+        _remaining[itemId] -= count;
+        return true;
+    }
+
+    /// <summary>Atomically consumes all requested <c>(ItemId, Count)</c> entries or consumes none and returns false.</summary>
+    public bool TryConsumeAll(IEnumerable<(uint ItemId, int Count)> items)
+    {
+        var needed = new Dictionary<uint, int>();
+        foreach (var (id, count) in items)
+        {
+            if (count <= 0) return false;
+            needed[id] = needed.GetValueOrDefault(id) + count;
+        }
+        if (needed.Count == 0) return false;
+        foreach (var (id, count) in needed)
+            if (_remaining.GetValueOrDefault(id) < count) return false;
+        foreach (var (id, count) in needed)
+            _remaining[id] -= count;
+        return true;
+    }
+
+    /// <summary>Adds a single reward item and records the matched recipe name.</summary>
+    public void AddReward(GameServer.Core.Protocol.Instance.Item item, string recipeName)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (item.StackSize == 0)
+            throw new ArgumentOutOfRangeException(nameof(item), "Vendor recipe reward StackSize must be positive.");
+        _rewards.Add(item);
+        if (!string.IsNullOrWhiteSpace(recipeName)) _recipes.Add(recipeName);
+    }
+
+    /// <summary>Adds multiple reward items and records the matched recipe name once.</summary>
+    public void AddRewards(IEnumerable<GameServer.Core.Protocol.Instance.Item> items, string recipeName)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        bool any = false;
+        foreach (var item in items)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+            if (item.StackSize == 0)
+                throw new ArgumentOutOfRangeException(nameof(items), "Vendor recipe reward StackSize must be positive.");
+            _rewards.Add(item);
+            any = true;
+        }
+        if (any && !string.IsNullOrWhiteSpace(recipeName)) _recipes.Add(recipeName);
+    }
+}

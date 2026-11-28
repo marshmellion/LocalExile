@@ -68,6 +68,13 @@ public static partial class Game
             if (blocked) RecoverOnBlockLocked(player, stats, now, attack: !spell);
             var recouped = ailmentTaken.Select((_, r) => new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats),
                 FortificationDamageTakenLocked(player, (int)r.Max, now, stats)));
+            if (stats.GetValueOrDefault(Stat.BaseElementalDamageHeals) != 0)
+            {
+                int elemental = Math.Max(0, dealt - physicalDealt - chaosDealt);
+                RecoverElementalDamageAsLife(player, elemental, stats.GetValueOrDefault);
+                dealt -= elemental;
+                recouped = recouped.Select((part, range) => DamageTypes.IsElemental(part) ? default : range);
+            }
             RecoupHitLocked(player, recouped, now, stats);
             if (shifted[DamageType.Physical].Min > 0 || type == DamageType.Physical)
                 PreventedDamageOf(player).Add(now, shifted[DamageType.Physical].Min - physicalDealt);
@@ -79,6 +86,7 @@ public static partial class Game
             RecordIncomingHitLocked(player, now, spell, blocked, suppressed, lifeDamage, dealt > 0, attack: !spell);
             RecentHitLifeLossOnHitLocked(player, now);
             UnhingedHitRecoveryLocked(player, now, stats);
+            RageWhenHitLocked(player);
             if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
             RecordHardcoreDeath(player);
             hit = new(dealt, mitigation, player.PlayerLife, player.PlayerMana, manaBefore,

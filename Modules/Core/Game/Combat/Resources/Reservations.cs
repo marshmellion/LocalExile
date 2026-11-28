@@ -31,10 +31,15 @@ public static partial class Game
     static bool HasFixedManaReservation(string effect, Func<uint, int> get) =>
         IsHeraldAura(effect) && get(Stat.HeraldManaReservationOverride45Pct) != 0;
 
-    public static (bool Life, int Efficiency) ReservationContext(Player player, ushort skill)
+    public static (bool Life, int Efficiency) ReservationContext(Player player, ushort skill) =>
+        ReservationContext(player, skill, null);
+
+    public static (bool Life, int Efficiency) ReservationContext(Player player, ushort skill,
+        IReadOnlyDictionary<uint, int>? playerStats)
     {
         var gem = SupportedSkill(player, skill);
-        var playerStats = StatSourceValues(player);
+        if (SkillsFor(player).EffectId(gem.Effect) is ManaInfusedStaffEffect or SpellslingerEffect) return (false, 0);
+        playerStats ??= StatSourceValues(player);
         int Own(uint n) => GolemStat(gem.Stats, n);
         int Get(uint n) => Own(n) + (n is var key
             ? playerStats.GetValueOrDefault(key) : 0);
@@ -53,6 +58,9 @@ public static partial class Game
             if (effect.StartsWith("HeraldOf", StringComparison.Ordinal))
                 efficiency += Get(Stat.HeraldSkillsManaReservationEfficiencyPlusPct)
                     - 2 * Get(Stat.HeraldSkillsManaReservationEfficiencyMinus2PctPer1);
+            if (Own(Stat.SpellslingerTriggerOnWandAttackPct) > 0)
+                efficiency += Get(Stat.SpellslingerManaReservationEfficiencyPlusPct)
+                    - 2 * Get(Stat.SpellslingerManaReservationEfficiencyMinus2PctPer1);
             if (curse) efficiency += Get(Stat.CurseAuraSkillsManaReservationEfficiencyPlusPct)
                 - 2 * Get(Stat.CurseAuraSkillsManaReservationEfficiencyMinus2PctPer1);
             int mineEfficiency = Get(Stat.ManaReservationEfficiencyPlusPctForSkillsThatThrowMines);
@@ -88,9 +96,19 @@ public static partial class Game
         + CooldownTriggerReservation(player, life: true),
         0, int.MaxValue);
 
+    static int ReservedManaArmourIncrease(int reserved, int per50) =>
+        ActorScale.Saturate((long)(reserved / 50) * per50);
+
     public static void ClampReservedResources(Player player)
     {
-        player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
+        int reserved = ReservedMana(player);
+        if (player.Pools.ArmourPctPer50ReservedMana != 0
+            && ReservedManaArmourIncrease(reserved, player.Pools.ArmourPctPer50ReservedMana) != player.Pools.ArmourPctFromReservedMana)
+        {
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.AuraStatsDirty = true;
+        }
+        player.PlayerMana = Math.Min(player.PlayerMana, (uint)Math.Max(0, (long)player.Pools.Mana - reserved));
         player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
         TrimLeechLocked(player);
     }

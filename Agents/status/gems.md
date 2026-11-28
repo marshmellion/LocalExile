@@ -11,9 +11,11 @@ Nothing yet.
 
 - Socketed gem kills emit incremental `0x00c3` XP when exact client math matches, falling back to `0x00bf` otherwise.
 - Icicle Mine variants release their radial or aimed volleys and scale with the detonation chain. Pyroclast
-  variants apply armed mine Fire Exposure, then release a nova and mortars. The Icicle critical aura is open.
+  variants apply armed mine Fire Exposure, then release a nova and mortars. Stormblast Mine applies its enemy
+  damage-taken aura while armed. The Icicle critical aura is open.
 - Trap and mine payloads support Arc chains, Contagion, corpse Offerings, Hexes and Marks, damage brands,
   Storm Call, Firestorm, Frost Bomb and Vortex. Offline checks exercise the paid placement and timed effects.
+  Chain Reaction queues nearby armed traps from the same owner on an accepted trigger.
 - Eye of Winter variants emit their travel and final shards. Creeping Frost and its Floes variant release
   chilling ground that follows enemies. The timings and ground motion were checked offline.
 - Ruthless gems use native primary/companion effect alternatives, requirements and skill rows.
@@ -82,6 +84,8 @@ Nothing yet.
   scoped critical multiplier. Herald passives apply to their secondary AoE and damage, and skill timing reads its
   curse, mark, link and retaliation speed bonuses.
   Retaliation hits apply their damage, stun and ailment duration modifiers.
+  Divine Retribution opens after a block, lights its skill button and releases four waves of terrain-limited bursts.
+  Enduring Cry grants Endurance Charges to nearby allied players and regenerates the life of nearby allies.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
   A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) from a trap or mine comes down as the player's own does.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
@@ -114,7 +118,7 @@ Nothing yet.
   Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
   Multistrike repeats full swings within one paid use, cancels remaining repeats with the action, and keeps
   the native panel's per-hit damage convention.
-  Melee Splash checks the radius of each strike before counting its targets ([25](../docs/protocol/25-gem-supports.md)).
+  Melee Splash checks the radius of each strike before counting its targets, and `melee_splash` (Tribal Fury, items/enchants) plus `melee_splash_area_of_effect_+%` apply to Melee Strike skills only ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust for melee physical-origin damage, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
   Manaforged Arrows triggers off paid bow uses and channelled bow ticks and scales supported hit and ailment damage.
@@ -163,8 +167,10 @@ Nothing yet.
 
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays
   socketed (a gem moved through the cursor keeps its own; a gem swapped in never takes the old gem's id), so skill bar
-  keys no longer move when other gems come or go; queued bar refreshes read the latest saved binding at publication; a skill that goes away ends its aura or Righteous Fire;
-  one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
+  keys retain the selected gem through socket moves and relogging.
+  Explicit bindings distinguish duplicate gem effects.
+  Queued bar refreshes read the latest saved binding at publication; a skill that goes away ends its aura or Righteous
+  Fire; one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
   Transfigured and Trarthan gems grant their own skill.

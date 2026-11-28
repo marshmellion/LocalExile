@@ -25,6 +25,7 @@ public static partial class Game
             _ => StatConditions.GainedEnduranceCharge,
         }, at), () => ResourceEffectsTime(player), (from, until) => player.Walk.MovingSeconds(from, until))
         {
+            DegenerationDamageTime = () => GuardDamageOverTime(player, DamageType.Fire),
             OnslaughtFromFrenzy = (at, seconds) =>
             {
                 if (player.PlayerLife == 0 || !KillOnslaughtOf(player).Gain(at, seconds)) return;
@@ -64,17 +65,10 @@ public static partial class Game
             });
         }
         double now = ProjectileWorldTime(player);
-        bool frozen = m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0;
-        bool bleeding = m.Bleeds.Burning;
-        // "your Marked Enemy": a Mark this player cast, not another player's on the same monster.
-        bool marked = false;
-        foreach (var curse in m.Curses.All.Values)
-            if (curse.Mark && curse.Caster == player.Id) { marked = true; break; }
-        bool selfBleeding = player.IncomingAilments.Bleeding(now);
-        bool selfPoisoned = player.IncomingAilments.PoisonStacks(now) > 0;
+        var facts = ChargeHitFacts(player, m, now);
         ChargesOf(player).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(player).EffectId(effect) : null,
-            skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
-            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned));
+            skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: facts.Frozen, Bleeding: facts.Bleeding, Marked: facts.Marked,
+            SelfBleeding: facts.SelfBleeding, SelfPoisoned: facts.SelfPoisoned) { NoArmour = facts.NoArmour });
         CurseCharges(player, m, death: false, now);
         PlayerGrantsNearbyChargesLocked(player, kill: false, now);
     }
@@ -119,6 +113,19 @@ public static partial class Game
             type => Charges.Converted(type, PlayerStat), ChargeScaling.Rules, MaxOf, includePhysicalReduction: false);
     }
 
+    // The target's and the player's state at a hit, as the "on hit" charge rules read it.
+    internal static (bool Frozen, bool Bleeding, bool Marked, bool SelfBleeding, bool SelfPoisoned, bool NoArmour) ChargeHitFacts(
+        Player player, SpawnedMonster m, double now)
+    {
+        bool marked = false;
+        // "your Marked Enemy": a Mark this player cast, not another player's on the same monster.
+        foreach (var curse in m.Curses.All.Values)
+            if (curse.Mark && curse.Caster == player.Id) { marked = true; break; }
+        return (m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0, m.Bleeds.Burning, marked,
+            player.IncomingAilments.Bleeding(now), player.IncomingAilments.PoisonStacks(now) > 0,
+            m.Effects.Armour(Monsters.BaseArmour(m.Variety, m.Level) ?? 0) == 0);
+    }
+
     // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the
     // corpse kept a freeze (its killing hit's included) or shattered.
     public static void ChargesOnKill(Player player, SpawnedMonster m, IReadOnlyDictionary<uint, int>? skillStats = null)
@@ -127,14 +134,19 @@ public static partial class Game
         bool frozen;
         double now = ProjectileWorldTime(player);
         frozen = m.Ailments.FrozenAtDeath(now);
-        int poisons = m.Poisons.Stacks(now);
+        int poisons = m.Poisons.StacksAtDeath(now);
         RecordPlayerMonsterKill(player, m, now);
         if (player.TinctureEffects.BurnStacks > 0) TinctureOnKillLocked(player, CharacterPlayerStats(player));
         TryGainElusiveLocked(player, critical: false, kill: true, now);
         Func<uint, int>? skill = skillStats is { Count: > 0 } own ? key => own.GetValueOrDefault(key) : null;
         ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons, skill));
+        // Only an existing projectile session can hold Cold Snap grounds; a kill never starts one.
+        if (player.ProjectileRuntime is { Active: true } projectiles) projectiles.ColdSnapFrenzyOnKill(m, now);
         SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
+        var stats = PlayerStatValues(player);
+        if (RandomRolls.Chance(stats.GetValueOrDefault(Stat.EnergyShieldRechargesOnKillPct), 100, AreaRng(player)))
+            player.EnergyShield.StartRecharge(AreaTime(player), stats.GetValueOrDefault);
         CurseCharges(player, m, death: true, now);
         PlayerGrantsNearbyChargesLocked(player, kill: true, now);
     }
@@ -356,18 +368,11 @@ public static partial class Game
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = WardBreakEffects.RangedPhysical(value, ranged, Get);
         double now = AreaTime(player);
-        return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now, increased)
+        return (int)Math.Round(value * PlayerAilmentDamageTakenFactor(player, now, increased)
             * WindDancerHitFactor(player, attack, now, stats));
     }
 
-    // A warcry (CastGemSkill), when its cast is over: it taunts the hostile monsters within its radius (wiki Warcry: every
-    // warcry taunts, base radius 6 m, grown by area of effect; TauntLocked), and Enduring Cry gives an Endurance Charge per
-    // 5 power (endurance_charge_granted_per_X_monster_power_during_endurance_warcry) of the hostile monsters within it and
-    // its life regeneration (Path of Building: power 1 normal, 2 magic, 10 rare, 20 unique). warcries_have_infinite_power
-    // (Bring the Battle) makes the power 999999 (PoB CalcPerform's override): the charges reach their maximum and the
-    // regeneration its 25-power cap. Every warcry then runs the on-warcry effects (WarcryReleased). The other warcries'
-    // supported buffs are granted by ApplyWarcryBuffLocked, except Intimidating Cry, which has its own
-    // (IntimidatingCry.cs); their exerted attacks are still not modelled.
+    // Release the accepted warcry on the area clock: taunt, any buffs or charges, then on-warcry effects.
     // True when the skill was a warcry.
     public static bool UseWarcryInstance(Player player,
         ushort skillId, int effect)
@@ -390,9 +395,8 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> own, ushort skillId = 0, bool triggered = false)
     {
         if (!SkillsFor(player).IsWarcry(effect)) return false;
-        bool enduring = SkillsFor(player).EffectId(effect) == "EnduringCry";
+        string effectId = SkillsFor(player).EffectId(effect) ?? "";
         int Own(uint key) => own.GetValueOrDefault(key);
-        int per = Own(Stat.EnduranceChargeGrantedPerXMonsterPowerDuringEnduranceWarcry);
         // The warcry cannot be cancelled before its contact point (cannot_cancel_skill_before_contact_point), so a later
         // action does not stop it. Admission checks the actor restriction before this accepted release is scheduled;
         // changing its source later does not cancel this continuation. Warcry and action speed are taken at the use.
@@ -401,9 +405,10 @@ public static partial class Game
         double castSeconds = WarcryCastSeconds(player, effect, playerStats, own);
         double until = AreaTime(player) + castSeconds;
         int epoch = player.ProjectileEpoch;
+        var bonespire = !triggered && skillId != 0 && Own(Stat.SupportTriggerSeizeTheFleshOnWarcryChancePct) > 0
+            ? SupportedSkill(player, skillId) : null;
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own, DurationKinds(player, effect))
             * SkillDurationModifiers.CallToArmsMore(Player);
-        bool callToArms = Player(Stat.KeystoneCallToArms) != 0;
         bool suppressBuffs = Own(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
             || Player(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0;
         double buffEffect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.WarcryBuffEffectPlusPct)) / 100d);
@@ -412,45 +417,40 @@ public static partial class Game
             // A triggered warcry has no cast windup. Ordinary casts still release on the area clock.
             while (!triggered && !player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
             if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
-            double taunt = TauntSeconds(Player);
-            foreach (var (k, v) in own) playerStats[k] = v;
+            int Combined(uint key) => ActorScale.Saturate((long)Player(key) + Own(key));
+            double taunt = TauntSeconds(Combined);
             int radius = SkillRadius(player, WarcryRadius, own, spell: false, effect);
             double now = AreaTime(player);
-            int power, taunted;
-            (int X, int Y) here;
-            if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
-            here = player.Walk.Position(now);
-            taunted = TauntLocked(player, here, radius, now, taunt);
-            if (!enduring)
-                Console.WriteLine($"[gateway] {SkillsFor(player).EffectId(effect)}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
-            if (!enduring)
+            var here = player.Walk.Position(now);
+            bool intimidating = effectId == "IntimidatingCry";
+            int taunted = intimidating
+                ? ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, !suppressBuffs, skillId, radius)
+                : TauntLocked(player, here, radius, now, taunt, fromWarcry: true);
+            Console.WriteLine($"[gateway] {effectId}: taunts {taunted} monster(s) within {radius} cells for {taunt:0.##} s");
+            int affectedAllies = 0;
+            if (!intimidating && !suppressBuffs)
+                affectedAllies = GrantWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
+            else if (effectId == "RallyingCry")
+                affectedAllies = RallyingCryNearbyAlliesLocked(player, here, radius, now);
+            if (effectId == "SeismicCry")
+                GrantSeismicCryExertsLocked(player, own, playerStats, skillId);
+            else if (effectId == "AncestralCry")
+                GrantAncestralCryExertsLocked(player, own, playerStats, skillId);
+            else if (effectId == "RallyingCry")
+                GrantRallyingCryExertsLocked(player, own, playerStats, affectedAllies, skillId);
+            else if (effectId == "InfernalCry")
             {
-                string effectId = SkillsFor(player).EffectId(effect) ?? "";
-                if (effectId == "IntimidatingCry")
-                    ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, applyMovementBuff: !suppressBuffs);
-                else if (!suppressBuffs)
-                    ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
-                var warriors = skillId != 0 && IsGeneralsCry(player, effect)
-                    ? GeneralsCryReleased(player, skillId, here, radius, epoch)
-                    : Task.CompletedTask;
-                await Task.WhenAll(warriors, WarcryReleased(player, here, radius, epoch, effectId));
-                return;
+                GrantInfernalCryExertsLocked(player, skillId, own, playerStats);
+                ApplyInfernalCryDebuffLocked(player, skillId, effect, own, here, radius, now);
             }
-            if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
-            power = Player(Stat.WarcriesHaveInfinitePower) != 0 ? InfiniteWarcryPower
-                : player.Area.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0 && Dist(m.Walk.Position(now), here) <= radius)
-                    .Sum(m => WarcryPower(m.Rarity));
-            // The target's stat description caps regeneration at 25 Power. Charge generation retains its own rule.
-            double percentPerMinute = Math.Min(25, power) / 5d
-                * Own(Stat.EnduringCryLifeRegenerationRatePerMinutePctPer5PowerUpToCap)
-                * buffEffect;
-            if (!callToArms && !suppressBuffs) player.EnduringCryRecovery.Begin(now, duration, player.PlayerMaxLife * percentPerMinute / 6000d);
-            Console.WriteLine($"[gateway] Enduring Cry recovery: {power} power, {duration:0.###} seconds, "
-                + $"{percentPerMinute:0.###}% Life/min");
-            int charges = per > 0 ? power / per : 0;
-            Console.WriteLine($"[gateway] Enduring Cry: {power} power within {radius} cells, {charges} endurance charge(s), {taunted} taunted");
-            if (charges > 0 && !callToArms && !suppressBuffs) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));
-            await WarcryReleased(player, here, radius, epoch, "EnduringCry");
+            else if (effectId == "BattlemagesCry")
+                GrantBattlemagesCryExertsLocked(player, skillId, own, playerStats);
+            if (bonespire is not null)
+                TriggerBonespireLocked(player, skillId, bonespire, here, now);
+            var warriors = skillId != 0 && IsGeneralsCry(player, effect)
+                ? GeneralsCryReleased(player, skillId, here, radius, epoch)
+                : Task.CompletedTask;
+            await Task.WhenAll(warriors, WarcryReleased(player, here, radius, epoch, effectId));
         });
         return true;
     }

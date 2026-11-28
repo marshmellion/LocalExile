@@ -20,6 +20,7 @@ public sealed record ProjectileActor(ProjectileActorKey Key, int Team, Func<long
     /// <summary>The actor's Positioned size in cells (a monster's ObjectSize − 1), for <see cref="ProjectileProfile.ContactCells"/>;
     /// −1 is no footprint, which the client never contacts.</summary>
     public int Size { get; init; }
+    public bool CanBeChainTarget { get; init; } = true;
 }
 public readonly record struct TerrainContact(double Fraction, ProjectileVector Normal)
 {
@@ -37,12 +38,18 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     double Multiplier = 1, ProjectileHitScope Scope = ProjectileHitScope.Projectile)
 {
     public bool ExcludeContactTarget { get; init; }
+    /// <summary>A contact area that needs a successful enemy hit and never triggers on terrain.</summary>
+    public bool RequiresEnemyHit { get; init; }
     /// <summary>Radius sampled with the number of completed ground bounces at the impact.</summary>
     public Func<int, double>? RadiusForGroundBounce { get; init; }
     /// <summary>Radius sampled with the projectile's total travelled distance in cells at the impact.</summary>
     public Func<double, double>? RadiusForTravel { get; init; }
-    /// <summary>Angular limit from the direction of travel. Zero keeps radial coverage.</summary>
+    /// <summary>Angular limit from the cone axis. Zero keeps radial coverage.</summary>
     public double ConeHalfAngle { get; init; }
+    public double ConeAxisRotation { get; init; }
+    public double ConeAxisStep { get; init; }
+    /// <summary>Start at the actor's centre on enemy contacts, or at the impact point on terrain.</summary>
+    public bool CentreOnContactTarget { get; init; }
     /// <summary>The terminal impact supplies the direct victim's damage profile.</summary>
     public bool ReplacesDirectContact { get; init; } = true;
     /// <summary>Lower placement radius; offset is the upper radius.</summary>
@@ -90,7 +97,13 @@ public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radi
 }
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);
-public sealed record ProjectileSplitFormRecipe(double SpeedMultiplier, int Pierce);
+public sealed record ProjectileSplitFormRecipe(double SpeedMultiplier, int Pierce)
+{
+    public string? Metadata { get; init; }
+    public bool PreservePierce { get; init; }
+    public int? ContactCells { get; init; }
+    public ProjectileAreaRecipe? EndArea { get; init; }
+}
 public sealed record ProjectileTargetedRecipe(string Stage, int Count, double Radius);
 
 /// <summary>The client's volley (0x141bb3e30 with 0x141bb39b0's stats). A nova (0x141bbbf90) puts projectile i at
@@ -211,7 +224,8 @@ public sealed record ProjectileProfile(string Id)
     public bool DirectDamage { get; init; } = true;
     public int Pierce { get; init; }
     public int Fork { get; init; }
-    public double ForkAngleRadians { get; init; } = Math.PI / 6;
+    /// <summary>Half of the client's fork fan: two children at center -/+ 45 degrees (Agents/docs/re/projectiles/continuation-and-memory.md §8).</summary>
+    public double ForkAngleRadians { get; init; } = Math.PI / 4;
     public bool PierceAllAfterFork { get; init; }
     /// <summary>"X% chance for an additional Projectile when Forking" (Greater Fork): the extra child flies straight
     /// ahead between the fork's two.</summary>
@@ -261,6 +275,8 @@ public sealed record ProjectileProfile(string Id)
     /// <summary>Emit an allowed end area before a successful return turnaround; end emissions stay deferred.</summary>
     public bool EndAreaOnReturnTurnaround { get; init; }
     public ProjectileAreaRecipe? ContactArea { get; init; }
+    /// <summary>The contact area supplies the direct victim's damage profile.</summary>
+    public bool ContactAreaReplacesDirectContact { get; init; }
     public bool ContactAreaOnReturn { get; init; } = true;
     /// <summary>Suppress outbound terminal areas after actor contacts, including terrain contact areas.</summary>
     public bool TerminalAreaRequiresNoContact { get; init; }
@@ -278,12 +294,15 @@ public sealed record ProjectileProfile(string Id)
     public double ArcHeight { get; init; } = 40;
     public int GroundChains { get; init; }
     public double GroundBounceDistance { get; init; } = 20;
+    public bool RandomGroundBounceDirection { get; init; }
     /// <summary>Reuse each projectile's resolved <see cref="Range"/> for ground-chain bounces instead of
     /// <see cref="GroundBounceDistance"/>.</summary>
     public bool GroundBounceKeepsRange { get; init; }
     public ProjectileCountConsumer CountConsumer { get; init; }
     public ProjectileFormRecipe? FormChange { get; init; }
     public ProjectileSplitFormRecipe? SplitForm { get; init; }
+    /// <summary>End the initial flight at its aim when within range. Split and fork children get their own range.</summary>
+    public bool EndsAtAim { get; init; }
     public bool SplitOnTerrain { get; init; }
     public bool SplitAtEndOfRange { get; init; }
     /// <summary>Fill this skill's split count even when there are fewer available target actors.</summary>

@@ -14,7 +14,8 @@ public static partial class Game
         area.Systems.Add("monster damage over time", AreaPhase.Ailments, a =>
         {
             if (!(a.HasActiveDots || HasFrigidBondDamage(a) || HasSearingBondDamage(a) || HasPestilentDamage(a)
-                    || HasSoulrendDamage(a) || HasFleshrendDamage(a))
+                    || HasSoulrendDamage(a) || HasFleshrendDamage(a) || HasBlightDamage(a) || HasScorchingRayDamage(a)
+                    || HasTrarthusBurn(a) || HasConflagrationBurn(a) || HasCorruptedBloodDamage(a))
                 || !pass.IsCompleted || !CurrentGameWork || frames.View is not { } view || view.Closed || view.LeavingArea
                 || view.Paused || !view.Connection.PlayerSent || view.PlayerUpdatesState is not PlayerUpdatesState updates
                 || !PlayerUpdatesCurrent(view, updates)) return;
@@ -24,9 +25,12 @@ public static partial class Game
                 await BurnIgnited(view);
                 await BleedMonsters(view);
                 await TickPoisons(view);
+                await TickMonsterCorruptedBlood(view);
                 await TickMinionDecays(view);
                 await TickFrigidBondDamage(view);
                 await TickSearingBondDamage(view);
+                await TickTrarthusBurn(view);
+                await TickConflagrationBurn(view);
                 await TickContagions(view);
                 await TickEssenceDrains(view);
             });

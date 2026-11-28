@@ -45,12 +45,20 @@ public static partial class Game
                 if (publish) postPublish = () => SendOwnAuraChanges(player);
                 return true;
             }
+            if (CancelCorruptingFeverLocked(player, activeBuff)) return true;
+            if (CancelPlagueBearerLocked(player, activeBuff)) return true;
             if (activeBuff is { Row: HungerOfGhorrRow } && activeBuff.Source == player.Id)
             {
                 ClearGhorrHunger(player);
                 return true;
             }
             if (activeBuff.Source == player.Id && CancelPactBoon(player, activeBuff.Row)) return true;
+            if (activeBuff.Row == EnergyBladeBuffRow && activeBuff.Source == player.Id && ClearEnergyBlade(player))
+            {
+                EnergyBladeChanged(player);
+                if (publish) postPublish = () => PublishEnergyBlade(player);
+                return true;
+            }
 
             // 1. Grace Period (row 6, Removable = 1).
             if (activeBuff is { Row: GracePeriod.BuffRow } && activeBuff.Source == player.Id
@@ -119,7 +127,8 @@ public static partial class Game
             }
 
             // 5. Player toggled own auras (Determination, Grace, Discipline, etc.; Removable = 1).
-            if (activeBuff.Tag is 0 or (ushort)BuffTag.BloodAndSand && activeBuff.Source == player.Id
+            if ((activeBuff.Tag is 0 or (ushort)BuffTag.BloodAndSand || activeBuff.Row == AuraCatalog.BuffRow(SpellslingerEffect))
+                && activeBuff.Source == player.Id
                 && player.Auras.Values.FirstOrDefault(a => a.BuffRow == activeBuff.Row
                     && OwnAuraBuffTag(a) == activeBuff.Tag
                     && (activeBuff.SourceSkill == 0 || a.SkillId == activeBuff.SourceSkill)) is { } ownAura
@@ -135,7 +144,8 @@ public static partial class Game
                 player.Pools = PoolsFor(player, player.Pools.Level);
                 player.ApplyMovementSpeed();
                 player.AuraStatsDirty = true;
-                CharacterSaves.SetAuraActive(CharacterName(player), ownAura.EffectId, false);
+                if (!player.Auras.Values.Any(a => a.EffectId == ownAura.EffectId))
+                    CharacterSaves.SetAuraActive(CharacterName(player), ownAura.EffectId, false);
                 if (wasEternal)
                     ReconcileOwnAuras(player, validateSkills: true);
                 ClampReservedResources(player);

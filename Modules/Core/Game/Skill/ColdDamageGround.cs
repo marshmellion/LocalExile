@@ -4,6 +4,14 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    public static bool IsColdSnap(string? effect) =>
+        effect is "ColdSnap" or "ColdSnapAltX" or "ColdSnapAltY" or "ColdSnapRoyale" or "VaalColdSnap";
+
+    static bool IsVortexGround(string? effect) => effect is "Vortex" or "VortexRoyale";
+
+    public static bool IsVortex(string? effect) =>
+        effect is "Vortex" or "VortexAltX" or "VortexRoyale";
+
     public static bool IsCreepingFrost(string? effect) =>
         effect is "CreepingFrost" or "CreepingFrostAltX" or "CreepingFrostAltY" or "CreepingFrostRoyale";
 
@@ -13,7 +21,7 @@ public static partial class Game
         Stat.SupportEfficacySpellDamagePlusPctFinal, Stat.SupportEfficacyDamageOverTimePlusPctFinal,
         Stat.SupportRapidDecayDamageOverTimePlusPctFinal, Stat.SupportHypothermiaColdDamageOverTimePlusPctFinal,
         Stat.CrueltyDamageOverTimePlusPctFinal, Stat.SupportTrapAndMineDamagePlusPctFinal,
-        Stat.SupportTrapDamagePlusPctFinal, Stat.SupportRemoteMine2DamagePlusPctFinal,
+        Stat.SupportTrapDamagePlusPctFinal, Stat.SupportRemoteMine2DamagePlusPctFinal, Stat.SupportDivineCryDamagePlusPctFinal,
     ];
 
     static double ColdGroundDps(Func<uint, int> get, Func<uint, int> own, bool spell, bool mine, bool trap)
@@ -32,7 +40,47 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        sealed record GroundMovement(int Effect, double CellsPerSecond, int Limit);
+        // Cold Snap grounds of this player with their Frenzy Charge rules (chance on a kill in the area; Vaal: one a
+        // second while an enemy is in it).
+        sealed class ColdSnapGround(DamageGround ground, int killChance, bool eachSecond)
+        {
+            public readonly DamageGround Ground = ground;
+            public readonly int KillChance = killChance;
+            public readonly bool EachSecond = eachSecond;
+            public double NextFrenzy;
+        }
+        readonly List<ColdSnapGround> coldSnapGrounds = [];
+
+        bool LiveColdSnap(ColdSnapGround snap) => Active && damageGroundArea is { } area
+            && DamageGroundsByArea.TryGetValue(area, out var state) && state.Grounds.Contains(snap.Ground);
+
+        /// <summary>An enemy this player killed while it stood in one of their Cold Snap grounds: the best chance rolls once.</summary>
+        internal void ColdSnapFrenzyOnKill(SpawnedMonster monster, double at)
+        {
+            coldSnapGrounds.RemoveAll(snap => !LiveColdSnap(snap));
+            if (coldSnapGrounds.Count == 0) return;
+            var point = Vector(monster.Walk.Position(at));
+            int chance = coldSnapGrounds.Where(snap => GroundCoversPoint(snap.Ground, point))
+                .Select(snap => snap.KillChance).DefaultIfEmpty(0).Max();
+            if (chance <= 0 || chance < 100 && AreaRng(Player).Next(100) >= chance) return;
+            ChargesOf(Player).Enqueue(new ChargeEvent.Grant(ChargeType.Frenzy, 1, "Cold Snap ground kill"));
+        }
+
+        void ColdSnapEachSecond(GameArea area, DamageGround ground, double at)
+        {
+            if (Player.Closed || Player.LeavingArea || Player.Paused || Player.PlayerLife == 0 || InTown(Player)) return;
+            var snap = coldSnapGrounds.FirstOrDefault(s => ReferenceEquals(s.Ground, ground));
+            if (snap is not { EachSecond: true } || at < snap.NextFrenzy) return;
+            var centre = ground.CurrentCentre;
+            if (!area.MonstersNear((centre.X, centre.Y), ground.Radius).Any(p => DamageGroundTarget(p.Value)
+                    && GroundCoversPoint(ground, Vector(p.Value.Walk.Position(at))))) return;
+            snap.NextFrenzy = at + 1;
+            ChargesOf(Player).Enqueue(new ChargeEvent.Grant(ChargeType.Frenzy, 1, "Vaal Cold Snap"));
+            if (GameServer.Core.Diagnostics.ServerTrace.Skills)
+                Console.WriteLine($"[gateway] Vaal Cold Snap Frenzy Charge: enemy in its area (t={at:0.00})");
+        }
+
+        sealed record GroundMovement(int Effect, double CellsPerSecond, int Limit, bool FollowsOwner = false);
 
         void CreepingFrostAtEnd(ProjectileEvent value)
         {
@@ -52,20 +100,42 @@ public static partial class Game
             double dps = new SkillDamageContext(SkillHitKind.Spell, caster).Suppressed ? 0
                 : ColdGroundDps(Get, Own, spell: true, shot.FromMine, trap: shot.FromTrapOrMine && !shot.FromMine) * shot.GhorrDotMore;
             // Local starting speed for the chilling ground. The Floes gem's native movement modifier applies to it.
-            double pace = 10 * Math.Max(0, 1 + Get(Stat.ArcticBreathChillingAreaMovementVelocityPlusPct) / 100d);
+            double increase = (long)Get(Stat.ArcticBreathChillingAreaMovementVelocityPlusPct)
+                + Get(Stat.ChillingAreaMovementVelocityPlusPct);
+            double pace = 10 * Math.Max(0, 1 + increase / 100);
             int limit = Own(Stat.ArcticBreathMaximumNumberOfSkullsAllowed);
             PlaceCreepingGround(value.Position, radius, duration, dps, stats, new(shot.Effect, pace, limit));
         }
 
-        internal void PlaceVortexGround(PlacedSkills.Placed placed, IReadOnlyDictionary<uint, int> caster, double damageMore)
+        internal void PlaceVortexGround((int X, int Y) at, int effect, IReadOnlyDictionary<uint, int> own,
+            double damageMore, PlacedSkills.Placed? placed = null, IReadOnlyDictionary<uint, int>? casterOverride = null)
         {
-            var area = SkillAreaStats(Player, placed.Own, placed.Effect, caster);
-            int Own(uint key) => placed.Own.GetValueOrDefault(key);
+            var caster = casterOverride ?? (placed is not null ? TotemCasterStats(CharacterPlayerStats(Player)) : CharacterPlayerStats(Player));
+            var area = SkillAreaStats(Player, own, effect, caster);
+            int Own(uint key) => own.GetValueOrDefault(key);
             int Get(uint key) => area.GetValueOrDefault(key);
-            double dps = ColdGroundDps(Get, Own, spell: true, placed.Mine, trap: !placed.Mine) * damageMore;
+            double duration = placed?.EffectDurationSeconds
+                ?? SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), caster.GetValueOrDefault, Own);
+            double dps = ColdGroundDps(Get, Own, spell: true, mine: placed is { Mine: true }, trap: placed is { Mine: false });
+            if (placed is null)
+                dps = new SkillDamageContext(SkillHitKind.Spell, caster).OverTime(new(DamageType.Cold, dps, duration)).DamagePerSecond;
             int radius = SkillArea.Radius(Math.Max(1, Own(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius)), Get, spell: true);
-            double duration = placed.EffectDurationSeconds;
-            PlaceDamageGround(Vector(placed.At), radius, duration, DamageType.Cold, dps, Runtime.Now, chillStats: area);
+            PlaceDamageGround(Vector(at), radius, duration, DamageType.Cold, dps * damageMore, Runtime.Now, chillStats: area);
+        }
+
+        internal void PlaceVortexTotemGround(int effect, IReadOnlyDictionary<uint, int> own,
+            IReadOnlyDictionary<uint, int> caster, (int X, int Y) centre, double damageMore)
+        {
+            var area = SkillAreaStats(Player, own, effect, caster);
+            int Own(uint key) => own.GetValueOrDefault(key);
+            int Get(uint key) => area.GetValueOrDefault(key);
+            double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration),
+                key => caster.GetValueOrDefault(key), Own);
+            double dps = new SkillDamageContext(SkillHitKind.Spell, caster).OverTime(
+                new(DamageType.Cold, ColdGroundDps(Get, Own, spell: true, mine: false, trap: false), duration)).DamagePerSecond
+                * damageMore;
+            int radius = SkillArea.Radius(Math.Max(1, Own(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius)), Get, spell: true);
+            PlaceDamageGround(Vector(centre), radius, duration, DamageType.Cold, dps, Runtime.Now, chillStats: area);
         }
 
         internal void ReleaseVortexProjection((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
@@ -81,19 +151,22 @@ public static partial class Game
             double dps = new SkillDamageContext(SkillHitKind.Spell, caster).OverTime(
                 new(DamageType.Cold, ColdGroundDps(Get, Own, spell: true, mine: false, trap: false), duration)).DamagePerSecond;
             int radius = SkillRadius(Player, own, spell: true, gem.Effect);
-            int groundRadius = SkillArea.Radius(Own(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius), Get, spell: true);
+            int groundRadius = SkillArea.Radius(Math.Max(1, Own(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius)), Get, spell: true);
+            var fallbackCentre = SpellCentre(Player, gem.Effect, origin, aim);
             int maximum = Own(Stat.FrostBoltNovaNumberOfFrostBoltsToDetonate);
-            var bolts = Runtime.Projectiles.Where(p => p.Use.Owner.Id == Player.Id
+            var bolts = maximum <= 0 ? [] : Runtime.Projectiles.Where(p => p.Use.Owner.Id == Player.Id
                     && p.Use.Payload is ProjectileOffense { ActualCaster: null, FromTotem: false, FromTrapOrMine: false } shot
                     && SkillsFor(Player).EffectId(shot.Effect) is "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale")
                 .Select(p => (p.Id, At: ((int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y))))
                 .Where(p => Dist(aim, p.At) <= Math.Max(60, radius + 30))
                 .OrderBy(p => Dist(aim, p.At)).ThenBy(p => p.Id).Take(maximum).ToArray();
-            if (bolts.Length == 0) { At(origin, 1, 1); return; }
+            if (bolts.Length == 0) { At(fallbackCentre, 1, 1); return; }
             double radiusMore = SkillArea.RadiusMultiplier(Own(Stat.ActiveSkillAreaOfEffectPlusPctFinalWhenCastOnFrostbolt));
             double boltMore = Math.Max(0, 1 + Own(Stat.ActiveSkillIfUsedThroughFrostboltDamagePlusPctFinal) / 100d);
+            bool detonated = false;
             foreach (var bolt in bolts)
-                if (Runtime.Consume(bolt.Id)) At(bolt.At, radiusMore, boltMore);
+                if (Runtime.Consume(bolt.Id)) { detonated = true; At(bolt.At, radiusMore, boltMore); }
+            if (!detonated) At(fallbackCentre, 1, 1);
 
             void At((int X, int Y) centre, double areaMore, double more)
             {
@@ -105,6 +178,70 @@ public static partial class Game
                 PlaceDamageGround(Vector(centre), dotRadius, duration, DamageType.Cold, dps * damageMore * more * dotMore,
                     Runtime.Now, chillStats: area);
             }
+        }
+
+        // Cold Snap's second part: chilled ground at the burst that deals cold damage over time. Live it grows from the
+        // secondary radius to the tertiary one (Cold Snap 15 -> 30, Vaal 20 -> 36 at base), but its art (grd_fx.ao: no
+        // default animation, no growth) is drawn at one size and cannot be rescaled, so the ground covers the final radius.
+        internal void PlaceColdSnapGround((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+            (int X, int Y) at, SupportedGem source, double damageMore) =>
+            PlaceColdSnapGroundCore(gem.Effect, gem.Gem, at, source.Stats, CharacterPlayerStats(Player), damageMore,
+                mine: false, trap: false, durationOverride: null);
+
+        internal void PlaceColdSnapPlacedGround(PlacedSkills.Placed placed, uint gemHash,
+            IReadOnlyDictionary<uint, int> caster, double damageMore) =>
+            PlaceColdSnapGroundCore(placed.Effect, gemHash, placed.At, placed.Own, caster, damageMore,
+                mine: placed.Mine, trap: !placed.Mine, durationOverride: placed.EffectDurationSeconds);
+
+        internal void PlaceColdSnapTotemGround((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+            (int X, int Y) at, SupportedGem source, IReadOnlyDictionary<uint, int> caster, double damageMore) =>
+            PlaceColdSnapGroundCore(gem.Effect, gem.Gem, at, source.Stats, caster, damageMore,
+                mine: false, trap: false, durationOverride: null);
+
+        void PlaceColdSnapGroundCore(int effectRow, uint gemHash, (int X, int Y) at,
+            IReadOnlyDictionary<uint, int> own, IReadOnlyDictionary<uint, int> caster, double damageMore,
+            bool mine, bool trap, double? durationOverride)
+        {
+            if (!Active) return;
+            var area = SkillAreaStats(Player, own, effectRow, caster);
+            int Get(uint key) => area.GetValueOrDefault(key);
+            int Own(uint key) => own.GetValueOrDefault(key);
+            int Caster(uint key) => caster.GetValueOrDefault(key);
+            double duration = durationOverride ?? SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Caster, Own);
+            double dps = new SkillDamageContext(SkillHitKind.Spell, caster).OverTime(
+                new(DamageType.Cold, ColdGroundDps(Get, Own, spell: true, mine: mine, trap: trap), duration)).DamagePerSecond
+                * damageMore;
+            int start = SkillArea.Radius(Math.Max(1, Own(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius)), Get, spell: true);
+            int end = Math.Max(start, SkillArea.Radius(Math.Max(1, Own(Stat.ActiveSkillBaseTertiaryAreaOfEffectRadius)), Get, spell: true));
+            if (duration <= 0 || start <= 0 || Own(Stat.BaseColdDamageToDealPerMinute) <= 0) return;
+            bool vaal = SkillsFor(Player).EffectId(effectRow) == "VaalColdSnap";
+            // The worn skin's ground (SkillArtVariations cold_snap: Default, BigHands, Azurite, ProtoVaal, Overseer,
+            // Blighted, Delirium), MiscAnimatedArtVariations by skill_art_variation; the default skin's when it has none.
+            string artId = vaal ? "vaal_cold_snap_ground_effect" : "cold_snap_ground_effect";
+            int variation = gemHash == 0 ? 0 : SkillArtVariation(Player, gemHash);
+            string art = Art.Animated(artId, variation) ?? Art.Animated(artId, 0)
+                ?? (vaal ? "Metadata/Effects/Spells/vaal_skills/cold_snap/aura/fadein.ao" : "Metadata/Effects/Spells/cold_snap_02/grd_fx.ao");
+            uint id = Player.TakeObjectId();
+            var visual = new Visual(id, default);
+            Player.TrackProjectileObject(id);
+            float scale = AreaArtScale(end, art);
+            var effect = new EffectObject(at.X, at.Y, art) { Flags0 = EffectObject.FixedRotation, Scale = scale };
+            Create(id, () =>
+            {
+                if (visual.Ended) return null;
+                visual.Created = true;
+                return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
+            }, wake: true);
+            AddDamageGround(Vector(at), end, duration, DamageType.Cold, dps, Runtime.Now, visual, area,
+                vaal ? new GroundMovement(effectRow, 0, 0, FollowsOwner: true) : null);
+            coldSnapGrounds.RemoveAll(snap => !LiveColdSnap(snap));
+            if (DamageGroundsByArea.TryGetValue(Player.Area, out var grounds)
+                && grounds.Grounds.LastOrDefault(g => ReferenceEquals(g.Visual, visual)) is { } placed)
+                coldSnapGrounds.Add(new(placed, Own(Stat.ChanceToGainFrenzyChargeOnKillingEnemyAffectedByColdSnapGroundPct),
+                    Own(Stat.VaalColdSnapGainFrenzyChargeEverySecondIfEnemyInAura) != 0));
+            if (GameServer.Core.Diagnostics.ServerTrace.Skills)
+                Console.WriteLine($"[gateway] Cold Snap ground 0x{id:x} ({(vaal ? "Vaal" : "normal")}) at ({at.X},{at.Y}) " +
+                $"radius {end} (live {start}->{end}){(vaal ? ", follows the caster" : "")} over {duration:0.00}s, {dps:0} cold dps, skin {variation}: {art} scale {scale:0.00}");
         }
 
         void PlaceCreepingGround(ProjectileVector centre, int radius, double duration, double dps,
@@ -128,6 +265,19 @@ public static partial class Game
 
         static void MoveColdGround(GameArea area, DamageGround ground, double at, double seconds)
         {
+            if (ground.Movement is { FollowsOwner: true })
+            {
+                ground.Source.ColdSnapEachSecond(area, ground, at);
+                // Vaal Cold Snap's area is around the caster: it moves with them.
+                var owner = Vector(ground.Source.Player.Walk.Position(at));
+                var from = ground.CurrentCentre;
+                if ((owner - from).Length < .5) return;
+                ground.CurrentCentre = owner;
+                int ox = (int)Math.Round(owner.X), oy = (int)Math.Round(owner.Y);
+                if (ground.Visual is { } follow && (ox != (int)Math.Round(from.X) || oy != (int)Math.Round(from.Y)))
+                    ground.Source.World(follow.Id, InstanceProtocol.MoveTo(follow.Id, ox, oy, (float)seconds, InstanceProtocol.FollowTerrain));
+                return;
+            }
             if (ground.Movement is not { CellsPerSecond: > 0 } move) return;
             var centre = ground.CurrentCentre;
             const double search = 45;

@@ -64,7 +64,8 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
         foreach (var (_, run) in Subscribers(league)) yield return run;
     }
 
-    IEnumerable<(string Owner, T Run)> Subscribers(LeagueRuntime league)
+    /// <summary>The subscribers for a league, with their owners, before a connection exists.</summary>
+    public IEnumerable<(string Owner, T Run)> Subscribers(LeagueRuntime league)
     {
         var subscribers = _subscribers;
         if (subscribers.IsEmpty) yield break;
@@ -217,6 +218,39 @@ public static class GameEvents
     /// things and their quest view (the NPCs and quest blockers their quest state shows them).</summary>
     public static readonly GameEvent<Func<Player, Task>> PlayerEntered = new();
 
+    /// <summary>The player's client finished entering an area (after initial area population, <see cref="PlayerEntered"/>,
+    /// and arrival grace setup). Fires once per area connection.</summary>
+    public static readonly GameEvent<Func<Player, Task>> ClientReady = new();
+
+    /// <summary>A chat line or slash command sent by the client (<c>C->S 0x0015</c>), before chat routing or command dispatch.
+    /// True: this subscriber consumed the message and no further chat or command handling runs.</summary>
+    public static readonly GameEvent<Func<ClientMessage, Task<bool>>> ClientMessage = new();
+
+    /// <summary>The player gained one or more character levels: (player, previousLevel, newLevel).</summary>
+    public static readonly GameEvent<Func<Player, int, int, Task>> LevelUp = new();
+
+    /// <summary>The player changed a cosmetic slot or skill-gem cosmetic.</summary>
+    public static readonly GameEvent<Func<CosmeticChange, Task>> CosmeticChanged = new();
+
+    /// <summary>A new character was created on Auth, before S→C 0x15 / 0x13 and first area assignment.
+    /// Subscribers may override <see cref="CharacterCreatedContext.StartingAreaId"/>, <see cref="CharacterCreatedContext.StartingLevel"/>,
+    /// or <see cref="CharacterCreatedContext.SuppressStartKit"/>.</summary>
+    public static readonly GameEvent<Func<CharacterCreatedContext, Task>> CharacterCreated = new();
+
+    /// <summary>Evaluates a vendor sale quote for a list of offered items (implemented by the Vendors module).</summary>
+    public static readonly GameEvent<Func<Player, IReadOnlyList<InventoryItem>, VendorQuoteResult?>> VendorQuote = new();
+
+    /// <summary>Evaluates custom vendor recipes on items offered in an NPC sell window before built-in recipes and
+    /// basic sale pricing run.</summary>
+    public static readonly GameEvent<Action<VendorRecipeContext>> VendorRecipe = new();
+
+    /// <summary>The player died in an area, carrying rich context (death kind, count, hardcore flag, XP lost), after death state, XP penalty, and death screen presentation.</summary>
+    public static readonly GameEvent<Func<PlayerDiedContext, Task>> PlayerDeath = new();
+
+    /// <summary>Whether an item (<paramref name="player"/> when known, <c>BaseItemTypes</c> hash, item class) may be
+    /// placed into and activated in the map device beyond the stock accepted classes and recipes.</summary>
+    public static readonly GameEvent<Func<Player?, uint, string, bool>> MapDeviceAcceptsItem = new();
+
     /// <summary>Quest flags the client holds in the player's current area besides the character's own (their ids): a grant
     /// that belongs to the area, so it is neither saved nor cleared by another module's clean-up of the character's flags. The
     /// client's flag set (the player's create and every quest flag update) and the server's checks
@@ -341,6 +375,15 @@ public static class GameEvents
 
     /// <summary>A killed monster's drops, before they are rolled: scale them, add items, or cancel them.</summary>
     public static readonly GameEvent<Action<DropRoll>> Drops = new();
+    /// <summary>A newly generated ground item's final contents, before publication, for kills and containers alike.</summary>
+    public static readonly GameEvent<Func<Player, Item, Item>> GroundItemPreparing = new();
+
+    public static Item PrepareGroundItem(Player player, Item item)
+    {
+        foreach (var (owner, run) in GroundItemPreparing.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(GroundItemPreparing), () => item = run(player, item));
+        return item;
+    }
 
     /// <summary>A gamble window as it opens (an NPC whose shop is the black market, window kind 10): add, remove or reprice
     /// its offers.</summary>
@@ -367,6 +410,27 @@ public static class GameEvents
 
     /// <summary>Whether anything subscribes to client messages with this opcode.</summary>
     public static bool WantsPacket(ushort opcode) => Packets.TryGetValue(opcode, out var packet) && packet.Any;
+
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<byte, GameEvent<Func<Player, ReadOnlyMemory<byte>, Task<bool>>>> RulesetActions = new();
+
+    /// <summary>A client ruleset action (<c>C→S 0x02ca</c>) for <paramref name="rulesetId"/> (the <c>Rulesets.dat</c> row).
+    /// Subscribers receive only that ruleset's payload bytes and return true when handled, never hijacking other rulesets.</summary>
+    public static GameEvent<Func<Player, ReadOnlyMemory<byte>, Task<bool>>> RulesetAction(byte rulesetId) =>
+        RulesetActions.GetOrAdd(rulesetId, _ => new());
+
+    /// <summary>Dispatches a <c>C→S 0x02ca</c> ruleset payload to subscribers registered for <paramref name="rulesetId"/>.
+    /// Returns true as soon as one subscriber consumes it.</summary>
+    public static async Task<bool> RunRulesetAction(Player player, byte rulesetId, ReadOnlyMemory<byte> payload)
+    {
+        if (!RulesetActions.TryGetValue(rulesetId, out var evt) || !evt.Any) return false;
+        foreach (var (owner, run) in evt.Subscribers(player))
+        {
+            bool handled = false;
+            if (await GameEventOwners.Guard(owner, $"RulesetAction(0x{rulesetId:x2})", async () => handled = await run(player, payload)) && handled)
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>A chat command, <c>/name args…</c>, through <see cref="CommandsBuilding"/>. The Gateway's own commands, and those added
     /// before it, keep their name. One that throws tells the player it failed, and the error is in the Gateway's log.</summary>
@@ -675,6 +739,18 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, IReadOnlyList<ushort>, Task>> MessagesHandled = new();
     public static readonly GameEvent<Func<Player, InstanceItems.PickUpItem, Task<bool>>> InventoryPick = new();
     public static readonly GameEvent<Func<Player, InstanceItems.PlaceItem, Task<bool>>> InventoryPlace = new();
+    /// <summary>A held item clicked onto an item in an inventory (C→S 0x4a); true when handled.</summary>
+    public static readonly GameEvent<Func<Player, InstanceItems.ItemAction, Task<bool>>> InventoryItemAction = new();
+    /// <summary>Fired after an inventory row's items changed (pickup, place, swap, or quick-move).</summary>
+    public static readonly GameEvent<Func<Player, byte, Task>> InventoryChanged = new();
+    /// <summary>Fired after the player's rebuilt stats have been published (passive, equipment, or mod change).</summary>
+    public static readonly GameEvent<Func<Player, Task>> PlayerStatsChanged = new();
+    /// <summary>Allows modules or mods to adjust whether and at what level an optional area encounter spawns.</summary>
+    public static readonly GameEvent<Action<EncounterSpawnRequest>> EncounterSpawn = new();
+    /// <summary>Allows modules or mods to adjust companion follower eligibility and global unique-slot rules.</summary>
+    public static readonly GameEvent<Action<CompanionRuleCheck>> CompanionRules = new();
+    /// <summary>Allows modules or mods to inspect, waive unique checks for, or refuse a companion item equip.</summary>
+    public static readonly GameEvent<Action<CompanionEquipCheck>> CompanionEquip = new();
     /// <summary>How one of the player's inventories is registered with the client on entering an area (S→C 0xc0): the
     /// Inventories row's own slot, or another kind or flags for it. The client's panels bind to the first registration
     /// of a row, so this is where a row's kind is chosen. The first answer wins; null for no opinion. The size the
@@ -722,6 +798,28 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, ChatAvailability?>> ChatAvailabilityQuery = new();
     /// <summary>The player performed chat activity (such as sending a chat line); subscribers may clear away state.</summary>
     public static readonly GameEvent<Func<Player, Task>> ChatActivity = new();
+    /// <summary>A currency orb is about to craft a target item: return a replacement crafted item to override the default roll,
+    /// or null to leave the default crafting roll unchanged.</summary>
+    public static readonly GameEvent<Func<Player, Item, uint, Random, Task<Item?>>> CurrencyCrafting = new();
+    /// <summary>Why this currency (its type HASH32) may not be used on the target item, for the log; null for no
+    /// objection. The first objection wins, before anything is spent.</summary>
+    public static readonly GameEvent<Func<Player, Item, uint, string?>> CurrencyRefusal = new();
+    /// <summary>Adjust the death experience penalty percentage (0..100) before XP is deducted.</summary>
+    public static readonly GameEvent<Func<Player, decimal, Task<decimal>>> DeathPenaltyPct = new();
+    /// <summary>Fired after player death presentation has been sent.</summary>
+    public static readonly GameEvent<Func<Player, uint, Task>> PlayerDied = new();
+    /// <summary>Fired after a character level-up has been published.</summary>
+    public static readonly GameEvent<Func<Player, int, Task>> PlayerLevelUp = new();
+    /// <summary>Request opening a town portal at (x, y) on behalf of a player (e.g., on-death or item effects); true when handled.</summary>
+    public static readonly GameEvent<Func<Player, int, int, string, Task<bool>>> PortalRequested = new();
+    /// <summary>An NPCTalk script dispatched a ruleset event (<c>DispatchRulesetEvent(...)</c>) or scripted world action:
+    /// (player, npcObjectId, npc, talk, eventName). True when handled by this subscriber.</summary>
+    public static readonly GameEvent<Func<Player, uint, SpawnedNpc, NpcCatalog.Talk, string, Task<bool>>> RulesetEvent = new();
+    /// <summary>The player interacted with a Map Device (hideout or Karui Shores) right before the Map Device window opens.</summary>
+    public static readonly GameEvent<Func<Player, Task>> MapDeviceOpened = new();
+
+    /// <summary>An NPCTalk row's end script ran (e.g. a custom script verb or screen action); return true when handled.</summary>
+    public static readonly GameEvent<Func<Player, uint, SpawnedNpc, NpcCatalog.Talk, Task<bool>>> NpcTalkScript = new();
 
     public static async Task<bool> AnyNpcTalk(Player player, uint id, SpawnedNpc npc)
     {
@@ -790,6 +888,23 @@ public static class GameEvents
         return true;
     }
 
+    public static async Task<bool> DispatchRulesetEvent(Player player, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk, string eventName)
+    {
+        bool handled = false;
+        foreach (var (owner, run) in RulesetEvent.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(RulesetEvent), async () =>
+            {
+                if (await run(player, npcId, npc, talk, eventName)) handled = true;
+            });
+        return handled;
+    }
+
+    public static async Task RunMapDeviceOpened(Player player)
+    {
+        foreach (var (owner, run) in MapDeviceOpened.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(MapDeviceOpened), () => run(player));
+    }
+
     public static bool UsesNpcLeagueFlags(Player player, NpcCatalog.Npc npc)
     {
         foreach (var (owner, run) in NpcUsesLeagueFlags.Subscribers(player))
@@ -818,6 +933,58 @@ public static class GameEvents
         return false;
     }
 
+    public static async Task<bool> AnyInventoryItemAction(Player player, InstanceItems.ItemAction action)
+    {
+        if (!InventoryItemAction.Any) return false;
+        foreach (var (owner, run) in InventoryItemAction.Subscribers(player))
+        {
+            bool taken = false;
+            if (await GameEventOwners.Guard(owner, nameof(InventoryItemAction), async () => taken = await run(player, action)) && taken)
+                return true;
+        }
+        return false;
+    }
+
+    public static async Task RunInventoryChanged(Player player, byte row)
+    {
+        if (!InventoryChanged.Any) return;
+        foreach (var (owner, run) in InventoryChanged.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(InventoryChanged), () => run(player, row));
+    }
+
+    public static async Task RunPlayerStatsChanged(Player player)
+    {
+        if (!PlayerStatsChanged.Any) return;
+        foreach (var (owner, run) in PlayerStatsChanged.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(PlayerStatsChanged), () => run(player));
+    }
+
+    public static void ResolveEncounterSpawn(EncounterSpawnRequest request)
+    {
+        if (!EncounterSpawn.Any) return;
+        foreach (var (owner, run) in EncounterSpawn.Subscribers(request.Player))
+            GameEventOwners.Guard(owner, nameof(EncounterSpawn), () => run(request));
+    }
+
+    public static CompanionRuleCheck ResolveCompanionRules(Player player, bool canHavePermanentFollower)
+    {
+        var check = new CompanionRuleCheck(player, canHavePermanentFollower);
+        if (!CompanionRules.Any) return check;
+        foreach (var (owner, run) in CompanionRules.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(CompanionRules), () => run(check));
+        return check;
+    }
+
+    public static CompanionEquipCheck ResolveCompanionEquip(Player player, byte equipmentRow, Item item,
+        int companionLevel, bool isPermanent)
+    {
+        var check = new CompanionEquipCheck(player, equipmentRow, item, companionLevel, isPermanent);
+        if (!CompanionEquip.Any) return check;
+        foreach (var (owner, run) in CompanionEquip.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(CompanionEquip), () => run(check));
+        return check;
+    }
+
     public static InstanceInventories.Slot ResolveInventorySlot(Player player, InstanceInventories.Slot slot)
     {
         foreach (var (owner, run) in InventorySlot.Subscribers(player))
@@ -830,9 +997,12 @@ public static class GameEvents
     }
 
     public static string? FirstInventoryRefusal(Player player, byte row, Item item) =>
-        FirstInventoryRefusal(player, row, item, null);
+        FirstInventoryRefusal(player, row, item, null, 0, 0);
 
-    public static string? FirstInventoryRefusal(Player player, byte row, Item item, InventoryItem? replaced)
+    public static string? FirstInventoryRefusal(Player player, byte row, Item item, InventoryItem? replaced) =>
+        FirstInventoryRefusal(player, row, item, replaced, 0, 0);
+
+    public static string? FirstInventoryRefusal(Player player, byte row, Item item, InventoryItem? replaced, byte x, byte y)
     {
         foreach (var (owner, run) in InventoryRefusal.Subscribers(player))
         {
@@ -841,7 +1011,7 @@ public static class GameEvents
             if (answer is not null) return answer;
         }
         if (!InventoryPlacementRefusal.Any) return null;
-        var placement = new InventoryPlacement(player, row, item, replaced);
+        var placement = new InventoryPlacement(player, row, item, replaced) { X = x, Y = y };
         foreach (var (owner, run) in InventoryPlacementRefusal.Subscribers(player))
         {
             string? answer = null;
@@ -870,6 +1040,68 @@ public static class GameEvents
     public static async Task<bool> AnyItemUse(Player player, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         foreach (var run in ItemUse.For(player)) if (await run(player, row, item, type)) return true;
+        return false;
+    }
+
+    public static string? FirstCurrencyRefusal(Player player, Item target, uint currencyTypeHash)
+    {
+        if (!CurrencyRefusal.Any) return null;
+        foreach (var (owner, run) in CurrencyRefusal.Subscribers(player))
+        {
+            string? answer = null;
+            GameEventOwners.Guard(owner, nameof(CurrencyRefusal), () => answer = run(player, target, currencyTypeHash));
+            if (answer is not null) return answer;
+        }
+        return null;
+    }
+
+    public static async Task<Item?> ResolveCurrencyCrafting(Player player, Item target, uint currencyTypeHash, Random random)
+    {
+        if (!CurrencyCrafting.Any) return null;
+        foreach (var (owner, run) in CurrencyCrafting.Subscribers(player))
+        {
+            Item? answer = null;
+            if (await GameEventOwners.Guard(owner, nameof(CurrencyCrafting), async () => answer = await run(player, target, currencyTypeHash, random)) && answer is not null)
+                return answer;
+        }
+        return null;
+    }
+
+    public static async Task<decimal> ResolveDeathPenaltyPct(Player player, decimal percent)
+    {
+        if (!DeathPenaltyPct.Any) return percent;
+        foreach (var (owner, run) in DeathPenaltyPct.Subscribers(player))
+        {
+            decimal next = percent;
+            if (await GameEventOwners.Guard(owner, nameof(DeathPenaltyPct), async () => next = await run(player, percent)))
+                percent = Math.Clamp(next, 0, 100);
+        }
+        return percent;
+    }
+
+    public static async Task RunPlayerDied(Player player, uint experienceLost)
+    {
+        if (!PlayerDied.Any) return;
+        foreach (var (owner, run) in PlayerDied.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(PlayerDied), () => run(player, experienceLost));
+    }
+
+    public static async Task RunPlayerLevelUp(Player player, int level)
+    {
+        if (!PlayerLevelUp.Any) return;
+        foreach (var (owner, run) in PlayerLevelUp.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(PlayerLevelUp), () => run(player, level));
+    }
+
+    public static async Task<bool> RequestPortal(Player player, int x, int y, string reason)
+    {
+        if (!PortalRequested.Any) return false;
+        foreach (var (owner, run) in PortalRequested.Subscribers(player))
+        {
+            bool opened = false;
+            if (await GameEventOwners.Guard(owner, nameof(PortalRequested), async () => opened = await run(player, x, y, reason)) && opened)
+                return true;
+        }
         return false;
     }
 
@@ -1006,5 +1238,109 @@ public static class GameEvents
     {
         foreach (var (owner, run) in ChatActivity.Subscribers(player))
             await GameEventOwners.Guard(owner, nameof(ChatActivity), () => run(player));
+    }
+
+    public static async Task RunClientReady(Player player)
+    {
+        if (!ClientReady.Any) return;
+        foreach (var (owner, run) in ClientReady.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(ClientReady), () => run(player));
+    }
+
+    /// <summary>True when a subscriber consumed the client message.</summary>
+    public static async Task<bool> AnyClientMessage(Player player, InstanceChat.ChatInput input)
+    {
+        if (!ClientMessage.Any) return false;
+        var message = new ClientMessage(player, input.Text, input.Links);
+        foreach (var (owner, run) in ClientMessage.Subscribers(player))
+        {
+            bool taken = false;
+            if (await GameEventOwners.Guard(owner, nameof(ClientMessage), async () => taken = await run(message)) && taken)
+                return true;
+        }
+        return false;
+    }
+
+    public static async Task RunLevelUp(Player player, int previousLevel, int newLevel)
+    {
+        if (newLevel <= previousLevel || !LevelUp.Any) return;
+        foreach (var (owner, run) in LevelUp.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(LevelUp), () => run(player, previousLevel, newLevel));
+    }
+
+    public static async Task RunCosmeticChanged(CosmeticChange change)
+    {
+        if (!CosmeticChanged.Any) return;
+        foreach (var (owner, run) in CosmeticChanged.Subscribers(change.Player))
+            await GameEventOwners.Guard(owner, nameof(CosmeticChanged), () => run(change));
+    }
+
+    public static async Task RunCharacterCreated(CharacterCreatedContext context, LeagueRuntime? league = null)
+    {
+        if (!CharacterCreated.Any) return;
+        league ??= ServerLeagues.Resolve(context.LeagueForm, context.League, GameServer.Core.Accounts.LeagueCatalog.Startup);
+        foreach (var (owner, run) in CharacterCreated.Subscribers(league))
+            await GameEventOwners.Guard(owner, nameof(CharacterCreated), () => run(context));
+    }
+
+    public static VendorQuoteResult? QuoteVendor(Player player, IReadOnlyList<InventoryItem> offered)
+    {
+        if (!VendorQuote.Any) return null;
+        foreach (var (owner, run) in VendorQuote.Subscribers(player))
+        {
+            VendorQuoteResult? result = null;
+            if (GameEventOwners.Guard(owner, nameof(VendorQuote), () => result = run(player, offered)) && result is not null)
+                return result;
+        }
+        return null;
+    }
+
+    public static void RunVendorRecipes(VendorRecipeContext context)
+    {
+        if (!VendorRecipe.Any) return;
+        foreach (var (owner, run) in VendorRecipe.Subscribers(context.Player))
+            GameEventOwners.Guard(owner, nameof(VendorRecipe), () => run(context));
+    }
+
+    public static async Task RunPlayerDeath(PlayerDiedContext context)
+    {
+        if (!PlayerDeath.Any) return;
+        foreach (var (owner, run) in PlayerDeath.Subscribers(context.Player))
+            await GameEventOwners.Guard(owner, nameof(PlayerDeath), () => run(context));
+    }
+
+    public static bool AllowsMapDeviceItem(Player? player, uint typeHash, string itemClass)
+    {
+        if (!MapDeviceAcceptsItem.Any) return false;
+        if (player is not null)
+        {
+            foreach (var (owner, run) in MapDeviceAcceptsItem.Subscribers(player))
+            {
+                bool allowed = false;
+                if (GameEventOwners.Guard(owner, nameof(MapDeviceAcceptsItem), () => allowed = run(player, typeHash, itemClass)) && allowed)
+                    return true;
+            }
+            return false;
+        }
+        foreach (var subscriber in MapDeviceAcceptsItem.Snapshot)
+        {
+            if (subscriber.Rank != GameEventOwners.ModRank) continue;
+            bool allowed = false;
+            if (GameEventOwners.Guard(subscriber.Owner, nameof(MapDeviceAcceptsItem), () => allowed = subscriber.Run(null, typeHash, itemClass)) && allowed)
+                return true;
+        }
+        return false;
+    }
+
+    public static async Task<bool> RunNpcTalkScript(Player player, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk)
+    {
+        if (!NpcTalkScript.Any) return false;
+        foreach (var (owner, run) in NpcTalkScript.Subscribers(player))
+        {
+            bool handled = false;
+            if (await GameEventOwners.Guard(owner, nameof(NpcTalkScript), async () => handled = await run(player, npcId, npc, talk)) && handled)
+                return true;
+        }
+        return false;
     }
 }
