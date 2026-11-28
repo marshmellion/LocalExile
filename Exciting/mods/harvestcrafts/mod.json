@@ -4,9 +4,7 @@
   "description": "Needs nothing extra. Works on its own. Chat commands for the Harvest crafts the game removed (augment, remove, remove/add, randomise values, keep-prefix reforges, upgrades and fracture), on the item in the Horticrafting Station.",
   "author": "marshmellion",
   "version": "0.2.1",
-  "compatibleClientVersions": [
-    "0.6.0-beta"
-  ],
+  "compatibleClientVersions": ["0.6.0-beta", "0.6.1-beta"],
   "kind": "feature",
   "depends": [
     "Game"

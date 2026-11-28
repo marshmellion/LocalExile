@@ -4,9 +4,7 @@
   "description": "Needs the Exciting build of LocalExile (github.com/marshmellion/LocalExile, branch exciting). Works with Body Auras (body auras drop too and are locked until found). Cosmetics and bought hideouts are no longer all owned: they drop. Target-farm each one where it fits (Sirus's from Sirus, a tileset's in its maps) as a Sealed Cosmetic, or open Cosmetic Caches for random ones, or both.",
   "author": "marshmellion",
   "version": "1.4.2",
-  "compatibleClientVersions": [
-    "0.6.0-beta"
-  ],
+  "compatibleClientVersions": ["0.6.1-beta"],
   "kind": "feature",
   "depends": [
     "Game"

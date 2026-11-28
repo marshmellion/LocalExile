@@ -4,9 +4,7 @@
   "description": "Needs nothing extra; on the Exciting build of LocalExile (github.com/marshmellion/LocalExile, branch exciting) its bigger stacks, price popups and currency tab additions work too. Works with Exciting Items, Live Economy (prices) and the QoL client mod (panels inside the game, NativeMods). Deposit all, vendor a stash tab, sort the inventory, upgrade maps, bring the shown loot to you, price popups on currency, 65,000 stacks, copies of uniques. Buttons, keybinds and panels in the game (NativeMods client mod) or through qol-overlay.",
   "author": "marshmellion",
   "version": "0.6.7",
-  "compatibleClientVersions": [
-    "0.6.0-beta"
-  ],
+  "compatibleClientVersions": ["0.6.0-beta", "0.6.1-beta"],
   "kind": "feature",
   "depends": [
     "Game"
