@@ -708,7 +708,7 @@ $env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
 # Select the local Auth explicitly before the patch server or client opens the client files (the default stack only).
 # Play setup (modding-api branch): enabled mods' content packs go into this checkout's own client and client.db before
 # anything opens them; skipped when nothing changed since the last apply, and never on a shared (linked) client. A Steam
-# install's files are not changed: the content goes to Mods\Client\.merged-cache, which NativeMods hands the game.
+# install gets our bundle and a patched index among its loose Bundles2\ files.
 $contentPatch = Join-Path $repo 'tools\ContentPatch\ContentPatch.csproj'
 $clientFolder = Join-Path $repo 'Client'
 $clientData = (Test-Path (Join-Path $clientFolder 'Content.ggpk')) -or (Test-Path (Join-Path $clientFolder 'Bundles2\_.index.bin'))
