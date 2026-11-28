@@ -30,7 +30,8 @@ public sealed partial class ExcitingItemsMod : IMod, IDisposable
         RecombinatorChoices? Recombinators = null, DefiledChoices? DefiledOrb = null, MistChoices? ReflectingMist = null,
         JackpotChoices? Jackpot = null, CustomImplicitChoices? CustomImplicits = null, LegacyUniqueChoices? LegacyUniques = null,
         LegacyCurrencyChoices? LegacyCurrencies = null, CrucibleChoices? Crucible = null, IdolChoices? Idols = null, MirageChoices? Mirage = null,
-        UnobtainableChoices? Unobtainable = null, CardRateChoices? CardRate = null, AscendantJewelChoices? AscendantJewels = null);
+        UnobtainableChoices? Unobtainable = null, CardRateChoices? CardRate = null, AscendantJewelChoices? AscendantJewels = null,
+        string DropSounds = "alertsOnly");
 
     const string FilterStart = "# >>> excitingitems (LocalExile mod): always show exciting items >>>";
     const string FilterEnd = "# <<< excitingitems <<<";
@@ -892,7 +893,8 @@ public sealed partial class ExcitingItemsMod : IMod, IDisposable
         int changed = 0;
         string[] legacy = (choices.LegacyMods ?? new()).Mark && LegacyMarker(Program.Items) is not null ? ["", .. LegacyFilterRule()] : [];
         string[] block = [FilterStart, .. FilterRule(Marker(Program.Items) is not null), .. legacy, FilterEnd];
-        int copies = OnlineCopies(folder, wanted ? block : null, ref changed);
+        int copies = OnlineCopies(folder, wanted || choices.DropSounds != "game" ? (wanted ? block : [FilterStart, FilterEnd]) : null,
+            choices.DropSounds, ref changed);
         static bool Cut(List<string> lines, string start, string end)
         {
             int from = lines.FindIndex(l => l.Trim() == start), to = lines.FindIndex(l => l.Trim() == end);
@@ -907,6 +909,7 @@ public sealed partial class ExcitingItemsMod : IMod, IDisposable
             var before = string.Join('\n', lines);
             Cut(lines, OldStart, OldEnd);
             Cut(lines, FilterStart, FilterEnd);
+            lines = QuietDrops(lines, choices.DropSounds);
             if (wanted) lines.InsertRange(0, block.Append(""));
             if (string.Join('\n', lines) == before) continue;
             File.WriteAllLines(file, lines);
@@ -919,9 +922,46 @@ public sealed partial class ExcitingItemsMod : IMod, IDisposable
             $"{changed} changed (rule {(wanted ? "on" : "off")})";
     }
 
+    // The game's own drop sounds (the clink of currency, cards, maps, gems and uniques landing) play even for items a
+    // filter hides, unless the block says DisableDropSound. dropSounds "shownOnly" adds that to every Hide block,
+    // "alertsOnly" to every block (only the filter's own alert sounds play), "game" adds none. The lines it adds end in
+    // QuietMark, so they come out again before each run and when the setting changes; a block that says DisableDropSound
+    // or EnableDropSound itself is left as it is.
+    const string QuietMark = "# excitingitems: dropSounds";
+
+    static List<string> QuietDrops(List<string> lines, string mode)
+    {
+        var result = new List<string>(lines.Count + 64);
+        foreach (string line in lines) if (!line.TrimEnd().EndsWith(QuietMark, StringComparison.Ordinal)) result.Add(line);
+        if (mode is not ("shownOnly" or "alertsOnly")) return result;
+        static bool Header(string l, out bool hide)
+        {
+            string t = l.TrimStart();
+            hide = t.StartsWith("Hide", StringComparison.Ordinal) && (t.Length == 4 || !char.IsLetterOrDigit(t[4]));
+            bool show = t.StartsWith("Show", StringComparison.Ordinal) && (t.Length == 4 || !char.IsLetterOrDigit(t[4]))
+                || t.StartsWith("Minimal", StringComparison.Ordinal) && (t.Length == 7 || !char.IsLetterOrDigit(t[7]));
+            return hide || show;
+        }
+        var output = new List<string>(result.Count + 64);
+        for (int i = 0; i < result.Count; i++)
+        {
+            output.Add(result[i]);
+            if (!Header(result[i], out bool hide) || (mode == "shownOnly" && !hide)) continue;
+            bool own = false;
+            for (int j = i + 1; j < result.Count && !Header(result[j], out _); j++)
+            {
+                string t = result[j].TrimStart();
+                if (t.StartsWith("DisableDropSound", StringComparison.Ordinal) || t.StartsWith("EnableDropSound", StringComparison.Ordinal))
+                { own = true; break; }
+            }
+            if (!own) output.Add("    DisableDropSound True " + QuietMark);
+        }
+        return output;
+    }
+
     // Writes "<name> (Exciting).filter" for every online filter (block on top, then the online filter as it is), or,
     // with no block, deletes those copies. A copy is ours only if it starts with the block's first line.
-    static int OnlineCopies(string folder, string[]? block, ref int changed)
+    static int OnlineCopies(string folder, string[]? block, string dropSounds, ref int changed)
     {
         foreach (string old in Directory.GetFiles(folder, "*" + OnlineCopySuffix))
             if (File.ReadLines(old).FirstOrDefault()?.Trim() == FilterStart) { File.Delete(old); changed++; }
@@ -934,7 +974,7 @@ public sealed partial class ExcitingItemsMod : IMod, IDisposable
             string? name = lines.Take(20).FirstOrDefault(l => l.StartsWith("#name:", StringComparison.OrdinalIgnoreCase))?[6..].Trim();
             if (string.IsNullOrEmpty(name)) continue;
             foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            File.WriteAllLines(Path.Combine(folder, name + OnlineCopySuffix), [.. block, "", .. lines]);
+            File.WriteAllLines(Path.Combine(folder, name + OnlineCopySuffix), [.. block, "", .. QuietDrops([.. lines], dropSounds)]);
             copies++;
         }
         return copies;

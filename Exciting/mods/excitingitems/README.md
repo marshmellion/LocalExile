@@ -70,6 +70,7 @@ of item in every mode.
 | `blacklist` | (above) | modifiers never used as implicits |
 | `mark`, `showInFilters` | on, on | the Exciting marker (or the synthesised look), and the loot filter rule |
 | `announce` | on | the chat line |
+| `dropSounds` | only the filter's alert sounds | the game's own drop sounds (currency, cards, maps, gems, uniques) play even for hidden items: `alertsOnly` keeps only the sounds your filter sets, `shownOnly` silences hidden items, `game` changes nothing. It adds `DisableDropSound True # excitingitems: dropSounds` lines to the filters (and the (Exciting) copies of online filters), taken out again when the setting changes |
 | `filterFolder` | (empty) | the loot filter folder; empty is Documents\My Games\Path of Exile\LocalExile |
 
 The loot filter rule goes between two marker lines at the top of every `.filter` file in the folder (by default
