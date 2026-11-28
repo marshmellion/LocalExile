@@ -737,6 +737,8 @@ public static partial class Game
         player.PlayerLife = LifeReservation.Clamp(player.PlayerLife, LifeReservationOf(player));
         player.PlayerMana = Math.Min(player.PlayerMana, (uint)UnreservedMana(player));
         await SendCharacterStats(player, PlayerStatChange.Build);
+        // A jewel that allocates a node (JewelAllocatedPassives) brings or takes that node's self buffs.
+        await Send(player, [], "0x01c1/0x01c2 passive buffs (passive jewels)", atGate: () => PassiveBuffAuras.Presentation(player, EffectiveNodes(player)));
         // 0x1b3 carries the new maximum; the current life needs its own 0x1b1, or the client keeps it above a maximum
         // that a refund lowered (a "5000 of 4997" overfill).
         var timeless = ItemsOf(player).Items(PlayerInventories.PassiveJewels)

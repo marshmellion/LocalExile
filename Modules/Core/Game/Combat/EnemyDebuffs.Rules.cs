@@ -375,14 +375,14 @@ public static partial class Game
     public static async Task EnemyDebuffsTick(Player player, double now)
     {
         if (!CurrentGameWork || player.Closed || player.LeavingArea) return;
-        ushort[] nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
+        ushort[] nodes = EffectiveNodes(player);
         // Outside the lock: the first call loads the aura table from PassiveSkills.
         var all = PassiveBuffAuras.EnemyAurasFor(nodes, LeagueFor(player).HardMode, EnemyAuraActs);
         await Send(player, [], null, atGate: () =>
         {
             if (!CurrentGameWork || player.Closed || player.LeavingArea) return null;
             now = AreaTime(player);
-            ushort[] currentNodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
+            ushort[] currentNodes = EffectiveNodes(player);
             var current = nodes.SequenceEqual(currentNodes) ? all
                 : PassiveBuffAuras.EnemyAurasFor(currentNodes, LeagueFor(player).HardMode, EnemyAuraActs);
             var steps = DebuffStepsOf.GetValue(player, static owner => new(owner));

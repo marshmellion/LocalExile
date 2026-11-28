@@ -118,7 +118,7 @@ public static partial class Game
             Sent(FlaskGrounds.ProfaneLingerStat));
         // So do the player's debuffs on monsters (EnemyDebuffsTick): his passives' enemy auras and his taunt's increase.
         ushort[] nodes;
-        nodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
+        nodes = EffectiveNodes(player);
         player.EnemyDebuffs = new(Sent(Stat.TauntedEnemiesDamageTakenPlusPct));
         return [];
     }
