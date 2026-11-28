@@ -16,11 +16,11 @@ using GameServer.Core.Protocol.Instance;
 public sealed partial class QolMod : IMod, IDisposable
 {
     sealed record PriceChoices(bool Enabled = true, double MinimumChaos = 1, bool Standard = false, bool Overlay = true, double OverlayMinimum = 0.01,
-        bool Remember = true, string Style = "float", double FloatSeconds = 3, double FloatHold = 1, string Place = "feet", int Scatter = 40, int FeetX = 0, int FeetY = 0, int FloatRise = 120, int FloatSize = 14);
+        bool Remember = true, bool OverlayWithPopups = false, string PopupIcon = "orbs", string Style = "float", double FloatSeconds = 3, double FloatHold = 1, string Place = "feet", int Scatter = 40, int FeetX = 0, int FeetY = 0, int FloatRise = 120, int FloatSize = 14);
     sealed record ButtonChoices(string Place = "below", int X = -1, int Y = 852);
     sealed record LootChoices(int MaxItems = 250, bool Gold = true, bool PlayerDropped = false, int LeaveWithin = 12,
         string FilterFolder = "", bool IgnoreFilter = false);
-    sealed record DepositChoices(string[] Keep, bool ShownTabLast = true);
+    sealed record DepositChoices(string[] Keep, bool ShownTabLast = true, bool ChartLocker = true, bool SulphurToLocker = true);
     sealed record MapChoices(string[] Rarities, bool Corrupted = false, int Top = 16);
     sealed record Choices(int Port, DepositChoices Deposit, LootChoices Loot, PriceChoices Prices, MapChoices Maps,
         int StackSize = 65000, bool UniqueCopies = true, bool VendorConfirm = true, bool StartOverlay = true,
@@ -99,6 +99,7 @@ public sealed partial class QolMod : IMod, IDisposable
         _log = mod.Log;
         LoadPrices();
         GameEvents.AreaTick.Add(id, GameEvents.Always(Tick));
+        HookChartLocker(id);
         // Any mod can show a pop-up on the overlay: (player, text, the full path of a .wav to play or null).
         AppDomain.CurrentDomain.SetData("localexile.qol.toast", (Action<Player, string, string?>)((player, text, sound) =>
         {
@@ -133,15 +134,8 @@ public sealed partial class QolMod : IMod, IDisposable
     void StartOverlay(string folder)
     {
         if (!OperatingSystem.IsWindows()) return;
-        // The in-game QoL panels (NativeMods client mod Mods\Client\qol, loaded by Client\version.dll) do what the
-        // overlay does, inside the game: the overlay then stays off unless asked for as well.
-        string root = Path.GetFullPath(Path.Combine(folder, "..", "..", ".."));
-        if (!_choices.OverlayWithInGameUi && File.Exists(Path.Combine(root, "Mods", "Client", "qol", "mod.json"))
-            && File.Exists(Path.Combine(root, "Client", "version.dll")))
-        {
-            _log("the in-game QoL panels are installed: the overlay is not started (setting overlayWithInGameUi)");
-            return;
-        }
+        // Started even with the in-game QoL panels installed: it hides itself while they run (see PanelsLive), so
+        // it is there when they are not.
         string script = Path.Combine(folder, "overlay", "qol-overlay.ps1");
         if (!File.Exists(script)) { _log($"no overlay at {script}"); return; }
         try
@@ -296,8 +290,21 @@ public sealed partial class QolMod : IMod, IDisposable
         catch (Exception e) when (e is IOException or SocketException or TimeoutException or ObjectDisposedException) { }
     }
 
+    // The in-game QoL panels (NativeMods client mod) ask for /state with panels=1. While they do, the overlay hides
+    // itself (unless overlayWithInGameUi is on) and shows again when they stop: NativeMods off, or the panels did
+    // not load.
+    long _panelsSeenTicks;
+    bool PanelsLive => DateTime.UtcNow.Ticks - Interlocked.Read(ref _panelsSeenTicks) < TimeSpan.FromSeconds(5).Ticks;
+
     string Answer(string path)
     {
+        if (path.Contains("panels=1", StringComparison.Ordinal))
+            Interlocked.Exchange(ref _panelsSeenTicks, DateTime.UtcNow.Ticks);
+        // The overlay asks without panels=1. While the panels run it is told there is nothing to show, which hides
+        // every copy of it, also one started before it knew about the panels.
+        if (!path.Contains("panels=1", StringComparison.Ordinal) && !path.StartsWith("/do/", StringComparison.Ordinal)
+            && PanelsLive && !_choices.OverlayWithInGameUi)
+            return JsonSerializer.Serialize(new { connected = false, panels = true });
         var player = Current();
         if (path.StartsWith("/do/", StringComparison.Ordinal))
         {
@@ -306,7 +313,7 @@ public sealed partial class QolMod : IMod, IDisposable
             Ask(player, what);
             return JsonSerializer.Serialize(new { ok = true, message = $"{what} asked" });
         }
-        if (player is null) return JsonSerializer.Serialize(new { connected = false });
+        if (player is null) return JsonSerializer.Serialize(new { connected = false, panels = PanelsLive, overlayWithPanels = _choices.OverlayWithInGameUi });
         var state = StateOf(player);
         string tabType = "", tabName = "";
         if (player.StashOpen)
@@ -335,6 +342,8 @@ public sealed partial class QolMod : IMod, IDisposable
         return JsonSerializer.Serialize(new
         {
             connected = true,
+            panels = PanelsLive,
+            overlayWithPanels = _choices.OverlayWithInGameUi,
             character = Program.PlayerOf(player).Character,
             stash = player.StashOpen,
             tabType,

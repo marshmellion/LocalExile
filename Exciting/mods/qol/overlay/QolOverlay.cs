@@ -275,10 +275,16 @@ public sealed class QolOverlay : Form
 
     void Poll()
     {
+        // Closes itself once the server is gone (30 s without an answer after it had one, or 5 minutes without any),
+        // so the next server start runs a fresh copy instead of finding an old one still open.
+        DateTime started = DateTime.UtcNow, lastAnswer = DateTime.MinValue;
         while (true)
         {
-            try { _state = Fetch("state?" + (_showGems ? "gems=1&" : "") + (_wantCrafts ? "crafts=1" : "")); }
+            try { _state = Fetch("state?" + (_showGems ? "gems=1&" : "") + (_wantCrafts ? "crafts=1" : "")); lastAnswer = DateTime.UtcNow; }
             catch (Exception) { _state = ""; }
+            DateTime now = DateTime.UtcNow;
+            if (lastAnswer != DateTime.MinValue ? now - lastAnswer > TimeSpan.FromSeconds(30) : now - started > TimeSpan.FromMinutes(5))
+                Environment.Exit(0);
             Thread.Sleep(_state.Length == 0 ? 1500 : 250);
         }
     }
@@ -303,7 +309,10 @@ public sealed class QolOverlay : Form
         ReadKeys();
         string state = _state;
         bool connected = Field(state, "connected") == "true";
-        if (!focused || _hidden || !connected)
+        // The in-game QoL panels are running (they do the same inside the game): stay out of the way, unless the
+        // setting overlayWithInGameUi asks for both. Back as soon as they stop.
+        bool panels = Field(state, "panels") == "true" && Field(state, "overlayWithPanels") != "true";
+        if (!focused || _hidden || !connected || panels)
         {
             if (Visible) Hide();
             ClearFloats();

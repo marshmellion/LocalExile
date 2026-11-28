@@ -1,18 +1,17 @@
 {
-  // Number popups for the price shown on picking up currency (QolPrices.cs): copies of the Breach splinter popup with
-  // this mod's own pictures, one in chaos and one in divines.
+  // Number popups for the price shown on picking up currency (QolPrices.cs): copies of the Breach splinter popup that
+  // show the game's own Chaos Orb and Divine Orb pictures, shrunk to the popup's icon size. The setting prices.popupIcon
+  // "gold" uses the game's gold coin popup instead (no rows needed for that).
   "rows": [
     { "table": "WorldPopupIconTypes", "copyOf": { "Id": "BreachSplinter" },
-      "set": { "Id": "LocalExileChaosPopup", "__col1": "Art/2DArt/UIImages/InGame/LocalExileChaosPopup", "__col8": "Chaos" } },
+      "set": { "Id": "LocalExileChaosPopup", "__col1": "Art/2DArt/UIImages/InGame/LocalExileChaosOrbPopup", "__col8": "Chaos" } },
     { "table": "WorldPopupIconTypes", "copyOf": { "Id": "BreachSplinter" },
-      "set": { "Id": "LocalExileDivinePopup", "__col1": "Art/2DArt/UIImages/InGame/LocalExileDivinePopup", "__col8": "Divine" } }
+      "set": { "Id": "LocalExileDivinePopup", "__col1": "Art/2DArt/UIImages/InGame/LocalExileDivineOrbPopup", "__col8": "Divine" } }
   ],
   "files": [
-    { "path": "Art/2DArt/LocalExile/ChaosPopup.dds", "image": "chaos_popup.png" },
-    { "path": "Art/2DArt/LocalExile/DivinePopup.dds", "image": "divine_popup.png" },
     { "path": "Art/UIImages1.txt", "appendLines": [
-      "\"Art/2DArt/UIImages/InGame/LocalExileChaosPopup\" \"Art/2DArt/LocalExile/ChaosPopup.dds\" 0 0 43 43",
-      "\"Art/2DArt/UIImages/InGame/LocalExileDivinePopup\" \"Art/2DArt/LocalExile/DivinePopup.dds\" 0 0 43 43"
+      "\"Art/2DArt/UIImages/InGame/LocalExileChaosOrbPopup\" \"Art/2DItems/Currency/CurrencyRerollRare.dds\" 0 0 80 80",
+      "\"Art/2DArt/UIImages/InGame/LocalExileDivineOrbPopup\" \"Art/2DItems/Currency/CurrencyModValues.dds\" 0 0 80 80"
     ] }
   ]
 }

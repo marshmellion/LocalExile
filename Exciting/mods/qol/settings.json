@@ -18,7 +18,7 @@
       "type": "bool",
       "default": false,
       "label": "Overlay as well as the in-game panels",
-      "description": "With the in-game QoL panels installed (NativeMods), the separate overlay window is not started unless this is on."
+      "description": "While the in-game QoL panels (NativeMods) are running, the overlay window hides itself, and it comes back when they stop. On: the overlay stays shown alongside them."
     },
     "deposit": {
       "type": "group",
@@ -40,6 +40,18 @@
           "type": "bool",
           "default": true,
           "label": "The tab shown takes what no other tab does"
+        },
+        "chartLocker": {
+          "type": "bool",
+          "default": true,
+          "label": "Charts go into the Chart Locker",
+          "description": "The Allflame league's charts go into their tab of the Chart Locker (the Sovereign's deck) before any stash tab; a full locker tab leaves them for the stash."
+        },
+        "sulphurToLocker": {
+          "type": "bool",
+          "default": true,
+          "label": "Dead Man's Sulphur goes into the Chart Locker",
+          "description": "Off: Sulphur goes to the Currency tab like other currency. Voyages take Sulphur from the locker, the inventory or the stash either way."
         }
       }
     },
@@ -102,6 +114,16 @@
           "label": "Smallest worth shown as a game popup (chaos)",
           "description": "The game's own number popup shows whole numbers only, so 1 is the least it can show."
         },
+        "popupIcon": {
+          "type": "choice",
+          "default": "orbs",
+          "label": "The popup's picture",
+          "description": "orbs: the game's Chaos Orb or Divine Orb picture, shrunk. gold: the gold coin the game shows when you pick up gold.",
+          "options": [
+            "orbs",
+            "gold"
+          ]
+        },
         "standard": {
           "type": "bool",
           "default": false,
@@ -119,6 +141,12 @@
           "min": 0,
           "max": 100000,
           "label": "Smallest worth in the overlay (chaos)"
+        },
+        "overlayWithPopups": {
+          "type": "bool",
+          "default": false,
+          "label": "Overlay price lines even when the game shows its popup",
+          "description": "Off: a pickup that gets the game's own number popup gets no overlay line, so the price never shows twice. Pickups worth too little for the popup (under 1 chaos) still get an overlay line."
         },
         "remember": {
           "type": "bool",
