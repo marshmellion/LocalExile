@@ -53,8 +53,8 @@ Clear-Host
 Title 'LocalExile: the Exciting build, guided install'
 Say 'This puts a Path of Exile server on your own PC (LocalExile) with our mods, and walks you through each step.'
 Say 'You need:'
-Say '  - Windows 10 or 11 and about 130 GB free (the game client is about 70 GB, and you need a second copy of it).'
-Say '  - Path of Exile on Steam (the game is downloaded from your own Steam account), or a 3.29.3d client folder.'
+Say '  - Windows 10 or 11 and about 60 GB free on the drive you install to (the game client is about 45 GB).'
+Say '  - A Steam account that owns Path of Exile (it is free): the right game version is downloaded from it for you.'
 Say '  - About an hour, most of it downloading.'
 Say 'Nothing is installed without you clicking it yourself.'
 Wait 'Press Enter to begin'
@@ -111,29 +111,21 @@ else {
 
 # ---------------------------------------------------------------- 3. the game client
 Title 'Step 3 of 6: the game client (Path of Exile 3.29.3d)'
-Say 'LocalExile runs the 3.29.3d version of the game. Your normal Steam install is newer, so you get a copy of 3.29.3d'
-Say 'from your own Steam account with a small tool called DepotDownloader. (If you already have a 3.29.3d folder, skip this.)'
+Say 'LocalExile runs the 3.29.3d version of the game. Your normal Steam install is newer, so this downloads 3.29.3d'
+Say 'from your own Steam account (you need to own Path of Exile on Steam; it is free) straight into the install.'
+Say 'It fetches the small tool that does it (DepotDownloader) for you. About 45 GB: leave it running.'
 $client = ''
-if (Test-Path (Join-Path $Folder 'Client\Bundles2\_.index.bin')) { Good 'the client is already copied into the install' }
-elseif (Ask 'Do you already have a 3.29.3d client folder?') { $client = (Read-Host '  >> Its folder').Trim('"', ' ') }
+$downloading = Test-Path (Join-Path $Folder 'Client\.DepotDownloader')
+$finished = Test-Path (Join-Path $Folder 'Client\.complete-3.29.3d')
+if ((Test-Path (Join-Path $Folder 'Client\Bundles2\_.index.bin')) -and ($finished -or -not $downloading)) { Good 'the client is already in the install' }
+elseif (Ask 'Do you already have a 3.29.3d client folder on this PC (most people do not)?') { $client = (Read-Host '  >> Its folder').Trim('"', ' ') }
 else {
-    Say ''
-    Say '1. Download DepotDownloader: on the page that opens, under "Assets", click DepotDownloader-windows-x64.zip.'
-    Open 'https://github.com/SteamRE/DepotDownloader/releases/latest'
-    Say '2. Right-click the zip in your Downloads, choose "Extract All...", and extract it.'
-    Wait 'Press Enter when it is extracted'
-    $dd = ''
-    $guess = Get-ChildItem (Join-Path $env:USERPROFILE 'Downloads') -Recurse -Filter 'DepotDownloader.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($guess -and (Ask "Use $($guess.FullName)?")) { $dd = $guess.FullName }
-    while (-not $dd -or -not (Test-Path $dd)) { $dd = (Read-Host '  >> Full path of DepotDownloader.exe (you can drag the file into this window)').Trim('"', ' ') }
-    $client = (Read-Host '  >> A new folder to download the client into (for example D:\PoE 3.29.3d)').Trim('"', ' ')
-    Say ''
-    Say '3. It now signs in to Steam with YOUR account: type your Steam account name, then your Steam password and'
-    Say '   Steam Guard code when DepotDownloader asks (they go to Steam only). Then it downloads about 45 GB.'
-    Say '   If it stops, run install.cmd again: it carries on where it stopped.'
-    Wait 'Press Enter to start the download'
-    & (Join-Path $Folder 'Exciting\get-client.ps1') -DepotDownloader $dd -Out $client
-    if ($LASTEXITCODE -ne 0) { Warn 'The client download did not finish: run install.cmd again to carry on.'; Wait 'Press Enter to close'; exit 1 }
+    if ($downloading) { Say 'An earlier download stopped before the end: it carries on now.' }
+    Say 'Not in your Steam library yet? Open the page that comes up, click "Play Game" (or "Add to library"), then come back.'
+    Open 'https://store.steampowered.com/app/238960/Path_of_Exile/'
+    Wait 'Press Enter to start (it asks for your Steam account name next)'
+    & (Join-Path $Folder 'Exciting\get-client.ps1') -Out (Join-Path $Folder 'Client')
+    if ($LASTEXITCODE -ne 0) { Warn 'The client download did not finish: run install.cmd again, it carries on where it stopped.'; Wait 'Press Enter to close'; exit 1 }
 }
 
 # ---------------------------------------------------------------- 4. setup
