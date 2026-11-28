@@ -118,7 +118,7 @@ public sealed partial class Player
     {
         var result = new List<ClientPathfinder.Blocker>(StationaryBlockers);
         // A lockstep client moves nobody out of another player's body, so neither does its estimate.
-        if (IsPhasing || Connection.LockstepClient) return result;
+        if (PassesBodies || Connection.LockstepClient) return result;
         // Deterministic arrival arbitration: the later actor moves, instead of both choosing the same exit.
         foreach (var peer in Instance?.PlayersExcept(Id) ?? [])
             if (peer.Id < Id && peer.PlayerLife > 0 && peer.Walk.Position(peer.Frames.Now(peer)) is var at)
