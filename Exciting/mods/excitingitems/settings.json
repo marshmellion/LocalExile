@@ -256,6 +256,26 @@
         "mark": true
       }
     },
+    "dropSounds": {
+      "type": "choice",
+      "default": "alertsOnly",
+      "label": "Drop sounds",
+      "description": "The game plays a drop sound for currency, cards, maps, gems and uniques even when your loot filter hides them. Only the filter's alert sounds: only the sounds your filter sets play. No drop sound for hidden items: shown items keep the game's drop sound. As the game: no change. Applies to the filters in the filter folder and to the (Exciting) copies of online filters (pick the copy in Options).",
+      "options": [
+        {
+          "value": "alertsOnly",
+          "label": "Only the filter's alert sounds"
+        },
+        {
+          "value": "shownOnly",
+          "label": "No drop sound for hidden items"
+        },
+        {
+          "value": "game",
+          "label": "As the game (every drop sound)"
+        }
+      ]
+    },
     "announce": {
       "type": "bool",
       "default": true,
