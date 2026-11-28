@@ -2,13 +2,13 @@ using System.Runtime.CompilerServices;
 
 namespace GameServer.Core.Protocol.Instance;
 
-/// <summary>Which network mode sends a Câ†’S message: <see cref="Shared"/> for both, or only one of them.</summary>
+/// <summary>Which network mode sends a C→S message: <see cref="Shared"/> for both, or only one of them.</summary>
 public enum PacketMode { Shared, Predictive, Lockstep }
 
-/// <summary>How long a variable Câ†’S message is, read from its start (id included); null until enough bytes arrived.</summary>
+/// <summary>How long a variable C→S message is, read from its start (id included); null until enough bytes arrived.</summary>
 public delegate int? MessageLength(ReadOnlySpan<byte> message);
 
-/// <summary>One Câ†’S instance message: its id, its constant's name, the mode that sends it, and its length: fixed, or
+/// <summary>One C→S instance message: its id, its constant's name, the mode that sends it, and its length: fixed, or
 /// read from the message by <see cref="Measure"/>.</summary>
 public sealed record ClientPacket(ushort Id, string Name, PacketMode Mode, int? FixedLength, MessageLength? Measure)
 {
@@ -17,9 +17,9 @@ public sealed record ClientPacket(ushort Id, string Name, PacketMode Mode, int? 
 }
 
 /// <summary>
-/// Every encrypted Câ†’S instance message the Gateway frames, in one place (the plaintext opening 0x0f and 0x0e is read
+/// Every encrypted C→S instance message the Gateway frames, in one place (the plaintext opening 0x0f and 0x0e is read
 /// by <see cref="InstanceProtocol.TryReadOpening"/>). There is no length prefix: an id missing here cannot be framed, and
-/// the rest of the read is lost. The mode column comes from the client's senders (07 Â§6, "Network mode"): the input
+/// the rest of the read is lost. The mode column comes from the client's senders (07 §6, "Network mode"): the input
 /// senders 0x1421660b0, 0x1421664c0, 0x142166660, 0x142166800 and 0x14216ccb0 pick their messages by the world's mode,
 /// nothing else sends those ids, and every other message is sent the same way in both modes. A client never sends
 /// both kinds on one connection.
@@ -271,7 +271,7 @@ public static class ClientPackets
         P(InstanceBrequel.AllocateNodeId, InstanceBrequel.NodeActionLength),
         P(InstanceBrequel.RefundNodeId, InstanceBrequel.NodeActionLength),
         P(InstanceBrequel.FertiliseWombgiftId, InstanceBrequel.FertiliseWombgiftLength),
-        // Remaining exact fixed-length Câ†’S instance opcodes from 3.29.3c (Agents/docs/protocol/c2s.json), excluding
+        // Remaining exact fixed-length C→S instance opcodes from 3.29.3c (Agents/docs/protocol/c2s.json), excluding
         // plaintext opening 0x000e/0x000f and 0x001a (ExitToLoginId above).
         .. new ushort[] { 0x013c, 0x013e, 0x0159, 0x0168, 0x0169, 0x016a, 0x016c, 0x0171,
             0x018a, 0x019b, 0x021e, 0x0224, 0x0243, 0x024c, 0x0257,
@@ -303,7 +303,7 @@ public static class ClientPackets
     {
         var byId = new Dictionary<ushort, ClientPacket>();
         foreach (var row in Rows)
-            if (!byId.TryAdd(row.Id, row)) throw new InvalidOperationException($"Câ†’S 0x{row.Id:x4} is listed twice ({byId[row.Id].Name}, {row.Name})");
+            if (!byId.TryAdd(row.Id, row)) throw new InvalidOperationException($"C→S 0x{row.Id:x4} is listed twice ({byId[row.Id].Name}, {row.Name})");
         return byId;
     }
 
