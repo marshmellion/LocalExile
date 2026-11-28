@@ -1,0 +1,12 @@
+// The currency tab takes these too (their own rows give them no stash tab, so the tab and Deposit All refused them):
+// a copy of the Rhoa Feather's StashTabAffinityByBaseItemType row (the currency tab's spare cells) for each.
+{
+  "rows": [
+    { "table": "StashTabAffinityByBaseItemType",
+      "copyOf": { "BaseItemType": { "row": { "table": "BaseItemTypes", "Id": "Metadata/Items/Currency/CurrencyRhoaFeather" } } },
+      "set": { "BaseItemType": { "row": { "table": "BaseItemTypes", "Id": "Metadata/Items/Currency/CurrencyRerollSkillQualityType" } } } },
+    { "table": "StashTabAffinityByBaseItemType",
+      "copyOf": { "BaseItemType": { "row": { "table": "BaseItemTypes", "Id": "Metadata/Items/Currency/CurrencyRhoaFeather" } } },
+      "set": { "BaseItemType": { "row": { "table": "BaseItemTypes", "Id": "Metadata/Items/Currency/CurrencyRerollSupportQualityType" } } } }
+  ]
+}

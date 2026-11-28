@@ -22,7 +22,7 @@ public sealed class CosmeticDropsMod : IMod
     sealed record BoxChoices(int Bosses = 20, int Rare = 800, int Magic = 5000, int Normal = 20000, int Strongbox = 10, bool OnlyNew = true,
         bool Hideouts = true, bool PriceWeights = true, double PriceStrength = 1.0);
     sealed record OwnershipChoices(bool BoughtHideouts = true, bool FoundHideouts = true, bool Decorations = true, bool MysteryBoxes = false,
-        bool KeepShopGrants = false, int PetCopies = 2, int WeaponEffectCopies = 2, int InvisibleCopies = 100, string[]? AlwaysOwned = null,
+        bool UpgradeScrolls = false, bool ExpiredPets = false, bool KeepShopGrants = false, int PetCopies = 2, int WeaponEffectCopies = 2, int InvisibleCopies = 100, string[]? AlwaysOwned = null,
         string[]? AlwaysOwnedKinds = null, int DecorationsMin = 5, int DecorationsMax = 20);
     sealed record NoticeChoices(bool Chat = true, bool Overlay = true, bool Sound = true, bool InGame = true, bool AnnounceDrops = true,
         bool Banner = true, bool RewardToast = true);
@@ -82,6 +82,7 @@ public sealed class CosmeticDropsMod : IMod
         Directory.CreateDirectory(_savesFolder);
         MoveOldSaves(Path.Combine(mod.Folder, "saves"));
         LoadCatalog(Path.Combine(mod.Folder, "cosmetics.json"));
+        LoadOtherMods(mod.Folder);
         WriteChime(Path.Combine(_folder, "unlock.wav"));
         if (ClientTables.TableOrNull("WorldAreas") is { } areas)
             foreach (var a in areas)
@@ -166,6 +167,49 @@ public sealed class CosmeticDropsMod : IMod
 
     // ---- The catalogue (tools/make_cosmetics.py) ----
 
+    /// <summary>Cosmetics other mods add to the game (Body Aura's body auras): each mod folder beside this one may have a
+    /// cosmeticdrops.json with a "cosmetics" list in cosmetics.json's form. Only the ones the game data has (that mod's
+    /// content applied) and this catalog does not are added; they drop like the rest.</summary>
+    void LoadOtherMods(string ownFolder)
+    {
+        string? parent = Path.GetDirectoryName(Path.GetFullPath(ownFolder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (parent is null || !Directory.Exists(parent)) return;
+        var known = new HashSet<uint>();
+        try { foreach (var r in Game.Mtx.Owned) known.Add(r.MtxTypeHash); } catch (Exception) { }
+        foreach (string dir in Directory.GetDirectories(parent).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            string file = Path.Combine(dir, "cosmeticdrops.json");
+            if (Path.GetFullPath(dir).Equals(Path.GetFullPath(ownFolder).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase) || !File.Exists(file)) continue;
+            int added = 0, absent = 0;
+            try
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                foreach (var e in doc.RootElement.GetProperty("cosmetics").EnumerateArray())
+                {
+                    uint hash = e.GetProperty("hash").GetUInt32();
+                    if (_byHash.ContainsKey(hash)) continue;
+                    if (known.Count > 0 && !known.Contains(hash)) { absent++; continue; }
+                    var c = new Cosmetic
+                    {
+                        Index = _cosmetics.Count, Hash = hash, Name = e.GetProperty("name").GetString() ?? "",
+                        Kind = e.TryGetProperty("kind", out var k) ? k.GetString() ?? "" : "",
+                        Set = e.TryGetProperty("set", out var st) ? st.GetString() ?? "" : "",
+                        Source = e.TryGetProperty("source", out var src) && src.ValueKind == JsonValueKind.String ? src.GetString() : null,
+                        Weight = e.TryGetProperty("weight", out var w) ? w.GetInt32() : 8,
+                        Copies = e.TryGetProperty("copies", out var cp) ? cp.GetInt32() : 1,
+                        Always = e.TryGetProperty("always", out var al) && al.GetBoolean(),
+                        Value = e.TryGetProperty("value", out var v) ? v.GetInt32() : 0,
+                    };
+                    _cosmetics.Add(c);
+                    _byHash.TryAdd(c.Hash, c);
+                    added++;
+                }
+            }
+            catch (Exception ex) { _log($"{file}: not read: {ex.Message}"); continue; }
+            _log($"{Path.GetFileName(dir)}: {added} more cosmetic(s) drop" + (absent > 0 ? $" ({absent} not in the game data: start the game with the play button first)" : ""));
+        }
+    }
+
     void LoadCatalog(string file)
     {
         if (!File.Exists(file)) { _log("cosmetics.json is missing: nothing is locked"); return; }
@@ -226,7 +270,15 @@ public sealed class CosmeticDropsMod : IMod
         || (O.AlwaysOwnedKinds ?? ["Account"]).Contains(c.Kind, StringComparer.OrdinalIgnoreCase)
         || (!O.Decorations && c.Kind == "Hideout Item");
 
-    bool Droppable(Cosmetic c) => !Free(c) && (O.MysteryBoxes || !c.Name.Contains("Mystery Box", StringComparison.OrdinalIgnoreCase));
+    bool Droppable(Cosmetic c) => !Free(c) && (O.MysteryBoxes || !c.Name.Contains("Mystery Box", StringComparison.OrdinalIgnoreCase))
+        && (O.UpgradeScrolls || !IsUpgradeScroll(c)) && (O.ExpiredPets || !IsExpiredPet(c));
+
+    /// <summary>The shop's upgrade and convert scrolls (consumables that change another cosmetic: "Pet Upgrade Scroll",
+    /// "Goddess Set Upgrade Scroll" ...): nothing to use them on here, so by default they don't drop.</summary>
+    static bool IsUpgradeScroll(Cosmetic c) => c.Kind == "Consumable" && c.Name.Contains("Scroll", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>"... Premium Expired Pet": a premium pet's lapsed copy; by default it doesn't drop.</summary>
+    static bool IsExpiredPet(Cosmetic c) => c.Kind == "Pet" && c.Name.Contains("Expired", StringComparison.OrdinalIgnoreCase);
 
     bool Locked(Hideout h) => h.Kind == "bought" ? O.BoughtHideouts : O.FoundHideouts;
 

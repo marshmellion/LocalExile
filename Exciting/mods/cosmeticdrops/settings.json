@@ -326,6 +326,18 @@
           "label": "Mystery boxes drop too",
           "description": "Opening one goes through the offline shop: turn on \"Keep the offline shop's grants\" as well."
         },
+        "upgradeScrolls": {
+          "type": "bool",
+          "default": false,
+          "label": "Upgrade scrolls drop too",
+          "description": "The shop's upgrade and convert scrolls (Pet Upgrade Scroll, Goddess Set Upgrade Scroll ...). Off: they never drop, from a source or a Cosmetic Cache."
+        },
+        "expiredPets": {
+          "type": "bool",
+          "default": false,
+          "label": "Expired pets drop too",
+          "description": "The \"... Premium Expired Pet\" cosmetics. Off: they never drop, from a source or a Cosmetic Cache."
+        },
         "keepShopGrants": {
           "type": "bool",
           "default": false,

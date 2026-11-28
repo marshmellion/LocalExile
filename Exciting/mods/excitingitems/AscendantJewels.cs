@@ -23,7 +23,7 @@ sealed record AscendantJewelChoices(bool Enabled = true, double JewelChance = 0.
     bool Special = true, bool Unused = false, bool NotablesOnly = true, bool Uniques = false, bool MapsOnly = false,
     bool Chests = true, bool Announce = true, string[]? Blacklist = null, Dictionary<string, double>? Weights = null,
     double NormalWeight = 1, double PhreciaWeight = 1, double SpecialWeight = 1, double UnusedWeight = 0.5,
-    AscendantSources? Sources = null);
+    AscendantSources? Sources = null, bool Mark = true, string Influence = "all");
 
 public sealed partial class ExcitingItemsMod
 {
@@ -135,8 +135,27 @@ public sealed partial class ExcitingItemsMod
             int place = mods.FindLastIndex(m => m.Section == ModSection.Implicit) + 1;
             mods.Insert(place, new ItemMod(ModSection.Implicit, def.Hash, [picked[i].Graph]));
         }
-        return (item with { Mods = mods, RequiredLevel = null }, picked);
+        var made = item with { Mods = mods, RequiredLevel = null };
+        // Marked for loot filters (the Exciting enchantment, HasEnchantment "Exciting") and given an influence's look.
+        if (c.Mark) made = Marked(catalog, made);
+        made = made with { Influences = made.Influences | AscendantInfluence(c.Influence) };
+        return (made, picked);
     }
+
+    /// <summary>The influence look a setting names: none, shaper, elder, crusader, redeemer, hunter, warlord, both
+    /// (Shaper and Elder) or all six.</summary>
+    static ItemInfluence AscendantInfluence(string? name) => (name ?? "").ToLowerInvariant() switch
+    {
+        "shaper" => ItemInfluence.Shaper,
+        "elder" => ItemInfluence.Elder,
+        "crusader" => ItemInfluence.Crusader,
+        "redeemer" => ItemInfluence.Redeemer,
+        "hunter" => ItemInfluence.Hunter,
+        "warlord" => ItemInfluence.Warlord,
+        "both" => ItemInfluence.Shaper | ItemInfluence.Elder,
+        "all" => ItemInfluence.Shaper | ItemInfluence.Elder | ItemInfluence.Crusader | ItemInfluence.Redeemer | ItemInfluence.Hunter | ItemInfluence.Warlord,
+        _ => ItemInfluence.None,
+    };
 
     int AscendantCount(AscendantJewelChoices c, Random rng) =>
         rng.NextDouble() < c.SecondChance ? (rng.NextDouble() < (c.SecondChance > 0 ? c.ThirdChance / c.SecondChance : 0) ? 3 : 2) : 1;

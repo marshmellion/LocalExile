@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "settings": {
+    "enabled": {
+      "type": "bool",
+      "default": true,
+      "label": "Body Auras on",
+      "description": "Off: no auras on minions, pets, totems, traps, mines or you from this mod (the Body Aura cosmetics stay in the Cosmetics tab while the mod's content is applied)."
+    },
+    "minions": {
+      "type": "group",
+      "label": "Minions",
+      "settings": {
+        "spectres": {
+          "type": "text",
+          "default": "crucible",
+          "label": "What your spectres wear",
+          "description": "off, character (what your character wears in the Character Effect slot: a body aura or a character effect), or an aura: its key or name (/aura list in the game shows them, e.g. crucible)."
+        },
+        "spectreLook": {
+          "type": "choice",
+          "default": "replace",
+          "options": [
+            "replace",
+            "add"
+          ],
+          "label": "How spectres wear it",
+          "description": "replace: in place of their see-through spectral look, as the game's spectre skins do (clearest). add: on top of the spectral look (fainter)."
+        },
+        "everything": {
+          "type": "text",
+          "default": "off",
+          "label": "What every other minion wears",
+          "description": "Zombies, skeletons, raging spirits, phantasms, golems, skitterbots, reapers, animated weapons and guardians, relics, spiders, wolves, clones and the rest, unless a kind has its own below. off, character (what your character wears in the Character Effect slot: a body aura or a character effect), or an aura: its key or name (/aura list in the game shows them, e.g. crucible)."
+        },
+        "perKind": {
+          "type": "map",
+          "default": {},
+          "label": "A minion kind's own aura (kind: aura)",
+          "description": "Over \"every other minion\", e.g. \"ragingspirit\": \"crucible\", \"zombie\": \"off\". /aura kinds in the game lists the kinds you have summoned.",
+          "value": {
+            "type": "text"
+          }
+        },
+        "whenCharacterHasNone": {
+          "type": "text",
+          "default": "off",
+          "label": "\"character\" when your character wears no aura",
+          "description": "What anything set to \"character\" wears while your Character Effect slot is empty (or holds a character effect without a minion look). off, character (what your character wears in the Character Effect slot: a body aura or a character effect), or an aura: its key or name (/aura list in the game shows them, e.g. crucible)."
+        }
+      }
+    },
+    "others": {
+      "type": "group",
+      "label": "Pets, totems, traps and mines",
+      "settings": {
+        "pets": {
+          "type": "text",
+          "default": "off",
+          "label": "What your pets wear",
+          "description": "off, character (what your character wears in the Character Effect slot: a body aura or a character effect), or an aura: its key or name (/aura list in the game shows them, e.g. crucible)."
+        },
+        "totems": {
+          "type": "text",
+          "default": "off",
+          "label": "What your totems wear",
+          "description": "off, character (what your character wears in the Character Effect slot: a body aura or a character effect), or an aura: its key or name (/aura list in the game shows them, e.g. crucible)."
+        },
+        "traps": {
+          "type": "text",
+          "default": "off",
+          "label": "What your traps wear",
+          "description": "off, character (what your character wears in the Character Effect slot: a body aura or a character effect), or an aura: its key or name (/aura list in the game shows them, e.g. crucible)."
+        },
+        "mines": {
+          "type": "text",
+          "default": "off",
+          "label": "What your mines wear",
+          "description": "off, character (what your character wears in the Character Effect slot: a body aura or a character effect), or an aura: its key or name (/aura list in the game shows them, e.g. crucible)."
+        }
+      }
+    },
+    "character": {
+      "type": "group",
+      "label": "Your character",
+      "settings": {
+        "extra": {
+          "type": "text",
+          "default": "off",
+          "label": "An aura besides your character effect",
+          "description": "Wear an aura on top of whatever is in your Character Effect slot (it can be another character effect): off, or an aura's key or name. For just one, wear its Body Aura in the Cosmetics tab instead."
+        }
+      }
+    },
+    "ownedOnly": {
+      "type": "bool",
+      "default": true,
+      "label": "Only auras you own",
+      "description": "With Cosmetic Drops locking cosmetics: an aura is used only once your account owns its cosmetic (a body aura, or the character effect). Body auras drop where their weapon effects do. Owning a body aura does not give you its weapon effect."
+    },
+    "updateSeconds": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.1,
+      "max": 10,
+      "unit": "s",
+      "label": "How often minions are checked",
+      "description": "A new minion, pet, totem, trap or mine gets its aura within this time."
+    },
+    "commands": {
+      "type": "bool",
+      "default": true,
+      "label": "The /aura command",
+      "description": "/aura shows the choices; /aura list [words] lists the auras; /aura kinds the minion kinds; /aura <spectres|minions|pets|totems|traps|mines|me|a kind> <off|character|default|aura> changes one for the character you play (data/moddata/bodyauras/aura-choices.json).",
+      "applies": "restart"
+    }
+  }
+}

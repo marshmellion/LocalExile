@@ -40,7 +40,7 @@ public sealed partial class QolMod
     }
     readonly ConditionalWeakTable<Player, PriceWatch> _watches = new();
 
-    byte? _chaosIcon, _divineIcon;
+    byte? _chaosIcon, _divineIcon, _goldIcon;
     byte PopupIcon(bool divine)
     {
         if (_chaosIcon is null)
@@ -50,7 +50,10 @@ public sealed partial class QolMod
             // The rows of qol's content pack, or the Sanctum currency's when the pack is not applied.
             _chaosIcon = (byte)(Row("LocalExileChaosPopup", 2) + 1);
             _divineIcon = (byte)(Row("LocalExileDivinePopup", 2) + 1);
+            _goldIcon = (byte)(Row("GoldCoin", 3) + 1);
         }
+        // "gold": the game's own gold coin popup, for every price.
+        if (string.Equals(_choices.Prices.PopupIcon, "gold", StringComparison.OrdinalIgnoreCase) && _goldIcon is not null) return _goldIcon.Value;
         return divine ? _divineIcon!.Value : _chaosIcon!.Value;
     }
 
@@ -82,18 +85,19 @@ public sealed partial class QolMod
             if (catalog.ByHash(typeHash) is not { } type || !prices.TryGetValue(type.Id, out var price)) continue;
             double chaos = price.Chaos * stack;
             if (chaos <= 0) continue;
-            // The overlay's line: any worth, to the cent (the game's own popup below shows whole numbers only).
-            if (_choices.Prices.Overlay && chaos >= _choices.Prices.OverlayMinimum)
+            bool inDivines = divine > 0 && chaos >= divine && type.Id != ExchangeRates.Divine;
+            int amount = (int)Math.Round(inDivines ? chaos / divine : chaos);
+            bool popup = chaos >= Math.Max(1, _choices.Prices.MinimumChaos) && amount > 0;
+            // The overlay's line: any worth, to the cent (the game's own popup shows whole numbers only). Only where
+            // the game's popup does not show already, unless overlayWithPopups asks for both.
+            if (_choices.Prices.Overlay && chaos >= _choices.Prices.OverlayMinimum && (!popup || _choices.Prices.OverlayWithPopups))
                 lock (state.Pickups)
                 {
-                    string worth = divine > 0 && chaos >= divine && type.Id != ExchangeRates.Divine ? $"{chaos / divine:0.##} divine" : $"{chaos:0.##} chaos";
+                    string worth = inDivines ? $"{chaos / divine:0.##} divine" : $"{chaos:0.##} chaos";
                     state.Pickups.Add((++state.PickupId, DateTime.UtcNow, $"+{worth}  {(stack > 1 ? stack + " x " : "")}{type.Name}"));
                     if (state.Pickups.Count > 8) state.Pickups.RemoveAt(0);
                 }
-            if (chaos < Math.Max(1, _choices.Prices.MinimumChaos)) continue;
-            bool inDivines = divine > 0 && chaos >= divine && type.Id != ExchangeRates.Divine;
-            int amount = (int)Math.Round(inDivines ? chaos / divine : chaos);
-            if (amount <= 0) continue;
+            if (!popup) continue;
             await Program.Send(player, InstanceEntities.WorldPopupIcon(x, y, player.Id, PopupIcon(inDivines), amount),
                 $"qol: {stack} {type.Name} worth {amount} {(inDivines ? "divine" : "chaos")}");
         }

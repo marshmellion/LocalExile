@@ -1,5 +1,8 @@
 # Exciting Items
 
+> **Needs:** the Exciting build of LocalExile (github.com/marshmellion/LocalExile, branch exciting).  
+> **Works with:** Quality of Life (its gem panel lists the alternate quality gems) and any loot filter (HasEnchantment "Exciting").
+
 Rare chances on magic, rare and unique drops, each with its own chance and all able to land on the same item:
 
 - **Unique implicits.** The item gets one, two or three modifiers of unique items as extra implicits. A modifier of a
@@ -164,7 +167,6 @@ Every exciting roll is its own, so one item can get all of them. A jackpot also 
 
 636 new implicits built from effect rules: a trigger (on hit, on crit, on kill, when hit, on block, on flask use, on skill use ...) and an effect (a buff, a charge, a debuff or ailment, a curse, a timed boost such as "15% increased Movement Speed for 4 seconds when Hit", recovery, reflected damage, removing an ailment from yourself). Each gear slot has about 100 of its own: damage on weapons and gloves, movement and cleansing on boots, buffs and curses on helmets and shields, defences on body armours, flasks on belts. Three tiers by item level. A roll of their own (1 in 1,500 by default), a Radiant Orb outcome, and one of a jackpot's effects (settings: `customImplicits`). `tools/make_custom_implicits.py` makes the pool: `content/customimplicits.json` (stats, text, modifiers and boost buffs for the client) and `customimplicits.json` (the rules). `/exciting next custom`.
 
-
 How they are built: the game's stat list is fixed in the client, so custom implicits add no stats. Every one rides on a
 pair of existing item stats that nothing else uses: one says which implicit it is (1 to 850), the other holds its roll.
 Their text is one block added to the stat descriptions; their rules are item rules that check that number (flask
@@ -207,8 +209,10 @@ there are a never-list and an also-list. One the server starts dropping normally
 
 ## Divination cards
 
-A drop rate multiplier for every divination card (1: as the server has it), and a multiplier per card, for monsters,
-chests and strongboxes. For example 5 makes farming Burial Chambers for The Doctor worth it.
+`cardRate.dropChance` makes cards drop more often (3: a kill is three times as likely to drop one, in maps and in the
+campaign), and `cardRate.perCardChance` makes one card likelier to be the one that drops (`"The Doctor": 5`). The
+copies settings are something else: `cardRate.multiplier` and `perCard` make every card that drops come several times
+(they also apply to chests and strongboxes, whose cards are rolled before the mod sees them).
 
 ## Ascendant jewels
 
@@ -225,3 +229,5 @@ options, and the jewel names that option. The Phrecia Harbinger's companion summ
 runs them). Chances, groups, weights, a never-list and small nodes are in the settings.
 `/exciting ascendant [node or ascendancy] [1-3]` puts one at your feet; `/exciting ascendant list [filter]` shows what
 can roll.
+They are marked for loot filters (the Exciting enchantment, `ascendantJewels.mark`) and have an influence's look
+(`ascendantJewels.influence`: all six by default, or one, `both` for Shaper and Elder, or `none`).

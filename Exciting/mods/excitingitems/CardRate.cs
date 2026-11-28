@@ -1,15 +1,27 @@
-/// <summary>Divination card drop rate: every card that drops (area-bound ones too, such as The Doctor in Burial Chambers)
-/// comes Multiplier times as often. 2.5: two of it and half the time a third; 0.5: half of them drop. PerCard sets one
-/// card's own multiplier (by its name), over Multiplier.</summary>
-sealed record CardRateChoices(double Multiplier = 1.0, Dictionary<string, double>? PerCard = null, bool MapsOnly = false);
+/// <summary>Divination cards. DropChance scales how often a kill drops a card at all (the server's own card chance, in
+/// maps and in the campaign: 2 = twice as often); PerCardChance makes one card (by its name) that much likelier to be the
+/// one picked. Multiplier and PerCard are copies instead: every card that drops comes that many times (2.5: two of it and
+/// half the time a third). Chests and strongboxes roll their cards before the mod sees them, so only the copies apply
+/// there.</summary>
+sealed record CardRateChoices(double Multiplier = 1.0, Dictionary<string, double>? PerCard = null, bool MapsOnly = false,
+    double DropChance = 1.0, Dictionary<string, double>? PerCardChance = null);
 
 public sealed partial class ExcitingItemsMod
 {
     void CardRateDrops(DropRoll d)
     {
         var c = _choices.CardRate ?? new();
-        if ((c.PerCard is null || c.PerCard.Count == 0) && Math.Abs(c.Multiplier - 1.0) < 1e-9) return;
         if (c.MapsOnly && Game.MapRunOf(d.Player) is not { Atlas: true }) return;
+        // How often a card drops: the server's own card chance, scaled (several mods' factors multiply).
+        if (Math.Abs(c.DropChance - 1.0) > 1e-9) d.Weights.Cards *= Math.Clamp(c.DropChance, 0, 1000);
+        if (c.PerCardChance is { Count: > 0 } chances)
+        {
+            var catalog = Game.ItemsFor(d.Player);
+            foreach (var (name, factor) in chances)
+                if (catalog.All.FirstOrDefault(t => t.Class == "DivinationCard" && t.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } card)
+                    d.Weights.Items[card.Id] = Math.Clamp(factor, 0, 1000) * d.Weights.Item(card.Id);
+        }
+        if ((c.PerCard is null || c.PerCard.Count == 0) && Math.Abs(c.Multiplier - 1.0) < 1e-9) return;
         d.Changes.Add(CardRateChange);
     }
 

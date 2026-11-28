@@ -1,5 +1,8 @@
 # Classic Harvest Crafts
 
+> **Needs:** nothing extra.  
+> **Works with:** Works on its own.
+
 Chat commands for the Harvest crafts the game removed after 3.11, run on the item in the Horticrafting Station's slot.
 The station's own list comes from the client's data and cannot be extended by a server mod, so the crafts are typed.
 

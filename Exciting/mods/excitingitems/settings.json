@@ -2386,19 +2386,38 @@
       "label": "Divination cards",
       "description": "How often divination cards drop, every card in every area (The Doctor in Burial Chambers too), from monsters, chests and strongboxes.",
       "settings": {
+        "dropChance": {
+          "type": "number",
+          "default": 1.0,
+          "min": 0,
+          "max": 1000,
+          "label": "Card drop chance",
+          "description": "How often a kill drops a divination card: 1 as the server has it, 3 three times as often, 0.5 half as often. Each card still drops one at a time."
+        },
+        "perCardChance": {
+          "type": "map",
+          "default": {},
+          "label": "One card's own chance (card name: factor)",
+          "description": "How much likelier that card is to be the one that drops, e.g. \"The Doctor\": 5.",
+          "value": {
+            "type": "number",
+            "min": 0,
+            "max": 1000
+          }
+        },
         "multiplier": {
           "type": "number",
           "default": 1.0,
           "min": 0,
           "max": 1000,
-          "label": "Card drop rate multiplier",
-          "description": "1: as the server has it. 3: three times as many. 0.5: half."
+          "label": "Copies of each card that drops",
+          "description": "Not the chance: every card that drops comes this many times (2: two of it). 1: one, as the server has it."
         },
         "perCard": {
           "type": "map",
           "default": {},
-          "label": "One card's own multiplier (card name: multiplier)",
-          "description": "Over the multiplier above, e.g. \"The Doctor\": 5.",
+          "label": "One card's own copies (card name: copies)",
+          "description": "Over the copies above, e.g. \"The Doctor\": 2.",
           "value": {
             "type": "number",
             "min": 0,
@@ -2991,6 +3010,29 @@
               "description": "Abyss jewels (Murderous Eye Jewel...) and others can be added."
             }
           }
+        },
+        "mark": {
+          "type": "bool",
+          "default": true,
+          "label": "Mark them for loot filters",
+          "description": "The Exciting enchantment (filters match it with HasEnchantment \"Exciting\"; the Exciting filter rule gives them the beam, sound and minimap star)."
+        },
+        "influence": {
+          "type": "choice",
+          "default": "all",
+          "options": [
+            "none",
+            "shaper",
+            "elder",
+            "both",
+            "crusader",
+            "redeemer",
+            "hunter",
+            "warlord",
+            "all"
+          ],
+          "label": "Their influence look",
+          "description": "The look an influence gives an item, on every ascendant jewel: one influence, both (Shaper and Elder), or all six. Only the look: a jewel has no influenced modifiers."
         }
       }
     }

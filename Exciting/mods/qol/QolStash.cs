@@ -59,6 +59,11 @@ public sealed partial class QolMod
         ("gems", ["Active Skill Gem", "Support Skill Gem"]),
         ("quivers", ["Quiver"]),
         ("shields", ["Shield"]),
+        // The Allflame league's items: Deepwater charts and the embers (no stash tab type or affinity holds them).
+        ("allflame", ["DeepwaterChart", "NecropolisPack"]),
+        ("deepwater", ["DeepwaterChart"]),
+        ("charts", ["DeepwaterChart"]),
+        ("embers", ["NecropolisPack"]),
     ];
 
     /// <summary>Whether a tab's name names the item's class or a group holding it. A name may list several, split by
@@ -77,6 +82,33 @@ public sealed partial class QolMod
         return false;
     }
 
+    // ---- the Chart Locker (Game module's DeepwaterLocker: RegionOf, and Store as its Ctrl + click uses) ----
+
+    static MethodInfo? _lockerRegion, _lockerStore;
+    static bool _lockerLooked;
+
+    async Task<bool> IntoChartLocker(Player player, InventoryItem it, string name, bool force = false)
+    {
+        bool sulphur = name == "Dead Man's Sulphur";
+        if (!force && (sulphur ? !_choices.Deposit.SulphurToLocker : !_choices.Deposit.ChartLocker)) return false;
+        if (!_lockerLooked)
+        {
+            _lockerLooked = true;
+            var type = AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType("DeepwaterLocker", false)).FirstOrDefault(t => t is not null);
+            _lockerRegion = type?.GetMethod("RegionOf", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            _lockerStore = type?.GetMethod("Store", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            if (_lockerRegion is null || _lockerStore is null || _lockerStore.GetParameters().Length != 3)
+            {
+                _log("deposit: no Chart Locker on this server (charts go to the stash)");
+                _lockerStore = null;
+            }
+        }
+        if (_lockerStore is null || _lockerRegion!.Invoke(null, [it.Item.TypeHash]) is null) return false;
+        byte from = Game.ItemsOf(player).RowOf(it.Id) ?? Main;
+        try { return _lockerStore.Invoke(null, [player, it, from]) is Task<bool> stored && await stored; }
+        catch (TargetInvocationException e) { _log($"deposit: Chart Locker: {e.InnerException?.Message}"); return false; }
+    }
+
     // ---- deposit all ----
 
     async Task DepositAll(Player player)
@@ -92,6 +124,13 @@ public sealed partial class QolMod
         foreach (var it in items.Items(Main).ToList())
         {
             if (catalog.ByHash(it.Item.TypeHash) is not { } type || keep.Contains(type.Name)) continue;
+            // The Allflame league's Chart Locker (the Sovereign's deck) holds charts and Dead Man's Sulphur, in tabs of its own.
+            if (await IntoChartLocker(player, it, type.Name))
+            {
+                moved++;
+                where["Chart Locker"] = where.GetValueOrDefault("Chart Locker") + 1;
+                continue;
+            }
             var affinities = AffinitiesOf(stash, type.Hash);
             bool isMap = MapTier(stash, type.Hash) is not null;
             // Special tabs first (currency, fragments, essences, maps, uniques ...), then a tab given the item's affinity,
@@ -180,7 +219,15 @@ public sealed partial class QolMod
             return;
         }
         var offered = inside.ToList();
-        object quote = evaluate.Invoke(vendor, [offered, Game.AreaRng(player), null])!;
+        // Evaluate(offered, random, basicSaleMultiplier = null[, player = null]): its inputs are filled by type, so a server
+        // that adds one (0.6 added the player) still works; any other optional input keeps its default.
+        var inputs = evaluate.GetParameters().Select((p, i) =>
+            i == 0 ? offered
+            : p.ParameterType == typeof(Random) ? Game.AreaRng(player)
+            : p.ParameterType.IsInstanceOfType(player) ? player
+            : p.HasDefaultValue ? p.DefaultValue
+            : null).ToArray();
+        object quote = evaluate.Invoke(vendor, inputs)!;
         var rewards = (IReadOnlyList<Item>)quote.GetType().GetProperty("Rewards")!.GetValue(quote)!;
         var catalog = Game.ItemsFor(player);
         var gone = new List<uint>();

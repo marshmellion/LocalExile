@@ -1,9 +1,9 @@
 {
   "id": "minionunnerf",
   "name": "Minion Unnerf",
-  "description": "Undoes some spectre and minion nerfs (spectre level and minion damage and life as before 3.19, Minion Damage Support as before 3.15) and lets any monster's corpse become a spectre, bosses too. Each part has its own setting.",
+  "description": "Needs nothing extra. Works on its own (Body Auras can dress the spectres it makes). Undoes some spectre and minion nerfs (spectre level and minion damage and life as before 3.19, Minion Damage Support as before 3.15) and lets any monster's corpse become a spectre, bosses too. Each part has its own setting.",
   "author": "marshmellion",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "compatibleClientVersions": [
     "0.6.1-beta"
   ],
