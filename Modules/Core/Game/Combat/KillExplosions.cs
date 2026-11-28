@@ -97,14 +97,23 @@ public static partial class Game
 
     sealed record AttackKillExplosion(int PhysicalChance, int WandChaosChance);
     static readonly RuleTable<SpawnedMonster, AttackKillExplosion> AttackKillExplosions = new();
-    sealed record WarcryTaunt(double Until);
+    sealed record WarcryTaunt(uint Caster, double Until);
     static readonly RuleTable<SpawnedMonster, WarcryTaunt> WarcryTauntedUntil = new();
 
-    internal static void MarkWarcryTaunted(SpawnedMonster monster, double until) =>
-        WarcryTauntedUntil.AddOrUpdate(monster, new(until));
+    internal static void MarkWarcryTaunted(SpawnedMonster monster, uint caster, double until) =>
+        WarcryTauntedUntil.AddOrUpdate(monster, new(caster, until));
 
-    internal static bool WasWarcryTaunted(SpawnedMonster monster, double now) =>
-        WarcryTauntedUntil.TryGetValue(monster, out var taunt) && now < taunt.Until;
+    internal static void ClearWarcryTaunted(SpawnedMonster monster) =>
+        WarcryTauntedUntil.Remove(monster);
+
+    internal static void ClearWarcryTauntedBy(SpawnedMonster monster, uint caster)
+    {
+        if (WarcryTauntedUntil.TryGetValue(monster, out var taunt) && taunt.Caster == caster)
+            WarcryTauntedUntil.Remove(monster);
+    }
+
+    internal static bool WasWarcryTaunted(SpawnedMonster monster, uint caster, double now) =>
+        WarcryTauntedUntil.TryGetValue(monster, out var taunt) && taunt.Caster == caster && now < taunt.Until;
 
     static void CaptureAttackKillExplosionLocked(SpawnedMonster victim, IReadOnlyDictionary<uint, int> stats, bool wand = false)
     {
@@ -197,10 +206,10 @@ public static partial class Game
     /// <summary>"Enemies you Kill Explode, dealing X% of their Life as Physical Damage" (the Crusader body-armour
     /// prefix and the synthesis implicit). Every hostile living monster within the radius of the corpse takes X% of the
     /// dead monster's maximum life as physical damage, mitigated by its own resistances. The stat text and the wiki's
-    /// Explode page make it secondary damage based on the killed monster's life, as the relic and Rampage explosions
-    /// already are, so the player's damage increases do not scale it. The corpse is consumed at once (the official
-    /// client removes it 0-6 ms after the death), and a kill by the explosion is the player's and can trigger another
-    /// explosion.</summary>
+    /// Explode page make it secondary area damage based on the killed monster's maximum life: global, type, and area
+    /// damage modifiers and conversion scale it, while attack/spell modifiers and added damage do not, and the radius
+    /// stays fixed. The corpse is consumed at once (the official client removes it 0-6 ms after the death), and a kill
+    /// by the explosion is the player's and can trigger another explosion.</summary>
     internal static bool MayExplodeOnKill(Player player, SpawnedMonster? corpse = null,
         KillEquipmentSnapshot? equipment = null, IReadOnlyDictionary<uint, int>? stats = null,
         IReadOnlyDictionary<uint, int>? skillStats = null)
@@ -270,7 +279,7 @@ public static partial class Game
             }
             if (physicalChance > 0 && rng.Next(100) < physicalChance) percent += 10;
             // Quarter-life chaos sources share the same roll and damage; Al Dhih and Sporeguard add 8% / 10% chaos.
-            int warcryTauntChance = WasWarcryTaunted(corpse, now)
+            int warcryTauntChance = WasWarcryTaunted(corpse, player.Id, now)
                 ? Get(Stat.EnemiesTauntedByWarcryExplodeOnDeathPctChanceDealing8PctLifeAsChaosDamage) : 0;
             bool warcryTauntChaos = warcryTauntChance > 0 && rng.Next(100) < warcryTauntChance;
             int fungalChaosPercent = captured.FungalChaosChance > 0 && rng.Next(100) < captured.FungalChaosChance ? 10 : 0;
@@ -292,7 +301,7 @@ public static partial class Game
                 : null;
             bool fireTen = fireChance > 0 && rng.Next(100) < fireChance;
             // Fire Mastery (Fire3): burning enemies you kill have a chance to explode for 10% of their maximum Life as Fire Damage.
-            bool burning = corpse.Ignites.Burning || corpse.Ignites.DiedBurning || corpse.Ignites.IgnitedAt(now);
+            bool burning = corpse.Ignites.Burning || corpse.Ignites.DiedBurning || BurningTarget(player, corpse, now);
             int burningChance = burning ? Get(Stat.ExplodeBurningEnemiesFor10PctLifeAsFireOnKillChancePct) : 0;
             bool burningFireProc = burningChance > 0 && rng.Next(100) < burningChance;
             // Inpulsa's Broken Heart: shocked enemies you kill explode for X% of their maximum Life as Lightning Damage (cannot shock).

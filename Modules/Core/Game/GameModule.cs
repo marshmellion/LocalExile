@@ -512,6 +512,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IW
         Rules.ForgetVitalsAdmission(player);
         Rules.ClearEnemyMineAuras(player);
         Rules.ForgetSourceValues(player);
+        Rules.EndAreaSporeguard(player);
+        Rules.EndAreaVoltaxicBurst(player);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
         Rules.KeepInstanceMonsters(player);
     }

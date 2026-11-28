@@ -64,7 +64,7 @@ public static partial class Game
                     if (MonsterGrantsKillFlaskCharges(m))
                         await GainKillCharges(other, m.Rarity, $"party kill: {m.Rarity} {m.Label}", BleedingKillFlaskChargesPct(other, inflictedBleed));
                 }
-                if (other.PlayerLife > 0 && !m.CorpseConsumed
+                if (!other.Closed && !other.LeavingArea && other.PlayerLife > 0 && !m.CorpseConsumed
                     && HasGravebind(other) && Dist(other.Walk.Position(AreaTime(other)), at) <= GravebindRadius
                     && ClaimGravebindPartyKill(m))
                 {

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
@@ -5,7 +6,7 @@ public static partial class Game
 {
     internal const string FungalGroundAo = "Metadata/Effects/Spells/monsters_effects/League_Blight/Fungal_ground/fungalGround.ao";
     const int FungalGroundRadiusOnKill = 22;
-    const double FungalGroundDurationSeconds = 4;
+    const double FungalGroundDurationSeconds = 5;
     const int MaxFungalGroundPatches = 10;
 
     sealed class FungalPatch(uint objectId, (int X, int Y) at, int radius, double until, GameArea area)
@@ -32,23 +33,53 @@ public static partial class Game
 
     static readonly Store<Player, SporeguardState> Sporeguards = new();
 
-    static bool HasCreateFungalGroundOnKill(Player player)
+    static bool HasCreateFungalGroundOnKill(Player player) =>
+        ReadEquippedLocalKillFlags(player).HasCreateFungalGroundOnKill
+        || PlayerStatValues(player).GetValueOrDefault(Stat.LocalDisplayTriggerLevelXCreateFungalGroundOnKill) > 0;
+
+    static byte[] SporeguardRemoveBytes(uint id)
     {
-        if (PlayerStatValues(player).GetValueOrDefault(Stat.LocalDisplayTriggerLevelXCreateFungalGroundOnKill) > 0)
-            return true;
-        var items = ItemsOf(player);
-        var mods = ItemsFor(player).Mods;
-        foreach (var (_, equipped) in items.EquipmentSnapshot())
-            if (!IsInactive(player, equipped.Id)
-                && ItemModStats.LocalValue(equipped.Item, mods, Stat.LocalDisplayTriggerLevelXCreateFungalGroundOnKill) > 0)
-                return true;
-        return false;
+        var remove = InstanceProtocol.RemoveObject(id);
+        BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
+        return remove;
     }
 
-    static void ResetSporeguardStateLocked(SporeguardState state, GameArea? area)
+    static void PurgeSporeguardObjects(Player player, GameArea? area, List<uint>? retired)
     {
+        if (area is null || retired is null || retired.Count == 0) return;
+        if (area.Owned)
+        {
+            foreach (uint id in retired)
+                area.Delta.RemoveSharedObject(id, SporeguardRemoveBytes(id), $"0x02bd area exit removes fungal ground 0x{id:x}");
+            return;
+        }
+        foreach (uint id in retired)
+            area.Objects.RecordDirect(id, SporeguardRemoveBytes(id), AreaDelta.Kind.Remove, player);
+        if (area.Driven)
+            area.Defer(a =>
+            {
+                foreach (uint id in retired)
+                    a.Delta.RemoveSharedObject(id, SporeguardRemoveBytes(id), $"0x02bd area exit removes fungal ground 0x{id:x}");
+            });
+    }
+
+    static void ResetSporeguardStateLocked(SporeguardState state, GameArea? nextArea,
+        out GameArea? oldArea, out List<uint>? retired)
+    {
+        oldArea = state.Area;
+        retired = null;
+        if (oldArea is not null)
+        {
+            if (state.PendingRemovals.Count > 0)
+                retired = [.. state.PendingRemovals];
+            if (state.Stationary is { } stationary && state.StationaryCreated)
+                (retired ??= []).Add(stationary.ObjectId);
+            foreach (var patch in state.Patches)
+                if (patch.VisualCreated)
+                    (retired ??= []).Add(patch.ObjectId);
+        }
         foreach (var patch in state.Patches) patch.Removed = true;
-        state.Area = area;
+        state.Area = nextArea;
         state.Stationary = null;
         state.StationaryCreated = false;
         state.Patches.Clear();
@@ -96,7 +127,7 @@ public static partial class Game
         return false;
     }
 
-    /// <summary>Creates a 4-second Fungal Ground patch at a killed enemy's position when the player has Sporeguard's
+    /// <summary>Creates a 5-second Fungal Ground patch at a killed enemy's position when the player has Sporeguard's
     /// trigger-on-kill Fungal Ground mod.</summary>
     internal static void SporeguardOnKillLocked(Player player, (int X, int Y) at, double now)
     {
@@ -104,10 +135,12 @@ public static partial class Game
             return;
         if (!HasCreateFungalGroundOnKill(player)) return;
         var state = Sporeguards.GetOrCreateValue(player);
+        GameArea? oldArea = null;
+        List<uint>? retired = null;
         lock (state.Gate)
         {
             if (!ReferenceEquals(state.Area, player.Area))
-                ResetSporeguardStateLocked(state, player.Area);
+                ResetSporeguardStateLocked(state, player.Area, out oldArea, out retired);
             PruneExpiredPatchesLocked(state, now);
             while (state.Patches.Count >= MaxFungalGroundPatches)
             {
@@ -118,6 +151,7 @@ public static partial class Game
             }
             state.Patches.Add(new(player.TakeObjectId(), at, FungalGroundRadiusOnKill, now + FungalGroundDurationSeconds, player.Area));
         }
+        PurgeSporeguardObjects(player, oldArea, retired);
         if (ProjectilesFor(player) is { Active: true } session)
             session.EnqueueLater(() => FlushSporeguardVisuals(player, state));
     }
@@ -135,10 +169,12 @@ public static partial class Game
             existing = Sporeguards.GetOrCreateValue(player);
         }
         (uint ObjectId, (int X, int Y) At, int Radius)? newStationary = null;
+        GameArea? oldArea = null;
+        List<uint>? retired = null;
         lock (existing.Gate)
         {
             if (!ReferenceEquals(existing.Area, player.Area))
-                ResetSporeguardStateLocked(existing, player.Area);
+                ResetSporeguardStateLocked(existing, player.Area, out oldArea, out retired);
             PruneExpiredPatchesLocked(existing, now);
             bool wantStationary = stationaryRadius > 0 && !player.Walk.Moving(now);
             var here = wantStationary ? player.Walk.Position(now) : default;
@@ -163,15 +199,19 @@ public static partial class Game
                 existing.Stationary = newStationary;
             }
         }
+        PurgeSporeguardObjects(player, oldArea, retired);
         return FlushSporeguardVisuals(player, existing, newStationary);
     }
 
-    /// <summary>Clears per-area Sporeguard Fungal Ground state when the player leaves an area.</summary>
+    /// <summary>Clears per-area Sporeguard Fungal Ground state and purges created visuals when the player leaves an area.</summary>
     internal static void EndAreaSporeguard(Player player)
     {
         if (!Sporeguards.TryGetValue(player, out var state)) return;
-        lock (state.Gate) ResetSporeguardStateLocked(state, null);
+        GameArea? area;
+        List<uint>? retired;
+        lock (state.Gate) ResetSporeguardStateLocked(state, null, out area, out retired);
         Sporeguards.Remove(player);
+        PurgeSporeguardObjects(player, area, retired);
     }
 
     static async Task FlushSporeguardVisuals(Player player, SporeguardState state,
@@ -219,8 +259,13 @@ public static partial class Game
                     else
                         stale = true;
                 }
-                if (stale && ReferenceEquals(player.Area, area) && !player.Closed && !player.LeavingArea)
-                    await SendWorldRemoval(player, stationary.ObjectId, $"0x02bd remove stale fungal ground 0x{stationary.ObjectId:x}");
+                if (stale)
+                {
+                    if (ReferenceEquals(player.Area, area) && !player.Closed && !player.LeavingArea)
+                        await SendWorldRemoval(player, stationary.ObjectId, $"0x02bd remove stale fungal ground 0x{stationary.ObjectId:x}");
+                    else
+                        PurgeSporeguardObjects(player, area, [stationary.ObjectId]);
+                }
             }
         }
         if (creates is not null)
@@ -243,8 +288,13 @@ public static partial class Game
                         else
                             stale = true;
                     }
-                    if (stale && ReferenceEquals(player.Area, area) && !player.Closed && !player.LeavingArea)
-                        await SendWorldRemoval(player, patch.ObjectId, $"0x02bd remove stale fungal ground 0x{patch.ObjectId:x}");
+                    if (stale)
+                    {
+                        if (ReferenceEquals(player.Area, area) && !player.Closed && !player.LeavingArea)
+                            await SendWorldRemoval(player, patch.ObjectId, $"0x02bd remove stale fungal ground 0x{patch.ObjectId:x}");
+                        else
+                            PurgeSporeguardObjects(player, area, [patch.ObjectId]);
+                    }
                 }
             }
         }

@@ -33,17 +33,43 @@ public static partial class Game
     public const int GravebindRadius = 60;
     static readonly RuleTable<SpawnedMonster, object> GravebindPartyClaims = new();
 
-    /// <summary>Whether the player wears an active item granting Gravebind's nearby-kill attribution.</summary>
-    public static bool HasGravebind(Player player)
+    sealed record EquippedLocalKillFlags(PlayerInventories Items, long Mutations, HashSet<uint>? Inactive, long ModsRevision,
+        bool HasGravebind, bool HasCreateFungalGroundOnKill);
+    static readonly RuleTable<Player, EquippedLocalKillFlags> EquippedLocalKillFlagsByPlayer = new();
+
+    static EquippedLocalKillFlags ReadEquippedLocalKillFlags(Player player)
     {
         var items = ItemsOf(player);
+        long mutations = items.Mutations;
+        var inactive = InactiveItems.GetValueOrDefault(CharacterName(player));
         var mods = ItemsFor(player).Mods;
+        long revision = mods.Revision;
+        if (EquippedLocalKillFlagsByPlayer.TryGetValue(player, out var cached)
+            && ReferenceEquals(cached.Items, items)
+            && cached.Mutations == mutations
+            && ReferenceEquals(cached.Inactive, inactive)
+            && cached.ModsRevision == revision)
+            return cached;
+
+        bool gravebind = false;
+        bool fungalOnKill = false;
         foreach (var (_, equipped) in items.EquipmentSnapshot())
-            if (!IsInactive(player, equipped.Id)
-                && ItemModStats.LocalValue(equipped.Item, mods, Stat.LocalDisplayEnemiesKilledNearbyCountAsBeingKilledByYou) != 0)
-                return true;
-        return false;
+        {
+            if (inactive?.Contains(equipped.Id) == true) continue;
+            if (!gravebind && ItemModStats.LocalValue(equipped.Item, mods, Stat.LocalDisplayEnemiesKilledNearbyCountAsBeingKilledByYou) != 0)
+                gravebind = true;
+            if (!fungalOnKill && ItemModStats.LocalValue(equipped.Item, mods, Stat.LocalDisplayTriggerLevelXCreateFungalGroundOnKill) > 0)
+                fungalOnKill = true;
+            if (gravebind && fungalOnKill) break;
+        }
+        var computed = new EquippedLocalKillFlags(items, mutations, inactive, revision, gravebind, fungalOnKill);
+        if (items.Mutations == mutations)
+            EquippedLocalKillFlagsByPlayer.AddOrUpdate(player, computed);
+        return computed;
     }
+
+    /// <summary>Whether the player wears an active item granting Gravebind's nearby-kill attribution.</summary>
+    public static bool HasGravebind(Player player) => ReadEquippedLocalKillFlags(player).HasGravebind;
 
     /// <summary>Gravebind credits owned (minion/totem/trap/mine) kills within 60 cells to a living owner.</summary>
     public static bool GravebindCreditsKill(Player owner, (int X, int Y) deathAt, double now) =>

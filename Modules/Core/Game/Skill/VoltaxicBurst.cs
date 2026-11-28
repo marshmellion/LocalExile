@@ -20,6 +20,7 @@ public static partial class Game
 
     sealed class VoltaxicBurstPlayerState
     {
+        public readonly Lock Gate = new();
         public readonly Dictionary<uint, VoltaxicBurstActorState> Actors = [];
         public GameArea? Area;
         public long NextCastId;
@@ -65,17 +66,25 @@ public static partial class Game
         long nowQuanta, long dueQuanta, bool syncClient)
     {
         var state = VoltaxicBursts.GetOrCreateValue(player);
-        if (!ReferenceEquals(state.Area, player.Area))
+        ulong castId;
+        int count;
+        long lastExpiry;
+        lock (state.Gate)
         {
-            state.Area = player.Area;
-            state.Actors.Clear();
+            if (!ReferenceEquals(state.Area, player.Area))
+            {
+                state.Area = player.Area;
+                state.Actors.Clear();
+            }
+            if (!state.Actors.TryGetValue(actorId, out var actor))
+                state.Actors[actorId] = actor = new();
+            castId = (ulong)Interlocked.Increment(ref state.NextCastId);
+            actor.CastIds.Add(castId);
+            if (dueQuanta > actor.LastExpiry) actor.LastExpiry = dueQuanta;
+            count = actor.CastIds.Count;
+            lastExpiry = actor.LastExpiry;
         }
-        if (!state.Actors.TryGetValue(actorId, out var actor))
-            state.Actors[actorId] = actor = new();
-        ulong castId = (ulong)Interlocked.Increment(ref state.NextCastId);
-        actor.CastIds.Add(castId);
-        if (dueQuanta > actor.LastExpiry) actor.LastExpiry = dueQuanta;
-        SyncVoltaxicBurstBuff(player, actorId, skillId, effect, actor, nowQuanta, syncClient);
+        SyncVoltaxicBurstBuff(player, actorId, skillId, effect, count, lastExpiry, nowQuanta, syncClient);
         return castId;
     }
 
@@ -83,21 +92,25 @@ public static partial class Game
         long nowQuanta, bool syncClient, out int remainingStacks)
     {
         remainingStacks = 0;
-        if (!VoltaxicBursts.TryGetValue(player, out var state) || !ReferenceEquals(state.Area, player.Area))
-            return false;
-        if (!state.Actors.TryGetValue(actorId, out var actor) || !actor.CastIds.Remove(castId))
-            return false;
-        remainingStacks = actor.CastIds.Count;
-        if (remainingStacks == 0) state.Actors.Remove(actorId);
-        SyncVoltaxicBurstBuff(player, actorId, skillId, effect, actor, nowQuanta, syncClient);
+        if (!VoltaxicBursts.TryGetValue(player, out var state)) return false;
+        long lastExpiry;
+        lock (state.Gate)
+        {
+            if (!ReferenceEquals(state.Area, player.Area)) return false;
+            if (!state.Actors.TryGetValue(actorId, out var actor) || !actor.CastIds.Remove(castId))
+                return false;
+            remainingStacks = actor.CastIds.Count;
+            lastExpiry = actor.LastExpiry;
+            if (remainingStacks == 0) state.Actors.Remove(actorId);
+        }
+        SyncVoltaxicBurstBuff(player, actorId, skillId, effect, remainingStacks, lastExpiry, nowQuanta, syncClient);
         return true;
     }
 
     static void SyncVoltaxicBurstBuff(Player player, uint actorId, ushort skillId, int effect,
-        VoltaxicBurstActorState actor, long nowQuanta, bool syncClient)
+        int count, long lastExpiry, long nowQuanta, bool syncClient)
     {
         if (!syncClient || player.Closed || player.LeavingArea) return;
-        int count = actor.CastIds.Count;
         player.Area.Stats.Set(actorId, Stat.VoltaxicBurstStackCount, count);
         ushort row = BuffRows.Find("voidburst_delayed_explosion");
         if (row == 0) return;
@@ -109,7 +122,7 @@ public static partial class Game
         ushort sourceSkill = actorId == player.Id ? skillId : (ushort)0x4000;
         (ushort Id, ushort Action)? active = SkillsFor(player).ActionHash(effect) is ushort action
             ? (sourceSkill, action) : null;
-        double remaining = Math.Max(0, (actor.LastExpiry - nowQuanta) / (double)ProjectileRuntime.QuantaPerSecond);
+        double remaining = Math.Max(0, (lastExpiry - nowQuanta) / (double)ProjectileRuntime.QuantaPerSecond);
         player.Area.Buffs.Set(actorId, BuffRows.Spec(row, actorId, null, remaining) with
         {
             SourceSkill = sourceSkill,
@@ -122,18 +135,26 @@ public static partial class Game
     internal static void EndAreaVoltaxicBurst(Player player)
     {
         if (!VoltaxicBursts.TryGetValue(player, out var state)) return;
-        ushort row = BuffRows.Find("voidburst_delayed_explosion");
-        if (ReferenceEquals(state.Area, player.Area))
+        uint[]? actorIds = null;
+        GameArea? area;
+        lock (state.Gate)
         {
-            foreach (uint actorId in state.Actors.Keys)
+            area = state.Area;
+            if (ReferenceEquals(area, player.Area) && state.Actors.Count > 0)
+                actorIds = [.. state.Actors.Keys];
+            state.Actors.Clear();
+            state.Area = null;
+        }
+        VoltaxicBursts.Remove(player);
+        if (actorIds is not null && area is not null)
+        {
+            ushort row = BuffRows.Find("voidburst_delayed_explosion");
+            foreach (uint actorId in actorIds)
             {
-                player.Area.Stats.Set(actorId, Stat.VoltaxicBurstStackCount, 0);
-                if (row != 0) player.Area.Buffs.Clear(actorId, row, actorId);
+                area.Stats.Set(actorId, Stat.VoltaxicBurstStackCount, 0);
+                if (row != 0) area.Buffs.Clear(actorId, row, actorId);
             }
         }
-        state.Actors.Clear();
-        state.Area = null;
-        VoltaxicBursts.Remove(player);
     }
 
     static void MarkVoltaxicBurstHit(Player player, uint monsterId, int effect, IReadOnlyDictionary<uint, int> own,
@@ -268,8 +289,7 @@ public static partial class Game
             if (!Active || Player.PlayerLife == 0 || Player.Closed || Player.LeavingArea) return;
             var corpse = death.Corpse;
             var current = Player.Area.Monsters.GetValueOrDefault(death.Entity);
-            if (current != corpse && (current is not null || !corpse.CorpseConsumed)) return;
-            if (corpse.CorpseConsumed) return;
+            if (current != corpse || corpse.CorpseConsumed) return;
             var mark = death.Mark;
             double now = ProjectileWorldTime(Player);
             if (Player.Connection.Connected && TakeExplosionArt(Player, now))
@@ -278,7 +298,8 @@ public static partial class Game
             int StatValue(uint key) => ActorScale.Add(key, stats.GetValueOrDefault(key), mark.Stats.GetValueOrDefault(key));
             double raw = (corpse.MaxLifeWithoutParty ?? corpse.MaxLife) * (double)mark.LifePercent / 100;
             var conversionStats = new Dictionary<uint, int>(stats);
-            foreach (var (k, v) in mark.Stats) conversionStats.TryAdd(k, v);
+            foreach (var (k, v) in mark.Stats)
+                conversionStats[k] = ActorScale.Add(k, conversionStats.GetValueOrDefault(k), v);
             var conversion = DamageStats.Conversion(conversionStats, Stats, attack: null);
             var supports = mark.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value));
             DamagePacket Resolve(DamagePacket basis) => PlayerHitDamage.Resolve(basis, StatValue, conversion,

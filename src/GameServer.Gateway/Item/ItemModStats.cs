@@ -154,9 +154,9 @@ public static class ItemModStats
     }
 
     static bool IsVeiledMod(ModCatalog.Mod row) =>
-        row.Id.StartsWith("JunMasterVeiled", StringComparison.Ordinal)
-        || row.Id.StartsWith("Veiled", StringComparison.Ordinal)
-        || row.Tags.Contains("veiled_mod");
+        row.Domain == 28
+        || row.Tags.Contains("unveiled_mod")
+        || row.Id.StartsWith("JunMasterVeiled", StringComparison.Ordinal);
 
     /// <summary>How much the item's effect stats raise this modifier: only explicit affixes are affected, by the
     /// all-explicit stat, the stat for their own side, plus unveiled modifier effect when unveiled.</summary>
@@ -165,7 +165,7 @@ public static class ItemModStats
         : effect.Explicit
             + (row.GenerationType == ItemRolls.Prefix ? effect.Prefix
                 : row.GenerationType == ItemRolls.Suffix ? effect.Suffix : 0)
-            + (IsVeiledMod(row) ? effect.Unveiled : 0);
+            + (effect.Unveiled != 0 && IsVeiledMod(row) ? effect.Unveiled : 0);
 
     /// <summary>Whether a stat marks its mod as an aura for other creatures. The marker is a display stat: "nearby"
     /// (enemies or allies) or a debuff the wearer puts on them.</summary>

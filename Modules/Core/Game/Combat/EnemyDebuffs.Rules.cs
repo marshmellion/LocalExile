@@ -31,7 +31,7 @@ public static partial class Game
         {
             if (Dist(m.Walk.Position(now), at) > radius || !ApplyPlayerTauntLocked(player, m, now, seconds)) continue;
             taunted++;
-            if (fromWarcry) MarkWarcryTaunted(m, m.TauntedUntil);
+            if (fromWarcry) MarkWarcryTaunted(m, player.Id, m.TauntedUntil);
             if (intimidate) ApplyIntimidateLocked(m, now, m.TauntedUntil, stunDurationPct);
         }
         return taunted;
@@ -43,6 +43,7 @@ public static partial class Game
             || target.Effects[Stat.CannotBeTaunted] != 0) return false;
         if (target.TauntingPlayerId is uint previous && previous != player.Id)
             ClearPlayerTauntLocked(player.Area, target.ObjectId, target, previous);
+        ClearWarcryTaunted(target);
         target.TauntedUntil = now + seconds / target.RecipientDebuffRate;
         target.TauntingPlayerId = player.Id;
         target.TakenFromPlayer = target.TakenFromPlayer with { All = player.EnemyDebuffs.TauntedDamageTakenPct };
@@ -117,6 +118,7 @@ public static partial class Game
             if (m.TauntingPlayerId == player.Id)
             {
                 ClearPlayerTauntLocked(player.Area, m.ObjectId, m, player.Id);
+                ClearWarcryTauntedBy(m, player.Id);
                 m.PresentationChanged?.Invoke();
             }
             if (SetNearbyFireExposure(m, player.Id, 0)) PresentFireExposureLocked(player.Area, m.ObjectId, m, now);

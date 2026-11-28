@@ -108,7 +108,8 @@ public static partial class Game
         // step, which drops it (11 Â§"skill_is_non_pathing"): the totem stood still and its spell drew nothing.
         payload[Stat.SkillIsNonPathing] = 1;
         if (SpellTotemNova(player, gem.Effect) || IsGroundBladeBlast(SkillsFor(player).EffectId(gem.Effect))
-            || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(gem.Effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(gem.Effect)))
+            || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(gem.Effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(gem.Effect))
+            || IsVoltaxicBurst(SkillsFor(player).EffectId(gem.Effect)))
             payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, gem.Stats, spell: true, gem.Effect);
         else if (ShockNovaEffect(SkillsFor(player).EffectId(gem.Effect)))
             payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, 26, gem.Stats, spell: true, gem.Effect);
