@@ -293,7 +293,7 @@ Say "Start the game with $Folder\Exciting\play.cmd (or Waypoint's Start)."
 Say 'The FIRST start builds the servers and reads the game data: it takes a few minutes before the game opens.'
 if ($hasPython) { Say 'The Body Auras are made at the second start (they read data the first start makes).' }
 Say ''
-Say "To update later: $Folder\Exciting\update.cmd. More mods: $modsUrl"
+Say "To update everything later (the build and every mod): $Folder\Exciting\update-all.cmd. More mods: $modsUrl"
 Say "Help and settings: $Folder\Exciting\README.md"
 if (Ask 'Start the game now?') { Start-Process (Join-Path $Folder 'Exciting\play.cmd') }
 Write-Host ''

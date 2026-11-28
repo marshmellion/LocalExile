@@ -2,6 +2,7 @@
 #   setup.cmd            first time, and whenever you like: checks what you need, copies your client, makes your
 #                        login keys and patched client, installs the mods (NativeMods only with -NativeMods)
 #   update.cmd           pulls the newest build first (git pull), then does the same
+#   update-all.cmd       update.cmd, then every other installed mod our mods repository has newer (update-all.ps1)
 #   use-testing.cmd      switches to the testing build (branch exciting-testing: what is being tried before a release)
 #   use-release.cmd      switches back to the released build (branch exciting)
 # The mods' client content (new items' art and text) goes into Client\ when the game starts (scripts\dev\live.ps1).
