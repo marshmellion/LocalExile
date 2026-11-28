@@ -474,7 +474,7 @@ public sealed class HarvestCrafting
             catalog.Gem(sourceType) is not { } gem ||
             _data.FacetorsLens is not { Supported: true } lensType)
             return null;
-        long totalXp = item.GemExperience == -1
+        long totalXp = item.GemExperience < 0
             ? (gem.Thresholds.Count > 0 ? gem.Thresholds[^1] : 0)
             : Math.Max(0, item.GemExperience);
         long stored = totalXp * recipe.ExperiencePercent / 100;

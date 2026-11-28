@@ -1314,8 +1314,12 @@ public static partial class Game
     // else the character's attribute.
     public static int RequirementAttribute(Player player, uint attribute, int value)
     {
-        return value;
+        return RequirementAttributeOverride?.Invoke(player, attribute, value) ?? value;
     }
+
+    /// <summary>Set by a mod: the attribute a gem's requirement is checked against instead (null: the character's own), so
+    /// a mod that tells the client the requirements are met (virtual_*_for_requirements) keeps the server's check in step.</summary>
+    public static Func<Player, uint, int, int?>? RequirementAttributeOverride { get; set; }
 
     // Actor restrictions use the actual caster's current sources, never a skill overlay (which may replace a key).
     // CharacterPlayerStats does not build PlayerSkills or call GemDisabled, so this cannot recurse through admission.

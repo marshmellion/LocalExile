@@ -222,6 +222,8 @@ public sealed class SkillCatalog
         }
         if (quality > 0 && t.Quality.TryGetValue(effectRow, out var perQuality))
             foreach (var (s, permille) in perQuality) stats[(uint)s + 1] = stats.GetValueOrDefault((uint)s + 1) + permille * quality / 1000;
+        if (GameEvents.GemLevelStats.Any && EffectId(effectRow) is { } effectId)
+            GameEvents.RunGemLevelStats(effectId, level, stats);
         return [.. stats.Select(kv => (kv.Key, kv.Value))];
 
         void Put(uint name, int value) { if (name is var k) stats[k] = value; }

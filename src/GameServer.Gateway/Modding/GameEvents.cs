@@ -397,6 +397,17 @@ public static class GameEvents
     /// <summary>Whether a subscriber of the connection's league fills the row's sub-area (<see cref="FeatureFilled"/>).</summary>
     public static bool FillsFeature(Player player, string row) => FeatureFilled.For(player).Any(run => run(player, row));
 
+    /// <summary>What a chest or strongbox drops, after the server rolled it and before it lies on the ground: a
+    /// subscriber may add, change or remove drops. The kind is "chest", "strongbox" or "corrupted strongbox", the id the chest's or the box
+    /// type's own.</summary>
+    public static readonly GameEvent<Action<Player, string, string, List<ItemDrops.Drop>>> ChestDrops = new();
+
+    public static void RunChestDrops(Player player, string kind, string id, List<ItemDrops.Drop> drops)
+    {
+        foreach (var (owner, run) in ChestDrops.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(ChestDrops), () => run(player, kind, id, drops));
+    }
+
     /// <summary>A killed monster's drops, before they are rolled: scale them, add items, or cancel them.</summary>
     public static readonly GameEvent<Action<DropRoll>> Drops = new();
     /// <summary>A newly generated ground item's final contents, before publication, for kills and containers alike.</summary>
@@ -415,6 +426,55 @@ public static class GameEvents
 
     /// <summary>The experience of a kill, after the level penalty, before the character and its gems gain it.</summary>
     public static readonly GameEvent<Action<ExperienceGain>> Experience = new();
+
+    /// <summary>A gem skill's own stats at a level, as the game data has them (GrantedEffects Id, gem level, stats by
+    /// <c>Stats.dat</c> row + 1): change, add or remove them. Every league's, as the game data is the same for all.</summary>
+    public static readonly GameEvent<Action<string, int, Dictionary<uint, int>>> GemLevelStats = new();
+
+    public static void RunGemLevelStats(string effect, int level, Dictionary<uint, int> stats)
+    {
+        foreach (var subscriber in GemLevelStats.Snapshot)
+        {
+            var (owner, run) = (subscriber.Owner, subscriber.Run);
+            GameEventOwners.Guard(owner, nameof(GemLevelStats), () => run(effect, level, stats));
+        }
+    }
+
+    /// <summary>How many times a player's spell cast repeats (Spell Echo and the like) for the gem skill on that slot id
+    /// (GrantedEffects Id, the game's count): return another count, or null to leave it.</summary>
+    public static readonly GameEvent<Func<Player, ushort, string, int, int?>> SpellRepeatCount = new();
+
+    public static int RunSpellRepeatCount(Player player, ushort skill, string effect, int repeats)
+    {
+        int count = repeats;
+        foreach (var (owner, run) in SpellRepeatCount.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(SpellRepeatCount), () => { if (run(player, skill, effect, count) is int n) count = n; });
+        return count;
+    }
+
+    /// <summary>Whether a kill by the player's minion, totem, trap or mine counts as the player's own as well: true runs
+    /// the player's on-kill effects, charges and kill events for it.</summary>
+    public static readonly GameEvent<Func<Player, SpawnedMonster, bool>> OwnedKillCountsAsYours = new();
+
+    public static bool RunOwnedKillCountsAsYours(Player player, SpawnedMonster monster)
+    {
+        bool yours = false;
+        foreach (var (owner, run) in OwnedKillCountsAsYours.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(OwnedKillCountsAsYours), () => { if (run(player, monster)) yours = true; });
+        return yours;
+    }
+
+    /// <summary>Whether a corpse may be raised by a minion skill (the skill's SummonCatalog family: "Spectre", "Zombie",
+    /// ...): true or false decides, null leaves it to the game (no unique monsters, the corpse's own rules).</summary>
+    public static readonly GameEvent<Func<Player, SpawnedMonster, string, bool?>> CorpseRaisable = new();
+
+    public static bool? RunCorpseRaisable(Player player, SpawnedMonster corpse, string family)
+    {
+        bool? said = null;
+        foreach (var (owner, run) in CorpseRaisable.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(CorpseRaisable), () => { if (run(player, corpse, family) is bool b) said = b; });
+        return said;
+    }
 
     /// <summary>Stats added to the character's own, by <c>Stats.dat</c> id, whenever the server rebuilds its stats.</summary>
     public static readonly GameEvent<Action<StatSheet>> Stats = new();
@@ -793,6 +853,11 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCast = new();
     /// <summary>A currency used; true when it was this module's.</summary>
     public static readonly GameEvent<Func<Player, byte, InventoryItem, ItemCatalog.BaseType, Task<bool>>> ItemUse = new();
+    /// <summary>A currency used on an item: the item the target becomes, the target itself to refuse (nothing is spent
+    /// and nothing else is asked), or null when the currency is not this subscriber's. Asked before the server's own
+    /// currencies and before its refusals (a mirrored or corrupted target): the subscriber decides. The first answer wins. The arguments: the target, the currency item itself, the currency's type, and the use's
+    /// random (seeded while the target is under Hinekora's Lock, so the preview and the use agree).</summary>
+    public static readonly GameEvent<Func<Player, Item, Item, ItemCatalog.BaseType, Random, Item?>> CurrencyOnItem = new();
     /// <summary>A warcry with open_nearby_chests_on_warcry went off: a module opens its chests within the radius (cells).</summary>
     public static readonly GameEvent<Func<Player, (int X, int Y), int, Task>> ChestsOpened = new();
     /// <summary>A party line ("%…"), cleaned: the party is a module's to know, the text is the Chat module's; true when
@@ -991,6 +1056,18 @@ public static class GameEvents
     public static bool? RunSkillCast(Player player, string? effect, ushort skillId, (int X, int Y) from, Func<bool> current)
     {
         foreach (var run in SkillCast.For(player)) if (run(player, effect, skillId, from, current) is { } taken) return taken;
+        return null;
+    }
+
+    /// <summary>What a subscriber's currency makes of the item (<see cref="CurrencyOnItem"/>); null when none answers.</summary>
+    public static Item? RunCurrencyOnItem(Player player, Item target, Item used, ItemCatalog.BaseType currency, Random random)
+    {
+        foreach (var (owner, run) in CurrencyOnItem.Subscribers(player))
+        {
+            Item? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(CurrencyOnItem), () => answer = run(player, target, used, currency, random))
+                && answer is not null) return answer;
+        }
         return null;
     }
 

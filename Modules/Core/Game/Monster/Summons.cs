@@ -360,10 +360,13 @@ public static partial class Game
         definition.Corpse && (definition.Family != "Zombie" || GolemStat(playerStats, Stat.RaiseZombieDoesNotUseCorpses) == 0);
 
     static SpawnedMonster? SummonCorpse(Player player, (int X, int Y) aim, uint target, double radius = 15,
-        bool cannotUseSpectreCorpses = false, SpawnedMonster? preferred = null)
+        bool cannotUseSpectreCorpses = false, SpawnedMonster? preferred = null, string? family = null)
     {
+        // A mod may decide which corpses a raise takes (GameEvents.CorpseRaisable): "anything can be a spectre".
+        bool hooked = family is not null && GameEvents.CorpseRaisable.Any;
         bool Allowed(SpawnedMonster m) => m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered
-            && CorpseTypeAllowsUse(m, minionSkill: true, cannotUseSpectreCorpses) && m.Rarity != MonsterRarity.Unique;
+            && ((hooked ? GameEvents.RunCorpseRaisable(player, m, family!) : null)
+                ?? (CorpseTypeAllowsUse(m, minionSkill: true, cannotUseSpectreCorpses) && m.Rarity != MonsterRarity.Unique));
         // The corpse the cast was planned on, while it is still present and usable; otherwise the lookup runs as it always did.
         if (preferred is not null && Allowed(preferred)
             && (preferred.ObjectId != 0
@@ -387,7 +390,8 @@ public static partial class Game
         using var scope = new PlayerStatScope(player, fresh: true);
         var gem = SupportedSkill(player, skillId);
         if (!SummonNeedsCorpse(definition, new Dictionary<uint, int>(CharacterPlayerStats(player)))) return true;
-        corpse = SummonCorpse(player, aim, target, cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0);
+        corpse = SummonCorpse(player, aim, target, cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0,
+            family: definition.Family);
         return corpse is not null;
     }
 
@@ -548,7 +552,7 @@ public static partial class Game
         if (restoredVariety is null && SummonNeedsCorpse(definition, playerStats))
         {
             corpse = SummonCorpse(player, aim, target, cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0,
-                preferred: plannedCorpse);
+                preferred: plannedCorpse, family: definition.Family);
             if (corpse is null) return 0;
             if (definition.Family == "Spectre") corpseVariety = corpse.Variety;
             aim = corpse.Walk.Position(AreaTime(player));
