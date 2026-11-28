@@ -1462,6 +1462,11 @@ public static partial class Game
             && !CooldownTriggerExecutable(player, gem)
             && !SnipeTriggeredAttackExecutable(player, skillId, gem)
             && !ManaforgedAttackExecutable(player, skillId, gem)) return "this trigger payload has no server executor";
+        if (SkillsFor(player).EffectId(effect) == EnergyBladeEffect)
+        {
+            if (triggered) return "Energy Blade must be used directly";
+            if (!CanUseEnergyBlade(player)) return "Energy Blade requires swords in the active weapon set";
+        }
         if (triggered && SkillsFor(player).EffectId(effect) == ThunderstormEffect)
             return "Thunderstorm must be used directly";
         if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;
@@ -1945,8 +1950,10 @@ public static partial class Game
         {
             player.Auras.Remove(aura.SkillId);
             EndReservationRuntimeLocked(player, aura);
-            CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
         }
+        foreach (var aura in ended.DistinctBy(a => a.EffectId))
+            if (!player.Auras.Values.Any(a => a.EffectId == aura.EffectId))
+                CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
         if (ended.Any(a => StanceCatalog.IsStance(a.EffectId)))
             ReconcileStanceSelectionLocked(player, persist: true);
         bool petrifiedEnded = player.PetrifiedBlood.Active && gone.Contains(player.PetrifiedBlood.SkillId);
@@ -1957,6 +1964,11 @@ public static partial class Game
         }
         ClearCooldownTriggersLocked(player, gone);
         ClearInstantBuffSkillsLocked(player, gone);
+        if (CurrentEnergyBlade(player) is { } blade && gone.Contains(blade.Skill) && ClearEnergyBlade(player))
+        {
+            EnergyBladeChanged(player);
+            _ = PublishEnergyBlade(player);
+        }
         double now = AreaTime(player);
         foreach (var fighter in player.Summons.Fighters.Values.Where(g => gone.Contains(g.Source)).ToArray())
             RemoveSummonLocked(player, fighter, now);
