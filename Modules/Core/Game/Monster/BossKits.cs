@@ -152,7 +152,7 @@ public static class BossKits
     {
         if (!catalog.DistributesProjectilesOverContactPoints(effect) || !catalog.HasMonsterContacts(variety.Id))
             return false;
-        string? animKey = catalog.EffectAnimation(effect) ?? catalog.MonsterProjectile(effect)?.AnimationKey;
+        string? animKey = SkillCatalog.EffectAnimationName(effect) ?? catalog.MonsterProjectile(effect)?.AnimationKey;
         return !string.IsNullOrEmpty(animKey) && catalog.MonsterContactPool(variety.Id, animKey) is null;
     }
 
