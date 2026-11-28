@@ -198,7 +198,7 @@ public static class ItemCrafter
     /// <summary>What a tool sends with /item_give (one JSON object, Agents/docs/dev/item-crafter.md).</summary>
     public sealed record Spec(string Base, string? Rarity = null, int? ItemLevel = null, int? Quality = null, bool Identified = true,
         IReadOnlyList<string>? States = null, int Fractured = 0, IReadOnlyList<uint>? Name = null, string? Sockets = null,
-        IReadOnlyList<SpecMod>? Mods = null);
+        IReadOnlyList<SpecMod>? Mods = null, bool AnySockets = false);
 
     /// <param name="Section">implicit, explicit, enchant, scourge or hidden; the mod's own list when missing.</param>
     public sealed record SpecMod(string Id, string? Section = null, IReadOnlyList<int>? Values = null);
@@ -254,7 +254,8 @@ public static class ItemCrafter
         {
             if (string.IsNullOrWhiteSpace(layout)) item = item with { Sockets = [], Links = null };
             else if (SocketLayout.Parse(layout.Split(' ', StringSplitOptions.RemoveEmptyEntries), out error) is not var (colours, links)
-                || SocketLayout.Apply(item, type, colours, links, out error, SocketLayout.CapacityOverride) is not { } socketed) return null;
+                || SocketLayout.Apply(item, type, colours, links, out error,
+                    spec.AnySockets ? SocketLayout.MaximumSockets : SocketLayout.CapacityOverride) is not { } socketed) return null;
             else item = socketed;
         }
         error = null;

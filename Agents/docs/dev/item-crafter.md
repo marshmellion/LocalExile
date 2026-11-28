@@ -81,6 +81,8 @@ launcher sends it through the [client control](client-control.md) bridge). It go
 - `fractured`: how many of the first explicit mods are fractured.
 - `name`: a rare's two Words.dat keys (here "Dire Abyss"); without it a rare gets a random name.
 - `sockets`: as `/sockets` takes them; `""` for none; without it, the sockets `/item` gives.
+- `anySockets`: `true` lets `sockets` go past the base's capacity (up to 6), even on a base without sockets, as for
+  a bugged item LE.trade lists. `/sockets` and `sockets` take `A` for an Abyssal socket (never linked).
 - `mods`: every mod of the item, implicits included, in order. `section` (implicit, explicit, enchant, scourge, hidden)
   defaults to the mod's own list; missing `values` are rolled. Any mod goes on any base, values outside the roll range
   too, as with `/item_mod`. A cluster jewel whose mods do not name its passives mod keeps the enchantments of a new

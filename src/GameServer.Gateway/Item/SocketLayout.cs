@@ -30,9 +30,10 @@ public static class SocketLayout
                 SocketColour? colour = char.ToUpperInvariant(c) switch
                 {
                     'R' => SocketColour.Red, 'G' => SocketColour.Green, 'B' => SocketColour.Blue, 'W' => SocketColour.White,
+                    'A' => SocketColour.Abyss,
                     _ => null,
                 };
-                if (colour is not { } k) { error = $"'{c}' is not a socket colour (R, G, B or W)"; return null; }
+                if (colour is not { } k) { error = $"'{c}' is not a socket colour (R, G, B, W or A for Abyssal)"; return null; }
                 colours.Add(k);
                 group++;
             }
@@ -54,8 +55,9 @@ public static class SocketLayout
         out string? error, int capacityOverride = 0)
     {
         int capacity = CurrencyEffects.SocketCapacity(item, type);
-        if (capacity == 0) { error = $"{type.Name} can't have sockets"; return null; }
+        // An override (the dev flag, or an item spec's anySockets) also lets a base without sockets have some.
         if (capacityOverride > 0) capacity = Math.Min(capacityOverride, MaximumSockets);
+        if (capacity == 0) { error = $"{type.Name} can't have sockets"; return null; }
         if (colours.Count > capacity) { error = $"{type.Name} has room for at most {capacity} sockets"; return null; }
         if (item.Sockets.Skip(colours.Count).Any(s => s.Gem is not null)) { error = "take out the gems of the sockets that would go first"; return null; }
         error = null;
