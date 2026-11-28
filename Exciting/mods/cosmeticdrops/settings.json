@@ -1,0 +1,444 @@
+{
+  "version": 1,
+  "settings": {
+    "enabled": {
+      "type": "bool",
+      "default": true,
+      "label": "Cosmetics drop (off: every cosmetic owned, as before)",
+      "description": "Turning it off brings back everything you wore: the saves keep your picks."
+    },
+    "mode": {
+      "type": "choice",
+      "default": "hybrid",
+      "options": [
+        "hybrid",
+        "target",
+        "box"
+      ],
+      "label": "How they drop",
+      "description": "target: each from its own source, as a Sealed Cosmetic. box: Cosmetic Caches that give a random one. hybrid: both."
+    },
+    "target": {
+      "type": "group",
+      "label": "Target farming",
+      "description": "Each cosmetic drops from one source that fits it: Sirus's from Sirus, a league's from its content, the rest from a map tileset. /cosmetics where <name> tells you where. Chances are 1 in X per kill; 0: never.",
+      "settings": {
+        "pinnacle": {
+          "type": "integer",
+          "default": 4,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Pinnacle and league bosses (the Shaper, Sirus, Kitava...): 1 in"
+        },
+        "mapBoss": {
+          "type": "integer",
+          "default": 50,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Map bosses and other unique monsters: 1 in"
+        },
+        "rare": {
+          "type": "integer",
+          "default": 1500,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Rare monsters: 1 in"
+        },
+        "magic": {
+          "type": "integer",
+          "default": 8000,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Magic monsters: 1 in"
+        },
+        "normal": {
+          "type": "integer",
+          "default": 30000,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Normal monsters: 1 in"
+        },
+        "strongbox": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Strongboxes: 1 in",
+          "description": "Private build. Strongbox cosmetics, else the tileset's."
+        },
+        "leagueMonsters": {
+          "type": "number",
+          "default": 3.0,
+          "min": 0.01,
+          "max": 1000,
+          "label": "League monsters (Legion, Breach, Delirium...) drop this many times as often"
+        },
+        "onlyNew": {
+          "type": "bool",
+          "default": true,
+          "label": "Only cosmetics you don't own yet"
+        },
+        "fallbackUnbuilt": {
+          "type": "bool",
+          "default": true,
+          "label": "League content the server doesn't run yet drops its cosmetics in a fitting tileset",
+          "description": "Sanctum's in temples, Ultimatum's in dungeons, Ritual's in forests and so on."
+        },
+        "tilesetForOtherMaps": {
+          "type": "bool",
+          "default": true,
+          "label": "A map no tileset names counts as one anyway (chosen by its name)"
+        },
+        "sealedItem": {
+          "type": "bool",
+          "default": true,
+          "label": "Drop as a Sealed Cosmetic (right click to unlock)",
+          "description": "Off: it unlocks at once when the monster dies."
+        },
+        "sealedNote": {
+          "type": "bool",
+          "default": true,
+          "label": "Sealed Cosmetics say where they dropped",
+          "description": "A note on the item: what dropped it, how many cosmetics drop there, and how many of those you have unlocked."
+        },
+        "sources": {
+          "type": "map",
+          "value": {
+            "type": "number",
+            "min": 0,
+            "max": 1000
+          },
+          "options": [
+            "shaper",
+            "elder",
+            "maven",
+            "sirus",
+            "conquerors",
+            "eater",
+            "exarch",
+            "atziri",
+            "kitava",
+            "guardians",
+            "mapbosses",
+            "legion",
+            "breach",
+            "abyss",
+            "delve",
+            "heist",
+            "harvest",
+            "betrayal",
+            "blight",
+            "delirium",
+            "bestiary",
+            "incursion",
+            "synthesis",
+            "expedition",
+            "ritual",
+            "ultimatum",
+            "azmeri",
+            "necropolis",
+            "crucible",
+            "kalandra",
+            "ancestral",
+            "sanctum",
+            "mirage",
+            "phrecia",
+            "deepwater",
+            "harbinger",
+            "rogueexiles",
+            "mercenaries",
+            "strongboxes",
+            "tombs",
+            "jungle",
+            "desert",
+            "volcanic",
+            "frozen",
+            "swamp",
+            "city",
+            "coast",
+            "forest",
+            "caves",
+            "temples",
+            "dungeons",
+            "workshops",
+            "peaks"
+          ],
+          "default": {},
+          "label": "Per source: drop chance multiplier",
+          "description": "0 turns a source off, 2 doubles it. E.g. sirus: 2."
+        },
+        "moves": {
+          "type": "map",
+          "value": {
+            "type": "choice",
+            "options": [
+              "shaper",
+              "elder",
+              "maven",
+              "sirus",
+              "conquerors",
+              "eater",
+              "exarch",
+              "atziri",
+              "kitava",
+              "guardians",
+              "mapbosses",
+              "legion",
+              "breach",
+              "abyss",
+              "delve",
+              "heist",
+              "harvest",
+              "betrayal",
+              "blight",
+              "delirium",
+              "bestiary",
+              "incursion",
+              "synthesis",
+              "expedition",
+              "ritual",
+              "ultimatum",
+              "azmeri",
+              "necropolis",
+              "crucible",
+              "kalandra",
+              "ancestral",
+              "sanctum",
+              "mirage",
+              "phrecia",
+              "deepwater",
+              "harbinger",
+              "rogueexiles",
+              "mercenaries",
+              "strongboxes",
+              "tombs",
+              "jungle",
+              "desert",
+              "volcanic",
+              "frozen",
+              "swamp",
+              "city",
+              "coast",
+              "forest",
+              "caves",
+              "temples",
+              "dungeons",
+              "workshops",
+              "peaks"
+            ]
+          },
+          "default": {},
+          "label": "Move a cosmetic or a whole set to another source",
+          "description": "Key: a cosmetic's name or its set's (e.g. \"Kitava\"). Value: the source."
+        }
+      }
+    },
+    "box": {
+      "type": "group",
+      "label": "Cosmetic Caches",
+      "description": "The box: a Cosmetic Cache drops, a right click unlocks a random cosmetic. Chances are 1 in X; 0: never.",
+      "settings": {
+        "bosses": {
+          "type": "integer",
+          "default": 20,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Bosses (unique monsters): 1 in"
+        },
+        "rare": {
+          "type": "integer",
+          "default": 800,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Rare monsters: 1 in"
+        },
+        "magic": {
+          "type": "integer",
+          "default": 5000,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Magic monsters: 1 in"
+        },
+        "normal": {
+          "type": "integer",
+          "default": 20000,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Normal monsters: 1 in"
+        },
+        "strongbox": {
+          "type": "integer",
+          "default": 10,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Strongboxes: 1 in",
+          "description": "Private build."
+        },
+        "onlyNew": {
+          "type": "bool",
+          "default": true,
+          "label": "Only cosmetics you don't own yet"
+        },
+        "hideouts": {
+          "type": "bool",
+          "default": true,
+          "label": "Caches can give hideouts too"
+        },
+        "priceWeights": {
+          "type": "bool",
+          "default": true,
+          "label": "Pricier cosmetics are rarer from caches",
+          "description": "By the shop's price: wings at 640 points are much rarer than a 50-point effect. Supporter-pack pieces count as expensive."
+        },
+        "priceStrength": {
+          "type": "number",
+          "default": 1.0,
+          "min": 0,
+          "max": 5,
+          "label": "How much rarer (0: price doesn't matter, 2: far rarer)"
+        }
+      }
+    },
+    "ownership": {
+      "type": "group",
+      "label": "What is locked",
+      "settings": {
+        "boughtHideouts": {
+          "type": "bool",
+          "default": true,
+          "label": "Bought (shop) hideouts must drop"
+        },
+        "foundHideouts": {
+          "type": "bool",
+          "default": true,
+          "label": "Hideouts found in maps must drop",
+          "description": "The default and campaign hideouts are always yours."
+        },
+        "decorations": {
+          "type": "bool",
+          "default": true,
+          "label": "Shop hideout decorations must drop",
+          "description": "The masters' decorations are always yours."
+        },
+        "mysteryBoxes": {
+          "type": "bool",
+          "default": false,
+          "label": "Mystery boxes drop too",
+          "description": "Opening one goes through the offline shop: turn on \"Keep the offline shop's grants\" as well."
+        },
+        "keepShopGrants": {
+          "type": "bool",
+          "default": false,
+          "label": "Keep what the offline shop granted (and its mystery boxes gave)"
+        },
+        "petCopies": {
+          "type": "integer",
+          "default": 2,
+          "min": 1,
+          "max": 127,
+          "label": "Copies of each pet"
+        },
+        "weaponEffectCopies": {
+          "type": "integer",
+          "default": 2,
+          "min": 1,
+          "max": 127,
+          "label": "Copies of each weapon effect",
+          "description": "Two, so both weapons can wear it."
+        },
+        "invisibleCopies": {
+          "type": "integer",
+          "default": 100,
+          "min": 1,
+          "max": 127,
+          "label": "Copies of each invisible effect (always owned)",
+          "description": "Invisible Buff Effect and Invisible Flask Effect, to hide buffs and flasks anywhere."
+        },
+        "alwaysOwned": {
+          "type": "list",
+          "item": {
+            "type": "text",
+            "minLength": 1
+          },
+          "default": [],
+          "label": "Always owned (cosmetic names)"
+        },
+        "alwaysOwnedKinds": {
+          "type": "list",
+          "item": {
+            "type": "text",
+            "minLength": 1
+          },
+          "default": [
+            "Account"
+          ],
+          "label": "Always owned (kinds)",
+          "description": "Kinds such as Pet, Portal, Footprints, Hideout Item, Character Effect. Account: the hideout shop rows (the hideouts themselves are above)."
+        },
+        "decorationsMin": {
+          "type": "integer",
+          "default": 5,
+          "min": 1,
+          "max": 127,
+          "label": "Hideout decorations per drop: at least"
+        },
+        "decorationsMax": {
+          "type": "integer",
+          "default": 20,
+          "min": 1,
+          "max": 127,
+          "label": "Hideout decorations per drop: at most",
+          "description": "More of one you have add up, to 127. Decorations keep dropping until then."
+        }
+      }
+    },
+    "notices": {
+      "type": "group",
+      "label": "When you get one",
+      "settings": {
+        "chat": {
+          "type": "bool",
+          "default": true,
+          "label": "A chat line"
+        },
+        "overlay": {
+          "type": "bool",
+          "default": true,
+          "label": "A pop-up on the QoL overlay"
+        },
+        "sound": {
+          "type": "bool",
+          "default": true,
+          "label": "A chime with the pop-up"
+        },
+        "inGame": {
+          "type": "bool",
+          "default": true,
+          "label": "The game's own new-cosmetic notice"
+        },
+        "announceDrops": {
+          "type": "bool",
+          "default": true,
+          "label": "Say in chat when a Sealed Cosmetic or a Cosmetic Cache drops"
+        },
+        "rewardToast": {
+          "type": "bool",
+          "default": true,
+          "label": "The game's reward pop-up with the cosmetic's picture",
+          "description": "On the right of the screen, as for a league challenge reward: \"New cosmetic: <name> (Complete)\" and \"<name> unlocked!\" with its icon. Needs the game's challenge notifications on in its options."
+        },
+        "banner": {
+          "type": "bool",
+          "default": true,
+          "label": "The game's \"Challenge Complete!\" banner for a hideout (and a cosmetic when the toast is off)",
+          "description": "Needs the game's option to show challenge notifications."
+        }
+      }
+    },
+    "testCommands": {
+      "type": "bool",
+      "default": true,
+      "label": "Test commands (/cosmetics give, sealed, cache, lock)"
+    }
+  }
+}

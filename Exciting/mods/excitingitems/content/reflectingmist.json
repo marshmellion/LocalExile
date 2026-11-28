@@ -1,0 +1,24 @@
+// Reflecting Mist (ExcitingItems' ReflectingMist.cs): applied as a Divine Orb is, so the client offers it on any magic,
+// rare or unique item; the mod decides which it reflects.
+{
+ "edits": [
+  {
+   "table": "CurrencyItems",
+   "where": {
+    "BaseItemTypesKey": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/ReflectiveMist"
+     }
+    }
+   },
+   "set": {
+    "CurrencyUseType": 2,
+    "Action": "reroll_mod_values",
+    "__col14": 100,
+    "__col22": 1,
+    "Directions": "Right click this item then left click an item to reflect it. Which items it reflects is in Exciting Items' settings."
+   }
+  }
+ ]
+}

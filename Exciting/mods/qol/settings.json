@@ -1,0 +1,367 @@
+{
+  "version": 1,
+  "settings": {
+    "port": {
+      "type": "integer",
+      "default": 6170,
+      "min": 1024,
+      "max": 65535,
+      "label": "Overlay port",
+      "description": "The overlay talks to the mod on this port, on this computer only (127.0.0.1)."
+    },
+    "startOverlay": {
+      "type": "bool",
+      "default": true,
+      "label": "Start the overlay with the server"
+    },
+    "overlayWithInGameUi": {
+      "type": "bool",
+      "default": false,
+      "label": "Overlay as well as the in-game panels",
+      "description": "With the in-game QoL panels installed (NativeMods), the separate overlay window is not started unless this is on."
+    },
+    "deposit": {
+      "type": "group",
+      "label": "Deposit all",
+      "settings": {
+        "keep": {
+          "type": "list",
+          "item": {
+            "type": "text"
+          },
+          "default": [
+            "Portal Scroll",
+            "Scroll of Wisdom"
+          ],
+          "label": "Items that stay in the inventory",
+          "description": "By base type name."
+        },
+        "shownTabLast": {
+          "type": "bool",
+          "default": true,
+          "label": "The tab shown takes what no other tab does"
+        }
+      }
+    },
+    "loot": {
+      "type": "group",
+      "label": "Bring loot",
+      "settings": {
+        "maxItems": {
+          "type": "integer",
+          "default": 250,
+          "min": 1,
+          "max": 5000,
+          "label": "Most items brought at once"
+        },
+        "gold": {
+          "type": "bool",
+          "default": true,
+          "label": "Bring gold too"
+        },
+        "playerDropped": {
+          "type": "bool",
+          "default": false,
+          "label": "Bring items you dropped yourself"
+        },
+        "leaveWithin": {
+          "type": "integer",
+          "default": 12,
+          "min": 0,
+          "max": 200,
+          "label": "Leave items this close alone (cells)"
+        },
+        "filterFolder": {
+          "type": "text",
+          "default": "",
+          "label": "Loot filter folder",
+          "description": "Empty: Documents\\My Games\\Path of Exile."
+        },
+        "ignoreFilter": {
+          "type": "bool",
+          "default": false,
+          "label": "Ignore the loot filter (bring everything)"
+        }
+      }
+    },
+    "prices": {
+      "type": "group",
+      "label": "Price popups",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "On when you log in",
+          "description": "The overlay's Prices button or /qol prices switches them; the switch stays as you set it for each character."
+        },
+        "minimumChaos": {
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 100000,
+          "label": "Smallest worth shown as a game popup (chaos)",
+          "description": "The game's own number popup shows whole numbers only, so 1 is the least it can show."
+        },
+        "standard": {
+          "type": "bool",
+          "default": false,
+          "label": "Standard's prices instead of the current league's"
+        },
+        "overlay": {
+          "type": "bool",
+          "default": true,
+          "label": "Price lines in the overlay",
+          "description": "Every priced pickup, to the cent (+0.08 chaos  Jeweller's Orb), beside your character. Needs the overlay running."
+        },
+        "overlayMinimum": {
+          "type": "number",
+          "default": 0.01,
+          "min": 0,
+          "max": 100000,
+          "label": "Smallest worth in the overlay (chaos)"
+        },
+        "remember": {
+          "type": "bool",
+          "default": true,
+          "label": "Remember the Prices switch between sessions",
+          "description": "Off: each login starts as \"On when you log in\" says (the switch still holds across areas)."
+        },
+        "style": {
+          "type": "choice",
+          "default": "float",
+          "options": [
+            "float",
+            "box"
+          ],
+          "label": "How the overlay shows prices",
+          "description": "float: each pickup's text, with no box, floats up and fades away. box: the old way, the recent lines in a dark box, no fade."
+        },
+        "place": {
+          "type": "choice",
+          "default": "feet",
+          "options": [
+            "feet",
+            "topleft",
+            "right"
+          ],
+          "label": "Where the overlay's prices show",
+          "description": "feet: at your character's feet, each a little apart, like loot games do. topleft: under the rows of buffs. right: to the right of your character."
+        },
+        "scatter": {
+          "type": "integer",
+          "default": 40,
+          "min": 0,
+          "max": 300,
+          "label": "At your feet: how far apart they start (pixels at 1080p)"
+        },
+        "feetX": {
+          "type": "integer",
+          "default": 0,
+          "min": -500,
+          "max": 500,
+          "label": "At your feet: move the spot left (-) or right (+)"
+        },
+        "feetY": {
+          "type": "integer",
+          "default": 0,
+          "min": -500,
+          "max": 500,
+          "label": "At your feet: move the spot up (-) or down (+)"
+        },
+        "floatSeconds": {
+          "type": "number",
+          "default": 3,
+          "min": 0.5,
+          "max": 15,
+          "label": "Floating text: seconds until it is gone"
+        },
+        "floatHold": {
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 15,
+          "label": "Floating text: seconds it stays solid before fading"
+        },
+        "floatRise": {
+          "type": "integer",
+          "default": 120,
+          "min": 0,
+          "max": 600,
+          "label": "Floating text: how far it rises (pixels at 1080p)"
+        },
+        "floatSize": {
+          "type": "integer",
+          "default": 14,
+          "min": 8,
+          "max": 40,
+          "label": "Floating text: size"
+        }
+      }
+    },
+    "stashButtons": {
+      "type": "group",
+      "label": "Stash buttons",
+      "settings": {
+        "place": {
+          "type": "choice",
+          "default": "below",
+          "options": [
+            "below",
+            "beside"
+          ],
+          "label": "Where the stash buttons go",
+          "description": "below: in a row under the stash grid, above Highlight Items. beside: in a column right of the stash (where they were before)."
+        },
+        "x": {
+          "type": "integer",
+          "default": -1,
+          "min": -1,
+          "max": 3840,
+          "label": "Left edge (pixels at 1080p)",
+          "description": "-1: centred under the stash. Scales with the window height like the game's panels."
+        },
+        "y": {
+          "type": "integer",
+          "default": 852,
+          "min": 0,
+          "max": 1080,
+          "label": "Top edge (pixels at 1080p)",
+          "description": "Only for below: the default puts the row in the dark band between the stash grid and Highlight Items."
+        }
+      }
+    },
+    "maps": {
+      "type": "group",
+      "label": "Upgrade maps",
+      "settings": {
+        "rarities": {
+          "type": "choices",
+          "options": [
+            {
+              "value": "normal",
+              "label": "Normal"
+            },
+            {
+              "value": "magic",
+              "label": "Magic"
+            },
+            {
+              "value": "rare",
+              "label": "Rare"
+            }
+          ],
+          "default": [
+            "normal",
+            "magic",
+            "rare"
+          ],
+          "label": "Maps that count"
+        },
+        "corrupted": {
+          "type": "bool",
+          "default": false,
+          "label": "Corrupted maps count"
+        },
+        "top": {
+          "type": "integer",
+          "default": 16,
+          "min": 2,
+          "max": 16,
+          "label": "Highest tier made"
+        }
+      }
+    },
+    "stackSize": {
+      "type": "integer",
+      "default": 65000,
+      "min": 1,
+      "max": 65535,
+      "label": "Stack size",
+      "description": "Every stackable item except divination cards and shards; written to content/stacks.json, applied on the next start. 1: the game's own sizes."
+    },
+    "uniqueCopies": {
+      "type": "bool",
+      "default": true,
+      "label": "The unique tab keeps copies",
+      "description": "A second copy goes to a quad tab \"Unique Copies\" and fills the unique tab's cell when you take the first out."
+    },
+    "vendorConfirm": {
+      "type": "bool",
+      "default": true,
+      "label": "Vendor tab asks for a second press"
+    },
+    "requirements": {
+      "type": "group",
+      "label": "Item restrictions",
+      "description": "Switches for the game's item restrictions. Items already shown keep their old level requirement until they are sent again (change area).",
+      "settings": {
+        "noLevel": {
+          "type": "bool",
+          "default": false,
+          "label": "No level requirements",
+          "description": "You can equip items, abyss jewels, charms and tinctures above your level, and they work (their mods, socketed jewels and gems count). Gems keep their own level requirements."
+        },
+        "noStrength": {
+          "type": "bool",
+          "default": false,
+          "label": "No strength requirements",
+          "description": "Gear, and gems with the switch below, need no strength."
+        },
+        "noDexterity": {
+          "type": "bool",
+          "default": false,
+          "label": "No dexterity requirements",
+          "description": "Gear, and gems with the switch below, need no dexterity."
+        },
+        "noIntelligence": {
+          "type": "bool",
+          "default": false,
+          "label": "No intelligence requirements",
+          "description": "Gear, and gems with the switch below, need no intelligence."
+        },
+        "gems": {
+          "type": "bool",
+          "default": true,
+          "label": "Gems too",
+          "description": "The attribute switches also count for gems. Private build only: elsewhere the server still turns a gem's skill off when the attribute is short."
+        },
+        "anyHands": {
+          "type": "bool",
+          "default": false,
+          "label": "Any weapon pair",
+          "description": "Private build: a bow with a shield, a quiver without a bow, a two-handed weapon with something in the off hand. The client may still refuse some on its side."
+        },
+        "twoHandedOffHand": {
+          "type": "bool",
+          "default": false,
+          "label": "Two-handed weapons in the off hand",
+          "description": "Private build: wield two two-handed weapons (only the main hand's is drawn on the character). The client may still refuse."
+        }
+      }
+    },
+    "harvestPanel": {
+      "type": "bool",
+      "default": true,
+      "label": "Harvest panel",
+      "description": "While the Horticrafting Station holds an item, the overlay shows the classic Harvest crafts (harvestcrafts mod) to pick from, with a Craft button."
+    },
+    "toasts": {
+      "type": "bool",
+      "default": true,
+      "label": "Pop-ups from other mods on the overlay",
+      "description": "Such as Cosmetic Drops showing what you unlocked."
+    },
+    "toastSounds": {
+      "type": "bool",
+      "default": true,
+      "label": "Play their sounds"
+    },
+    "toastSeconds": {
+      "type": "integer",
+      "default": 7,
+      "min": 1,
+      "max": 60,
+      "label": "How long a pop-up shows (seconds)"
+    }
+  }
+}

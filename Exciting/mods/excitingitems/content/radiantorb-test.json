@@ -1,0 +1,32 @@
+{
+  // TEST ONLY (remove once the Radiant Orb works): the same currency with the Divine Orb's own picture, to tell a
+  // problem with our texture from one with the rows. /exciting orb test puts some at your feet.
+  // The Radiant Orb: a currency of this mod's own. Right-click it, then a magic, rare or unique item: the item gains
+  // one Exciting effect and the Exciting mark (ExcitingItems.cs, RadiantOrb). Its rows are copies of the Divine Orb's,
+  // so the game treats it as a currency used on magic, rare and unique items; its picture is radiant_orb.png.
+  "rows": [
+    { "table": "ItemVisualIdentity", "copyOf": { "Id": "CurrencyModValues" },
+      "set": { "Id": "LocalExileRadiantOrbTest", "DDSFile": "Art/2DItems/Currency/CurrencyModValues.dds" } },
+    { "table": "BaseItemTypes", "copyOf": { "Id": "Metadata/Items/Currency/CurrencyModValues" },
+      "set": {
+        "Id": "Metadata/Items/Currency/LocalExileRadiantOrbTest", "Name": "Radiant Orb (test)", "DropLevel": 1,
+        "ItemVisualIdentity": { "row": { "table": "ItemVisualIdentity", "Id": "LocalExileRadiantOrbTest" } },
+        "VendorRecipe_AchievementItems": [], "Identify_AchievementItems": [], "IdentifyMagic_AchievementItems": []
+      } },
+    { "table": "CurrencyItems",
+      "copyOf": { "BaseItemTypesKey": { "row": { "table": "BaseItemTypes", "Id": "Metadata/Items/Currency/CurrencyModValues" } } },
+      "set": {
+        "BaseItemTypesKey": { "row": { "table": "BaseItemTypes", "Id": "Metadata/Items/Currency/LocalExileRadiantOrbTest" } },
+        "StackSize": 20, "CurrencyTab_StackSize": 5000,
+        "Description": "Fills an item with the sun's radiance, giving it an Exciting effect",
+        "Directions": "Right click this item then left click a magic, rare or unique item to apply it.",
+        "Usage_AchievementItemsKeys": [], "Possession_AchievementItemsKey": null
+      } }
+  ],
+  // The servers' own item type list (client.db only): the same components as the Divine Orb.
+  "serverRows": [
+    { "table": "item_types", "copyOf": { "type": "Metadata/Items/Currency/CurrencyModValues" },
+      "set": { "type": "Metadata/Items/Currency/LocalExileRadiantOrbTest",
+               "chain": ["Metadata/Items/Item", "Metadata/Items/Currency/AbstractCurrency", "Metadata/Items/Currency/StackableCurrency", "Metadata/Items/Currency/LocalExileRadiantOrbTest"] } }
+  ],
+}

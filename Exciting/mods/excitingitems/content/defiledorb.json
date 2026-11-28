@@ -1,0 +1,102 @@
+// The Defiled Vaal Orb (ExcitingItems' DoubleCorrupt.cs): copies of the Vaal Orb's rows, so the client offers it on items and maps.
+{
+ "rows": [
+  {
+   "table": "ItemVisualIdentity",
+   "copyOf": {
+    "Id": "CurrencyCorrupt"
+   },
+   "set": {
+    "Id": "LocalExileDefiledVaalOrb",
+    "DDSFile": "Art/2DItems/Currency/LocalExile/DefiledVaalOrb.dds"
+   }
+  },
+  {
+   "table": "BaseItemTypes",
+   "copyOf": {
+    "Id": "Metadata/Items/Currency/CurrencyCorrupt"
+   },
+   "set": {
+    "Id": "Metadata/Items/Currency/LocalExileDefiledVaalOrb",
+    "Name": "Defiled Vaal Orb",
+    "DropLevel": 1,
+    "ItemVisualIdentity": {
+     "row": {
+      "table": "ItemVisualIdentity",
+      "Id": "LocalExileDefiledVaalOrb"
+     }
+    },
+    "VendorRecipe_AchievementItems": [],
+    "Identify_AchievementItems": [],
+    "IdentifyMagic_AchievementItems": []
+   }
+  },
+  {
+   "table": "CurrencyItems",
+   "copyOf": {
+    "BaseItemTypesKey": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/CurrencyCorrupt"
+     }
+    }
+   },
+   "set": {
+    "BaseItemTypesKey": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/LocalExileDefiledVaalOrb"
+     }
+    },
+    "StackSize": 20,
+    "CurrencyTab_StackSize": 5000,
+    "Description": "Corrupts a corrupted item a second time, with unpredictable results",
+    "Directions": "Right click this item then left click a corrupted item to apply it.",
+    "Usage_AchievementItemsKeys": [],
+    "Possession_AchievementItemsKey": null
+   }
+  },
+  {
+   "table": "StashTabAffinityByBaseItemType",
+   "copyOf": {
+    "BaseItemType": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/CurrencyRhoaFeather"
+     }
+    }
+   },
+   "set": {
+    "BaseItemType": {
+     "row": {
+      "table": "BaseItemTypes",
+      "Id": "Metadata/Items/Currency/LocalExileDefiledVaalOrb"
+     }
+    }
+   }
+  }
+ ],
+ "serverRows": [
+  {
+   "table": "item_types",
+   "copyOf": {
+    "type": "Metadata/Items/Currency/CurrencyCorrupt"
+   },
+   "set": {
+    "type": "Metadata/Items/Currency/LocalExileDefiledVaalOrb",
+    "chain": [
+     "Metadata/Items/Item",
+     "Metadata/Items/Currency/AbstractCurrency",
+     "Metadata/Items/Currency/StackableCurrency",
+     "Metadata/Items/Currency/LocalExileDefiledVaalOrb"
+    ]
+   }
+  }
+ ],
+ "files": [
+  {
+   "path": "Art/2DItems/Currency/LocalExile/DefiledVaalOrb.dds",
+   "imageBase64": "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"
+  }
+ ]
+}

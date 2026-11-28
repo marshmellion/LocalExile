@@ -1,0 +1,10026 @@
+{
+"_note": "Legacy affixes for Exciting Items: mods that could roll in an older patch and no longer roll. 'weights': the item tags they rolled on then (first tag the base has decides; 0 = never). Edit freely: remove a line to stop a mod, change weights to move it. 'from': the newest patch data it rolled in ('older': before 3.9, its old item tags written by hand).",
+"mods": [
+{
+"id": "AddedColdDamageToSpellsAndAttacksUber1__",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"ring_shaper",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AddedColdDamageToSpellsAndAttacksUber2",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"ring_shaper",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AddedFireDamageToSpellsAndAttacksUber1",
+"name": "The Elder's",
+"from": "3.15",
+"weights": [
+[
+"ring_elder",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AddedFireDamageToSpellsAndAttacksUber2",
+"name": "The Elder's",
+"from": "3.15",
+"weights": [
+[
+"ring_elder",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AddedLightningDamageToSpellsAndAttacksUber1",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"ring_shaper",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AddedLightningDamageToSpellsAndAttacksUber2",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"ring_shaper",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalArrowInfluence1",
+"name": "Warlord's",
+"from": "3.15",
+"weights": [
+[
+"quiver_adjudicator",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalArrowUber1__",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"quiver_shaper",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalBlockChance1",
+"name": "of Intercepting",
+"from": "3.19",
+"weights": [
+[
+"shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalBlockChance2",
+"name": "of Walling",
+"from": "3.19",
+"weights": [
+[
+"shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalBlockChance3",
+"name": "of Blocking",
+"from": "3.19",
+"weights": [
+[
+"shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalBlockChance4_",
+"name": "of the Stalwart",
+"from": "3.19",
+"weights": [
+[
+"shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalBlockChance5",
+"name": "of the Buttress",
+"from": "3.19",
+"weights": [
+[
+"shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalBlockChance6",
+"name": "of the Sentinel",
+"from": "3.19",
+"weights": [
+[
+"shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalBlockChance7",
+"name": "of the Citadel",
+"from": "3.19",
+"weights": [
+[
+"shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalChanceToEvadeHighInfluence1",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"shield_eyrie",
+250
+],
+[
+"amulet_eyrie",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalChanceToEvadeInfluence1",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"gloves_eyrie",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalChanceToEvadeUber1__",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"ring_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalPhysicalDamageReductionHighInfluence1",
+"name": "of the Conquest",
+"from": "3.15",
+"weights": [
+[
+"shield_adjudicator",
+250
+],
+[
+"amulet_adjudicator",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalPhysicalDamageReductionInfluence1",
+"name": "of the Conquest",
+"from": "3.15",
+"weights": [
+[
+"boots_adjudicator",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AngerReducedReservationInfluence1",
+"name": "of the Conquest",
+"from": "3.15",
+"weights": [
+[
+"amulet_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AttackAndCastSpeed1",
+"name": "of Zeal",
+"from": "3.15",
+"weights": [
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AttackAndCastSpeed2",
+"name": "of Fervour",
+"from": "3.15",
+"weights": [
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AttackAndCastSpeed3",
+"name": "of Haste",
+"from": "3.15",
+"weights": [
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AttackDamagePercent1",
+"name": "Bully's",
+"from": "3.15",
+"weights": [
+[
+"str_dex_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AttackDamagePercent2",
+"name": "Thug's",
+"from": "3.15",
+"weights": [
+[
+"str_dex_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AttackDamagePercent3",
+"name": "Brute's",
+"from": "3.15",
+"weights": [
+[
+"str_dex_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AttackDamagePercent4",
+"name": "Assailant's",
+"from": "3.15",
+"weights": [
+[
+"str_dex_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AttackDamagePercent5",
+"name": "Predator's",
+"from": "3.15",
+"weights": [
+[
+"str_dex_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AvoidBleedAndPoisonInfluence1",
+"name": "of the Hunt",
+"from": "3.15",
+"weights": [
+[
+"boots_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AvoidBleedAndPoisonInfluence2____",
+"name": "of the Hunt",
+"from": "3.15",
+"weights": [
+[
+"boots_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AvoidFreezeInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"boots_crusader",
+500
+],
+[
+"quiver_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AvoidFreezeInfluence2",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"boots_crusader",
+500
+],
+[
+"quiver_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AvoidIgniteInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"boots_crusader",
+500
+],
+[
+"quiver_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AvoidIgniteInfluence2_",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"boots_crusader",
+500
+],
+[
+"quiver_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AvoidShockInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"boots_crusader",
+500
+],
+[
+"quiver_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AvoidShockInfluence2",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"boots_crusader",
+500
+],
+[
+"quiver_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AvoidStunInfluence1",
+"name": "of the Conquest",
+"from": "3.15",
+"weights": [
+[
+"boots_adjudicator",
+500
+],
+[
+"gloves_adjudicator",
+500
+],
+[
+"quiver_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AvoidStunInfluence2_",
+"name": "of the Conquest",
+"from": "3.15",
+"weights": [
+[
+"boots_adjudicator",
+500
+],
+[
+"gloves_adjudicator",
+500
+],
+[
+"quiver_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BleedDamage1_",
+"name": "of Bloodletting",
+"from": "3.19",
+"weights": [
+[
+"bow",
+1500
+],
+[
+"sword",
+1500
+],
+[
+"axe",
+3000
+],
+[
+"mace",
+3000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BleedDamage2",
+"name": "of Haemophilia",
+"from": "3.19",
+"weights": [
+[
+"bow",
+1500
+],
+[
+"sword",
+1500
+],
+[
+"axe",
+3000
+],
+[
+"mace",
+3000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BleedDamage3",
+"name": "of Exsanguination",
+"from": "3.19",
+"weights": [
+[
+"bow",
+500
+],
+[
+"sword",
+500
+],
+[
+"axe",
+1000
+],
+[
+"mace",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BurnDamage1_",
+"name": "of Burning",
+"from": "3.19",
+"weights": [
+[
+"sceptre",
+1500
+],
+[
+"wand",
+1500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BurnDamage2",
+"name": "of Combusting",
+"from": "3.19",
+"weights": [
+[
+"sceptre",
+1500
+],
+[
+"wand",
+1500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BurnDamage3",
+"name": "of Conflagrating",
+"from": "3.19",
+"weights": [
+[
+"sceptre",
+750
+],
+[
+"wand",
+750
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceForBleedDamageFinalInflictedWithThisWeaponUber1",
+"name": "The Elder's",
+"from": "3.12",
+"weights": [
+[
+"bow_elder",
+500
+],
+[
+"2h_axe_elder",
+500
+],
+[
+"2h_mace_elder",
+500
+],
+[
+"2h_sword_elder",
+500
+],
+[
+"sword_elder",
+500
+],
+[
+"axe_elder",
+500
+],
+[
+"mace_elder",
+500
+],
+[
+"claw_elder",
+500
+],
+[
+"sceptre_elder",
+500
+],
+[
+"dagger_elder",
+500
+],
+[
+"rune_dagger_elder",
+500
+],
+[
+"wand_elder",
+500
+],
+[
+"staff_elder",
+500
+],
+[
+"warstaff_elder",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceForPoisonDamageFinalInflictedWithThisWeaponUber1",
+"name": "The Elder's",
+"from": "3.12",
+"weights": [
+[
+"bow_elder",
+500
+],
+[
+"2h_axe_elder",
+500
+],
+[
+"2h_mace_elder",
+500
+],
+[
+"2h_sword_elder",
+500
+],
+[
+"sword_elder",
+500
+],
+[
+"axe_elder",
+500
+],
+[
+"mace_elder",
+500
+],
+[
+"claw_elder",
+500
+],
+[
+"sceptre_elder",
+500
+],
+[
+"dagger_elder",
+500
+],
+[
+"rune_dagger_elder",
+500
+],
+[
+"wand_elder",
+500
+],
+[
+"staff_elder",
+500
+],
+[
+"warstaff_elder",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToAvoidElementalAilmentsUber1_",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"boots_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToAvoidElementalAilmentsUber2",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"boots_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToAvoidStunUber1",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"boots_elder",
+800
+],
+[
+"quiver_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToAvoidStunUber2",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"boots_elder",
+800
+],
+[
+"quiver_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToBlockProjectileAttacks1_",
+"name": "of Deflection",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToBlockProjectileAttacks2",
+"name": "of Protection",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToBlockProjectileAttacks3",
+"name": "of Cover",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToBlockProjectileAttacks4",
+"name": "of Asylum",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToBlockProjectileAttacks5_",
+"name": "of Refuge",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToBlockProjectileAttacks6",
+"name": "of Sanctuary",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodge1",
+"name": "of Mist",
+"from": "3.15",
+"weights": [
+[
+"dex_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodge1_",
+"name": "of Haze",
+"from": "3.15",
+"weights": [
+[
+"weapon",
+0
+],
+[
+"quiver",
+0
+],
+[
+"shield",
+0
+],
+[
+"ring",
+0
+],
+[
+"amulet",
+0
+],
+[
+"belt",
+0
+],
+[
+"gloves",
+0
+],
+[
+"boots",
+0
+],
+[
+"helmet",
+0
+],
+[
+"dex_armour",
+2000
+],
+[
+"dex_int_armour",
+1000
+],
+[
+"str_dex_armour",
+1000
+],
+[
+"str_dex_int_armour",
+660
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodge2",
+"name": "of Haze",
+"from": "3.15",
+"weights": [
+[
+"dex_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodge2__",
+"name": "of Fog",
+"from": "3.15",
+"weights": [
+[
+"weapon",
+0
+],
+[
+"quiver",
+0
+],
+[
+"shield",
+0
+],
+[
+"ring",
+0
+],
+[
+"amulet",
+0
+],
+[
+"belt",
+0
+],
+[
+"gloves",
+0
+],
+[
+"boots",
+0
+],
+[
+"helmet",
+0
+],
+[
+"dex_armour",
+1000
+],
+[
+"dex_int_armour",
+500
+],
+[
+"str_dex_armour",
+500
+],
+[
+"str_dex_int_armour",
+300
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodge3",
+"name": "of Fog",
+"from": "3.15",
+"weights": [
+[
+"dex_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeAttacksInfluence1",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"boots_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeAttacksInfluence2",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"boots_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeAttacksInfluence3",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"boots_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeIfBlockedRecentlyUber1",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"shield_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeSpells1",
+"name": "of Prayers",
+"from": "3.15",
+"weights": [
+[
+"dex_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeSpells2",
+"name": "of Invocations",
+"from": "3.15",
+"weights": [
+[
+"dex_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeSpells3",
+"name": "of Incantations",
+"from": "3.15",
+"weights": [
+[
+"dex_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeSpellsInfluence1",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"boots_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeSpellsInfluence2___",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"boots_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeSpellsInfluence3",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"boots_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeSpellsUber1",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"boots_elder",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeSpellsUber2",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"boots_elder",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeSpellsUber3",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"boots_elder",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeUber1",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"boots_shaper",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeUber2",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"boots_shaper",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToDodgeUber3",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"boots_shaper",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChaosDamageLifeLeechInfluence1_",
+"name": "Hunter's",
+"from": "3.19",
+"weights": [
+[
+"amulet_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChaosNonAilmentDamageOverTimeMultiplier1h1",
+"name": "Waning",
+"from": "3.12",
+"weights": [
+[
+"wand",
+400
+],
+[
+"dagger",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChaosNonAilmentDamageOverTimeMultiplier1h2",
+"name": "Wasting",
+"from": "3.12",
+"weights": [
+[
+"wand",
+300
+],
+[
+"dagger",
+300
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChaosNonAilmentDamageOverTimeMultiplier1h3___",
+"name": "Deteriorating",
+"from": "3.12",
+"weights": [
+[
+"wand",
+200
+],
+[
+"dagger",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChaosNonAilmentDamageOverTimeMultiplier1h4",
+"name": "Atrophying",
+"from": "3.12",
+"weights": [
+[
+"wand",
+100
+],
+[
+"dagger",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChaosNonAilmentDamageOverTimeMultiplier1h5",
+"name": "Disintegrating",
+"from": "3.12",
+"weights": [
+[
+"wand",
+50
+],
+[
+"dagger",
+50
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChaosNonAilmentDamageOverTimeMultiplier2h1",
+"name": "Waning",
+"from": "3.12",
+"weights": [
+[
+"staff",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChaosNonAilmentDamageOverTimeMultiplier2h2",
+"name": "Wasting",
+"from": "3.12",
+"weights": [
+[
+"staff",
+300
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChaosNonAilmentDamageOverTimeMultiplier2h3",
+"name": "Deteriorating",
+"from": "3.12",
+"weights": [
+[
+"staff",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChaosNonAilmentDamageOverTimeMultiplier2h4",
+"name": "Atrophying",
+"from": "3.12",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChaosNonAilmentDamageOverTimeMultiplier2h5",
+"name": "Disintegrating",
+"from": "3.12",
+"weights": [
+[
+"staff",
+50
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageESLeechInfluence1__",
+"name": "Redeemer's",
+"from": "3.19",
+"weights": [
+[
+"amulet_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageLifeLeechInfluence1",
+"name": "Redeemer's",
+"from": "3.19",
+"weights": [
+[
+"amulet_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageLifeLeechUber1_",
+"name": "The Shaper's",
+"from": "3.19",
+"weights": [
+[
+"amulet_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageOverTimeMultiplier1h1",
+"name": "Inclement",
+"from": "3.12",
+"weights": [
+[
+"attack_dagger",
+0
+],
+[
+"wand",
+300
+],
+[
+"sceptre",
+300
+],
+[
+"dagger",
+300
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageOverTimeMultiplier1h2",
+"name": "Bleak",
+"from": "3.12",
+"weights": [
+[
+"attack_dagger",
+0
+],
+[
+"wand",
+220
+],
+[
+"sceptre",
+220
+],
+[
+"dagger",
+220
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageOverTimeMultiplier1h3",
+"name": "Boreal",
+"from": "3.12",
+"weights": [
+[
+"attack_dagger",
+0
+],
+[
+"wand",
+140
+],
+[
+"sceptre",
+140
+],
+[
+"dagger",
+140
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageOverTimeMultiplier1h4",
+"name": "Gelid",
+"from": "3.12",
+"weights": [
+[
+"attack_dagger",
+0
+],
+[
+"wand",
+70
+],
+[
+"sceptre",
+70
+],
+[
+"dagger",
+70
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageOverTimeMultiplier1h5",
+"name": "Heartstopping",
+"from": "3.12",
+"weights": [
+[
+"attack_dagger",
+0
+],
+[
+"wand",
+35
+],
+[
+"sceptre",
+35
+],
+[
+"dagger",
+35
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageOverTimeMultiplier2h1_",
+"name": "Inclement",
+"from": "3.12",
+"weights": [
+[
+"attack_staff",
+0
+],
+[
+"staff",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageOverTimeMultiplier2h2_",
+"name": "Bleak",
+"from": "3.12",
+"weights": [
+[
+"attack_staff",
+0
+],
+[
+"staff",
+300
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageOverTimeMultiplier2h3",
+"name": "Boreal",
+"from": "3.12",
+"weights": [
+[
+"attack_staff",
+0
+],
+[
+"staff",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageOverTimeMultiplier2h4",
+"name": "Gelid",
+"from": "3.12",
+"weights": [
+[
+"attack_staff",
+0
+],
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamageOverTimeMultiplier2h5",
+"name": "Heartstopping",
+"from": "3.12",
+"weights": [
+[
+"attack_staff",
+0
+],
+[
+"staff",
+50
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamagePercent6",
+"name": "of Glaciation",
+"from": "3.19",
+"weights": [
+[
+"wand",
+1000
+],
+[
+"staff",
+1000
+],
+[
+"sceptre",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CriticalStrikeChance7",
+"name": "of Rending",
+"from": "3.12",
+"weights": [
+[
+"quiver",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseEffectivenessInfluence1_",
+"name": "of Redemption",
+"from": "3.19",
+"weights": [
+[
+"shield_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitAssassinsMarkNewUber1",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"ring_shaper",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitAssassinsMarkNewUber2",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"ring_shaper",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitAssassinsMarkUber1",
+"name": "of Shaping",
+"from": "3.9",
+"weights": [
+[
+"ring_shaper",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitAssassinsMarkUber2",
+"name": "of Shaping",
+"from": "3.9",
+"weights": [
+[
+"ring_shaper",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitDespairInfluence1",
+"name": "of the Hunt",
+"from": "3.19",
+"weights": [
+[
+"ring_basilisk",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitElementalWeaknessInfluence1",
+"name": "of the Hunt",
+"from": "3.19",
+"weights": [
+[
+"ring_basilisk",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitPoachersMarkNewUber1__",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"ring_elder",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitPoachersMarkNewUber2__",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"ring_elder",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitPoachersMarkUber1",
+"name": "of the Elder",
+"from": "3.9",
+"weights": [
+[
+"ring_elder",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitPoachersMarkUber2",
+"name": "of the Elder",
+"from": "3.9",
+"weights": [
+[
+"ring_elder",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitVulnerabilityInfluence1",
+"name": "of the Conquest",
+"from": "3.19",
+"weights": [
+[
+"ring_adjudicator",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitWarlordsMarkNewUber1",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"ring_elder",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitWarlordsMarkNewUber2",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"ring_elder",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitWarlordsMarkUber1_",
+"name": "of the Elder",
+"from": "3.9",
+"weights": [
+[
+"ring_elder",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "CurseOnHitWarlordsMarkUber2",
+"name": "of the Elder",
+"from": "3.9",
+"weights": [
+[
+"ring_elder",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "DamageTakenFromManaBeforeLifeUber1_",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"body_armour_shaper",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "DeterminationReducedReservationInfluence1",
+"name": "of the Conquest",
+"from": "3.15",
+"weights": [
+[
+"amulet_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "DisciplineReducedReservationInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"amulet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ElementalDamagePercent1",
+"name": "Augur's",
+"from": "3.15",
+"weights": [
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ElementalDamagePercent2",
+"name": "Auspex's",
+"from": "3.15",
+"weights": [
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ElementalDamagePercent3",
+"name": "Druid's",
+"from": "3.15",
+"weights": [
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ElementalDamagePercent4",
+"name": "Haruspex's",
+"from": "3.15",
+"weights": [
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ElementalDamagePercent5",
+"name": "Harbinger's",
+"from": "3.15",
+"weights": [
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "EnergyShieldDelayHighInfluence1__",
+"name": "Redeemer's",
+"from": "3.15",
+"weights": [
+[
+"shield_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "EnergyShieldDelayHighInfluence2",
+"name": "Redeemer's",
+"from": "3.15",
+"weights": [
+[
+"shield_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "EnergyShieldDelayHighInfluence3",
+"name": "Redeemer's",
+"from": "3.15",
+"weights": [
+[
+"shield_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "EnergyShieldDelayInfluence1",
+"name": "Hunter's",
+"from": "3.9",
+"weights": [
+[
+"ring_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "EnergyShieldDelayInfluence2_",
+"name": "Hunter's",
+"from": "3.9",
+"weights": [
+[
+"ring_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "EnergyShieldRechargeDelayInfluence1",
+"name": "Redeemer's",
+"from": "3.15",
+"weights": [
+[
+"ring_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "EnergyShieldRechargeDelayInfluence2",
+"name": "Redeemer's",
+"from": "3.15",
+"weights": [
+[
+"ring_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "EnergyShieldRegenHighInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"shield_crusader",
+250
+],
+[
+"amulet_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "EnergyShieldRegenInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"helmet_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "EnergyShieldRegenerationPerMinute1",
+"name": "of Vibrance",
+"from": "3.15",
+"weights": [
+[
+"weapon",
+0
+],
+[
+"quiver",
+0
+],
+[
+"shield",
+0
+],
+[
+"ring",
+0
+],
+[
+"amulet",
+0
+],
+[
+"belt",
+0
+],
+[
+"gloves",
+0
+],
+[
+"boots",
+0
+],
+[
+"helmet",
+0
+],
+[
+"int_armour",
+2000
+],
+[
+"dex_int_armour",
+1000
+],
+[
+"str_int_armour",
+1000
+],
+[
+"str_dex_int_armour",
+660
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "EnergyShieldRegenerationPerMinute2",
+"name": "of Exuberance",
+"from": "3.15",
+"weights": [
+[
+"weapon",
+0
+],
+[
+"quiver",
+0
+],
+[
+"shield",
+0
+],
+[
+"ring",
+0
+],
+[
+"amulet",
+0
+],
+[
+"belt",
+0
+],
+[
+"gloves",
+0
+],
+[
+"boots",
+0
+],
+[
+"helmet",
+0
+],
+[
+"int_armour",
+1000
+],
+[
+"dex_int_armour",
+500
+],
+[
+"str_int_armour",
+500
+],
+[
+"str_dex_int_armour",
+300
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageESLeechInfluence1",
+"name": "Warlord's",
+"from": "3.19",
+"weights": [
+[
+"amulet_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageLifeLeechInfluence1",
+"name": "Warlord's",
+"from": "3.19",
+"weights": [
+[
+"amulet_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageLifeLeechUber1",
+"name": "The Elder's",
+"from": "3.19",
+"weights": [
+[
+"amulet_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageOverTimeMultiplier1h1",
+"name": "Earnest",
+"from": "3.12",
+"weights": [
+[
+"wand",
+300
+],
+[
+"sceptre",
+300
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageOverTimeMultiplier1h2",
+"name": "Fervid",
+"from": "3.12",
+"weights": [
+[
+"wand",
+220
+],
+[
+"sceptre",
+220
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageOverTimeMultiplier1h3",
+"name": "Ardent",
+"from": "3.12",
+"weights": [
+[
+"wand",
+140
+],
+[
+"sceptre",
+140
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageOverTimeMultiplier1h4",
+"name": "Zealous",
+"from": "3.12",
+"weights": [
+[
+"wand",
+70
+],
+[
+"sceptre",
+70
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageOverTimeMultiplier1h5",
+"name": "Fanatical",
+"from": "3.12",
+"weights": [
+[
+"wand",
+35
+],
+[
+"sceptre",
+35
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageOverTimeMultiplier2h1",
+"name": "Earnest",
+"from": "3.12",
+"weights": [
+[
+"staff",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageOverTimeMultiplier2h2",
+"name": "Fervid",
+"from": "3.12",
+"weights": [
+[
+"staff",
+300
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageOverTimeMultiplier2h3",
+"name": "Ardent",
+"from": "3.12",
+"weights": [
+[
+"staff",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageOverTimeMultiplier2h4",
+"name": "Zealous",
+"from": "3.12",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamageOverTimeMultiplier2h5__",
+"name": "Fanatical",
+"from": "3.12",
+"weights": [
+[
+"staff",
+50
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamagePercent6",
+"name": "of Ashes",
+"from": "3.19",
+"weights": [
+[
+"wand",
+1000
+],
+[
+"staff",
+1000
+],
+[
+"sceptre",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FlaskChanceToNotConsumeChargesInfluence1",
+"name": "Hunter's",
+"from": "3.19",
+"weights": [
+[
+"belt_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FlaskChanceToNotConsumeChargesUber1_",
+"name": "The Elder's",
+"from": "3.19",
+"weights": [
+[
+"belt_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FlaskEffectInfluence1",
+"name": "Redeemer's",
+"from": "3.15",
+"weights": [
+[
+"belt_eyrie",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FlaskEffectInfluence2",
+"name": "Redeemer's",
+"from": "3.15",
+"weights": [
+[
+"belt_eyrie",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FlaskEffectUber1",
+"name": "The Elder's",
+"from": "3.15",
+"weights": [
+[
+"belt_elder",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FlaskEffectUber2",
+"name": "The Elder's",
+"from": "3.15",
+"weights": [
+[
+"belt_elder",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FortifyEffectInfluence1",
+"name": "of the Crusade",
+"from": "3.12",
+"weights": [
+[
+"helmet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FortifyEffectInfluence2",
+"name": "of the Crusade",
+"from": "3.12",
+"weights": [
+[
+"helmet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GainLifeOnBlock1",
+"name": "of Repairing",
+"from": "3.19",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GainLifeOnBlock2_",
+"name": "of Resurgence",
+"from": "3.19",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GainLifeOnBlock3",
+"name": "of Renewal",
+"from": "3.19",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GainLifeOnBlock4",
+"name": "of Revival",
+"from": "3.19",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GainLifeOnBlock5",
+"name": "of Rebounding",
+"from": "3.19",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GainLifeOnBlock6_",
+"name": "of Revitalization",
+"from": "3.19",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GainManaOnBlock1",
+"name": "of Redirection",
+"from": "3.15",
+"weights": [
+[
+"focus",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GainManaOnBlock2",
+"name": "of Transformation",
+"from": "3.15",
+"weights": [
+[
+"focus",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GainManaOnBlock3",
+"name": "of Conservation",
+"from": "3.15",
+"weights": [
+[
+"focus",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GainManaOnBlock4",
+"name": "of Utilisation",
+"from": "3.15",
+"weights": [
+[
+"focus",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GlobalChaosGemLevelInfluence1__",
+"name": "Hunter's",
+"from": "3.15",
+"weights": [
+[
+"amulet_basilisk",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GlobalColdGemLevelInfluence1__",
+"name": "Redeemer's",
+"from": "3.15",
+"weights": [
+[
+"amulet_eyrie",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GlobalDexterityGemLevelInfluence1_",
+"name": "Hunter's",
+"from": "3.15",
+"weights": [
+[
+"amulet_basilisk",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GlobalEnergyShieldPercentBeltUber1",
+"name": "The Shaper's",
+"from": "3.9",
+"weights": [
+[
+"belt_shaper",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GlobalEnergyShieldPercentBeltUber2",
+"name": "The Shaper's",
+"from": "3.9",
+"weights": [
+[
+"belt_shaper",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GlobalFireGemLevelInfluence1",
+"name": "Warlord's",
+"from": "3.15",
+"weights": [
+[
+"amulet_adjudicator",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GlobalIntelligenceGemLevelInfluence1",
+"name": "Hunter's",
+"from": "3.15",
+"weights": [
+[
+"amulet_basilisk",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GlobalLightningGemLevelInfluence1_",
+"name": "Crusader's",
+"from": "3.15",
+"weights": [
+[
+"amulet_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GlobalPhysicalGemLevelInfluence1",
+"name": "Warlord's",
+"from": "3.15",
+"weights": [
+[
+"amulet_adjudicator",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GlobalStrengthGemLevelInfluence1",
+"name": "Hunter's",
+"from": "3.15",
+"weights": [
+[
+"amulet_basilisk",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "GraceReducedReservationInfluence1",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"amulet_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "HatredReducedReservationInfluence1_",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"amulet_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "HolyPhysicalExplosionInfluence1",
+"name": "Crusader's",
+"from": "3.12",
+"weights": [
+[
+"body_armour_crusader",
+25
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedLifeLeechRateInfluence1",
+"name": "Crusader's",
+"from": "3.19",
+"weights": [
+[
+"ring_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedLifeLeechRateInfluence2",
+"name": "Crusader's",
+"from": "3.19",
+"weights": [
+[
+"ring_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedLifeLeechRateInfluence3",
+"name": "Crusader's",
+"from": "3.19",
+"weights": [
+[
+"ring_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedMeleeWeaponRangeUber1",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"gloves_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedPhysicalDamagePercent1",
+"name": "Heavy",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedPhysicalDamagePercent2",
+"name": "Serrated",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedPhysicalDamagePercent3",
+"name": "Wicked",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedPhysicalDamagePercent4",
+"name": "Cruel",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedPhysicalDamagePercent5__",
+"name": "Merciless",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ItemFoundQuantityIncreaseUber1",
+"name": "of Shaping",
+"from": "3.19",
+"weights": [
+[
+"amulet_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ItemFoundQuantityIncreaseUber2",
+"name": "of Shaping",
+"from": "3.19",
+"weights": [
+[
+"amulet_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeLeechPermyriad1",
+"name": "Remora's",
+"from": "3.19",
+"weights": [
+[
+"ring",
+1000
+],
+[
+"amulet",
+1000
+],
+[
+"gloves",
+1000
+],
+[
+"quiver",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeLeechPermyriad2",
+"name": "Lamprey's",
+"from": "3.19",
+"weights": [
+[
+"ranged",
+0
+],
+[
+"amulet",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeLeechPermyriad3",
+"name": "Vampire's",
+"from": "3.19",
+"weights": [
+[
+"ranged",
+0
+],
+[
+"amulet",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeLeechPermyriadLocal1",
+"name": "Remora's",
+"from": "3.19",
+"weights": [
+[
+"weapon",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeLeechPermyriadLocal2",
+"name": "Lamprey's",
+"from": "3.19",
+"weights": [
+[
+"ranged",
+0
+],
+[
+"weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeLeechPermyriadLocal3",
+"name": "Vampire's",
+"from": "3.19",
+"weights": [
+[
+"ranged",
+0
+],
+[
+"weapon",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationPercent1",
+"name": "of Youthfulness",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationPercent2__",
+"name": "of Vitality",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationPercent3_",
+"name": "of Longevity",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationPercent4",
+"name": "of Immortality",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationPercentBodyInfluence1",
+"name": "of the Hunt",
+"from": "3.15",
+"weights": [
+[
+"body_armour_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationPercentBodyInfluence2",
+"name": "of the Hunt",
+"from": "3.15",
+"weights": [
+[
+"body_armour_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationPercentHighInfluence1_",
+"name": "of the Hunt",
+"from": "3.15",
+"weights": [
+[
+"shield_basilisk",
+500
+],
+[
+"amulet_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationPercentHighInfluence2",
+"name": "of the Hunt",
+"from": "3.15",
+"weights": [
+[
+"shield_basilisk",
+500
+],
+[
+"amulet_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationPercentInfluence1",
+"name": "of the Conquest",
+"from": "3.15",
+"weights": [
+[
+"boots_adjudicator",
+500
+],
+[
+"helmet_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationPercentInfluence2",
+"name": "of the Conquest",
+"from": "3.15",
+"weights": [
+[
+"boots_adjudicator",
+500
+],
+[
+"helmet_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationRatePercentUber1",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"body_armour_elder",
+800
+],
+[
+"amulet_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeRegenerationRatePercentUber2",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"body_armour_elder",
+800
+],
+[
+"amulet_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightningDamageESLeechInfluence1_",
+"name": "Crusader's",
+"from": "3.19",
+"weights": [
+[
+"amulet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightningDamageLifeLeechInfluence1",
+"name": "Crusader's",
+"from": "3.19",
+"weights": [
+[
+"amulet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightningDamageLifeLeechUber1",
+"name": "The Shaper's",
+"from": "3.19",
+"weights": [
+[
+"amulet_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightningDamagePercent6",
+"name": "of Arcing",
+"from": "3.19",
+"weights": [
+[
+"wand",
+1000
+],
+[
+"staff",
+1000
+],
+[
+"sceptre",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedColdDamageRanged1",
+"name": "Frosted",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedColdDamageRanged10",
+"name": "Crystalising",
+"from": "3.15",
+"weights": [
+[
+"bow",
+126
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedColdDamageRanged2",
+"name": "Chilled",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedColdDamageRanged3",
+"name": "Icy",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedColdDamageRanged4",
+"name": "Frigid",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedColdDamageRanged5",
+"name": "Freezing",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedColdDamageRanged6",
+"name": "Frozen",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedColdDamageRanged7",
+"name": "Glaciated",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedColdDamageRanged8",
+"name": "Polar",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1120
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedColdDamageRanged9",
+"name": "Entombing",
+"from": "3.15",
+"weights": [
+[
+"bow",
+490
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedFireDamageRanged1",
+"name": "Heated",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedFireDamageRanged10",
+"name": "Carbonising",
+"from": "3.15",
+"weights": [
+[
+"bow",
+126
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedFireDamageRanged2",
+"name": "Smouldering",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedFireDamageRanged3",
+"name": "Smoking",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedFireDamageRanged4",
+"name": "Burning",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedFireDamageRanged5",
+"name": "Flaming",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedFireDamageRanged6",
+"name": "Scorching",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedFireDamageRanged7",
+"name": "Incinerating",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedFireDamageRanged8",
+"name": "Blasting",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1120
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedFireDamageRanged9_",
+"name": "Cremating",
+"from": "3.15",
+"weights": [
+[
+"bow",
+490
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedLightningDamageRanged1",
+"name": "Humming",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedLightningDamageRanged10_",
+"name": "Vapourising",
+"from": "3.15",
+"weights": [
+[
+"bow",
+126
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedLightningDamageRanged2",
+"name": "Buzzing",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedLightningDamageRanged3___",
+"name": "Snapping",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedLightningDamageRanged4",
+"name": "Crackling",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedLightningDamageRanged5",
+"name": "Sparking",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedLightningDamageRanged6_",
+"name": "Arcing",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedLightningDamageRanged7",
+"name": "Shocking",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedLightningDamageRanged8",
+"name": "Discharging",
+"from": "3.15",
+"weights": [
+[
+"bow",
+1120
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalAddedLightningDamageRanged9",
+"name": "Electrocuting",
+"from": "3.15",
+"weights": [
+[
+"bow",
+490
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreaseSocketedMinionGemLevel1",
+"name": "Reanimator's",
+"from": "3.15",
+"weights": [
+[
+"helmet",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreaseSocketedMinionGemLevel2",
+"name": "Summoner's",
+"from": "3.15",
+"weights": [
+[
+"helmet",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreaseSocketedMinionGemLevel3_",
+"name": "Necromancer's",
+"from": "3.15",
+"weights": [
+[
+"helmet",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamageReductionRatingPercentAndAdditionalBlockChance1",
+"name": "Reliable",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamageReductionRatingPercentAndAdditionalBlockChance2",
+"name": "Unfailing",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MalevolenceReducedReservationInfluence1",
+"name": "of the Hunt",
+"from": "3.15",
+"weights": [
+[
+"amulet_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ManaLeechPermyriad1",
+"name": "Thirsty",
+"from": "3.19",
+"weights": [
+[
+"ring",
+1000
+],
+[
+"amulet",
+1000
+],
+[
+"gloves",
+1000
+],
+[
+"quiver",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ManaLeechPermyriad2",
+"name": "Parched",
+"from": "3.19",
+"weights": [
+[
+"amulet",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ManaLeechPermyriadLocal1",
+"name": "Thirsty",
+"from": "3.19",
+"weights": [
+[
+"weapon",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumAllResistanceUber1",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"shield_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumAllResistanceUber2__",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"shield_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumAttackDodgeChanceInfluence1_",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"amulet_eyrie",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumChaosResistanceHighInfluence1",
+"name": "Hunter's",
+"from": "3.15",
+"weights": [
+[
+"shield_basilisk",
+250
+],
+[
+"quiver_basilisk",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumChaosResistanceHighInfluence2",
+"name": "Hunter's",
+"from": "3.15",
+"weights": [
+[
+"shield_basilisk",
+250
+],
+[
+"quiver_basilisk",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumChaosResistanceHighInfluence3",
+"name": "Hunter's",
+"from": "3.15",
+"weights": [
+[
+"shield_basilisk",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumColdResistanceHighInfluence1",
+"name": "Redeemer's",
+"from": "3.15",
+"weights": [
+[
+"shield_eyrie",
+250
+],
+[
+"quiver_eyrie",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumColdResistanceHighInfluence2",
+"name": "Redeemer's",
+"from": "3.15",
+"weights": [
+[
+"shield_eyrie",
+250
+],
+[
+"quiver_eyrie",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumColdResistanceHighInfluence3__",
+"name": "Redeemer's",
+"from": "3.15",
+"weights": [
+[
+"shield_eyrie",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumColdResistanceInfluence1",
+"name": "Crusader's",
+"from": "3.15",
+"weights": [
+[
+"gloves_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumColdResistanceInfluence2",
+"name": "Crusader's",
+"from": "3.15",
+"weights": [
+[
+"gloves_crusader",
+125
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumColdResistanceUber1",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"shield_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumColdResistanceUber2",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"shield_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumColdResistanceUber3",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"shield_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumEnergyShieldLeechRateHighInfluence1",
+"name": "Crusader's",
+"from": "3.19",
+"weights": [
+[
+"amulet_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumEnergyShieldLeechRateInfluence1",
+"name": "Crusader's",
+"from": "3.19",
+"weights": [
+[
+"gloves_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumFireResistanceHighInfluence1__",
+"name": "Warlord's",
+"from": "3.15",
+"weights": [
+[
+"shield_adjudicator",
+250
+],
+[
+"quiver_adjudicator",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumFireResistanceHighInfluence2__",
+"name": "Warlord's",
+"from": "3.15",
+"weights": [
+[
+"shield_adjudicator",
+250
+],
+[
+"quiver_adjudicator",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumFireResistanceHighInfluence3",
+"name": "Warlord's",
+"from": "3.15",
+"weights": [
+[
+"shield_adjudicator",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumFireResistanceInfluence1",
+"name": "Crusader's",
+"from": "3.15",
+"weights": [
+[
+"boots_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumFireResistanceInfluence2",
+"name": "Crusader's",
+"from": "3.15",
+"weights": [
+[
+"boots_crusader",
+125
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumFireResistanceUber1",
+"name": "The Elder's",
+"from": "3.15",
+"weights": [
+[
+"shield_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumFireResistanceUber2",
+"name": "The Elder's",
+"from": "3.15",
+"weights": [
+[
+"shield_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumFireResistanceUber3_",
+"name": "The Elder's",
+"from": "3.15",
+"weights": [
+[
+"shield_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumLifeLeechRateHighInfluence1",
+"name": "Crusader's",
+"from": "3.19",
+"weights": [
+[
+"amulet_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumLifeLeechRateUpdatedUber1",
+"name": "The Elder's",
+"from": "3.19",
+"weights": [
+[
+"amulet_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumLightningResistanceHighInfluence1",
+"name": "Crusader's",
+"from": "3.15",
+"weights": [
+[
+"shield_crusader",
+250
+],
+[
+"quiver_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumLightningResistanceHighInfluence2",
+"name": "Crusader's",
+"from": "3.15",
+"weights": [
+[
+"shield_crusader",
+250
+],
+[
+"quiver_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumLightningResistanceHighInfluence3_",
+"name": "Crusader's",
+"from": "3.15",
+"weights": [
+[
+"shield_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumLightningResistanceInfluence1",
+"name": "Crusader's",
+"from": "3.15",
+"weights": [
+[
+"helmet_crusader",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumLightningResistanceInfluence2",
+"name": "Crusader's",
+"from": "3.15",
+"weights": [
+[
+"helmet_crusader",
+125
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumLightningResistanceUber1",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"shield_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumLightningResistanceUber2",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"shield_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumLightningResistanceUber3",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"shield_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumResistancesInfluence1",
+"name": "Hunter's",
+"from": "3.15",
+"weights": [
+[
+"shield_basilisk",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumResistancesInfluence2",
+"name": "Hunter's",
+"from": "3.15",
+"weights": [
+[
+"shield_basilisk",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumSpellDodgeChanceInfluence1",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"amulet_eyrie",
+250
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MeleeDamageRingUber1",
+"name": "of the Elder",
+"from": "3.12",
+"weights": [
+[
+"ring_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MeleeDamageRingUber2",
+"name": "of the Elder",
+"from": "3.12",
+"weights": [
+[
+"ring_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MeleeDamageRingUber3",
+"name": "of the Elder",
+"from": "3.12",
+"weights": [
+[
+"ring_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MinionAccuracyRatingWeapon1_",
+"name": "of the Instructor",
+"from": "3.19",
+"weights": [
+[
+"two_hand_weapon",
+0
+],
+[
+"weapon_can_roll_minion_modifiers",
+2000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MinionAccuracyRatingWeapon2",
+"name": "of the Tutor",
+"from": "3.19",
+"weights": [
+[
+"two_hand_weapon",
+0
+],
+[
+"weapon_can_roll_minion_modifiers",
+2000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MinionAccuracyRatingWeapon3",
+"name": "of the Commander",
+"from": "3.19",
+"weights": [
+[
+"two_hand_weapon",
+0
+],
+[
+"weapon_can_roll_minion_modifiers",
+2000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MinionAccuracyRatingWeapon4",
+"name": "of the Magnate",
+"from": "3.19",
+"weights": [
+[
+"two_hand_weapon",
+0
+],
+[
+"weapon_can_roll_minion_modifiers",
+2000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MinionAccuracyRatingWeapon5",
+"name": "of the Ruler",
+"from": "3.19",
+"weights": [
+[
+"two_hand_weapon",
+0
+],
+[
+"weapon_can_roll_minion_modifiers",
+2000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MinionAccuracyRatingWeapon6",
+"name": "of the Monarch",
+"from": "3.19",
+"weights": [
+[
+"two_hand_weapon",
+0
+],
+[
+"weapon_can_roll_minion_modifiers",
+2000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "NoExtraDamageFromBleedMovingInfluence1",
+"name": "of the Hunt",
+"from": "3.15",
+"weights": [
+[
+"shield_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageLifeLeechInfluence1",
+"name": "Hunter's",
+"from": "3.19",
+"weights": [
+[
+"amulet_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageLifeLeechUber1",
+"name": "The Elder's",
+"from": "3.19",
+"weights": [
+[
+"amulet_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PoisonDamage1",
+"name": "of Poison",
+"from": "3.19",
+"weights": [
+[
+"bow",
+1500
+],
+[
+"sword",
+1500
+],
+[
+"dagger",
+3000
+],
+[
+"claw",
+3000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PoisonDamage2",
+"name": "of Venom",
+"from": "3.19",
+"weights": [
+[
+"bow",
+1500
+],
+[
+"sword",
+1500
+],
+[
+"dagger",
+3000
+],
+[
+"claw",
+3000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PoisonDamage3",
+"name": "of Virulence",
+"from": "3.19",
+"weights": [
+[
+"bow",
+500
+],
+[
+"sword",
+500
+],
+[
+"dagger",
+1000
+],
+[
+"claw",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PoisonDurationSupportedUber1",
+"name": "of the Elder",
+"from": "3.12",
+"weights": [
+[
+"gloves_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PoisonDurationSupportedUber2",
+"name": "of the Elder",
+"from": "3.12",
+"weights": [
+[
+"gloves_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PoisonDurationSupportedUber3",
+"name": "of the Elder",
+"from": "3.12",
+"weights": [
+[
+"gloves_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PrideReducedReservationInfluence1__",
+"name": "of the Conquest",
+"from": "3.15",
+"weights": [
+[
+"amulet_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ProjectileAttackDamageRingUber1",
+"name": "of the Elder",
+"from": "3.12",
+"weights": [
+[
+"ring_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ProjectileAttackDamageRingUber2",
+"name": "of the Elder",
+"from": "3.12",
+"weights": [
+[
+"ring_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ProjectileAttackDamageRingUber3",
+"name": "of the Elder",
+"from": "3.12",
+"weights": [
+[
+"ring_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PurityOfFireReducedReservationInfluence1_",
+"name": "of the Conquest",
+"from": "3.15",
+"weights": [
+[
+"amulet_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PurityOfIceReducedReservationInfluence1__",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"amulet_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PurityOfLightningReducedReservationInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"amulet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedCriticalStrikeDamageTakenInfluence1",
+"name": "Warlord's",
+"from": "3.15",
+"weights": [
+[
+"belt_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedCriticalStrikeDamageTakenInfluence2_",
+"name": "Warlord's",
+"from": "3.15",
+"weights": [
+[
+"belt_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedCriticalStrikeDamageTakenUber1",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"belt_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedCriticalStrikeDamageTakenUber2",
+"name": "The Shaper's",
+"from": "3.15",
+"weights": [
+[
+"belt_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedCurseEffectInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"ring_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedCurseEffectUber1_",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"ring_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedElementalReflectTakenRingUber1",
+"name": "The Shaper's",
+"from": "3.19",
+"weights": [
+[
+"ring_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedElementalReflectTakenRingUber2",
+"name": "The Shaper's",
+"from": "3.19",
+"weights": [
+[
+"ring_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedElementalReflectTakenUber1",
+"name": "The Shaper's",
+"from": "3.19",
+"weights": [
+[
+"body_armour_shaper",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedFreezeDurationInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"helmet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedFreezeDurationInfluence2",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"helmet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedIgniteDurationInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"helmet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedIgniteDurationInfluence2_",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"helmet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedManaReservationInfluence1",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"helmet_eyrie",
+500
+],
+[
+"amulet_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedManaReservationInfluence2",
+"name": "of Redemption",
+"from": "3.15",
+"weights": [
+[
+"helmet_eyrie",
+500
+],
+[
+"amulet_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedManaReservedUber1",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"amulet_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedPhysicalDamageTaken1",
+"name": "of Dampening",
+"from": "3.15",
+"weights": [
+[
+"weapon",
+0
+],
+[
+"quiver",
+0
+],
+[
+"shield",
+0
+],
+[
+"ring",
+0
+],
+[
+"amulet",
+0
+],
+[
+"belt",
+0
+],
+[
+"gloves",
+0
+],
+[
+"boots",
+0
+],
+[
+"helmet",
+0
+],
+[
+"str_armour",
+2000
+],
+[
+"str_int_armour",
+1000
+],
+[
+"str_dex_armour",
+1000
+],
+[
+"str_dex_int_armour",
+660
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedPhysicalDamageTaken2_",
+"name": "of Numbing",
+"from": "3.15",
+"weights": [
+[
+"weapon",
+0
+],
+[
+"quiver",
+0
+],
+[
+"shield",
+0
+],
+[
+"ring",
+0
+],
+[
+"amulet",
+0
+],
+[
+"belt",
+0
+],
+[
+"gloves",
+0
+],
+[
+"boots",
+0
+],
+[
+"helmet",
+0
+],
+[
+"str_armour",
+1000
+],
+[
+"str_int_armour",
+500
+],
+[
+"str_dex_armour",
+500
+],
+[
+"str_dex_int_armour",
+300
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedPhysicalDamageTakenUber1",
+"name": "of the Elder",
+"from": "3.15",
+"weights": [
+[
+"amulet_elder",
+800
+],
+[
+"shield_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedPhysicalReflectTakenRingUber1",
+"name": "The Elder's",
+"from": "3.19",
+"weights": [
+[
+"ring_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedPhysicalReflectTakenRingUber2",
+"name": "The Elder's",
+"from": "3.19",
+"weights": [
+[
+"ring_elder",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedPhysicalReflectTakenUber1",
+"name": "The Elder's",
+"from": "3.19",
+"weights": [
+[
+"body_armour_elder",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedShockEffectInfluence1_",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"helmet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedShockEffectInfluence2",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"helmet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReflectedElementalDamageInfluence1",
+"name": "Redeemer's",
+"from": "3.19",
+"weights": [
+[
+"body_armour_eyrie",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReflectedElementalDamageRingInfluence1",
+"name": "Hunter's",
+"from": "3.19",
+"weights": [
+[
+"ring_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReflectedElementalDamageRingInfluence2",
+"name": "Hunter's",
+"from": "3.19",
+"weights": [
+[
+"ring_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReflectedPhysicalDamageInfluence1__",
+"name": "Warlord's",
+"from": "3.19",
+"weights": [
+[
+"body_armour_adjudicator",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReflectedPhysicalDamageRingInfluence1",
+"name": "Hunter's",
+"from": "3.19",
+"weights": [
+[
+"ring_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReflectedPhysicalDamageRingInfluence2_",
+"name": "Hunter's",
+"from": "3.19",
+"weights": [
+[
+"ring_basilisk",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellBlockOnShieldUber1",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"shield_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellBlockOnShieldUber2_",
+"name": "of Shaping",
+"from": "3.15",
+"weights": [
+[
+"shield_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellBlockPercentage1__",
+"name": "of the Barrier",
+"from": "3.19",
+"weights": [
+[
+"focus",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellBlockPercentage2",
+"name": "of the Bulwark",
+"from": "3.19",
+"weights": [
+[
+"focus",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellBlockPercentage3_",
+"name": "of the Barricade",
+"from": "3.19",
+"weights": [
+[
+"focus",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellBlockPercentage4_",
+"name": "of the Bastion",
+"from": "3.19",
+"weights": [
+[
+"focus",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"dex_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellBlockStaffUber1_",
+"name": "of the Elder",
+"from": "3.19",
+"weights": [
+[
+"staff_elder",
+1000
+],
+[
+"warstaff_elder",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageRingUber1",
+"name": "of Shaping",
+"from": "3.12",
+"weights": [
+[
+"ring_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageRingUber2",
+"name": "of Shaping",
+"from": "3.12",
+"weights": [
+[
+"ring_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageRingUber3__",
+"name": "of Shaping",
+"from": "3.12",
+"weights": [
+[
+"ring_shaper",
+800
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "StunAvoidance1",
+"name": "of Composure",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "StunAvoidance2",
+"name": "of Surefootedness",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "StunAvoidance3",
+"name": "of Persistence",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "StunAvoidance4",
+"name": "of Relentlessness",
+"from": "3.15",
+"weights": [
+[
+"str_shield",
+1000
+],
+[
+"str_dex_shield",
+1000
+],
+[
+"str_int_shield",
+1000
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "TwoHandBurnDamage1",
+"name": "of Burning",
+"from": "3.19",
+"weights": [
+[
+"staff",
+1500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "TwoHandBurnDamage2",
+"name": "of Combusting",
+"from": "3.19",
+"weights": [
+[
+"staff",
+1500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "TwoHandBurnDamage3",
+"name": "of Conflagrating",
+"from": "3.19",
+"weights": [
+[
+"staff",
+750
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponColdAddedAsChaos1h1",
+"name": "Atrophic",
+"from": "3.15",
+"weights": [
+[
+"wand",
+400
+],
+[
+"sceptre",
+400
+],
+[
+"dagger",
+200
+],
+[
+"str_int_shield",
+200
+],
+[
+"dex_int_shield",
+200
+],
+[
+"focus",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponColdAddedAsChaos1h2",
+"name": "Festering",
+"from": "3.15",
+"weights": [
+[
+"wand",
+200
+],
+[
+"sceptre",
+200
+],
+[
+"dagger",
+100
+],
+[
+"str_int_shield",
+100
+],
+[
+"dex_int_shield",
+100
+],
+[
+"focus",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponColdAddedAsChaos1h3_",
+"name": "Mortifying",
+"from": "3.15",
+"weights": [
+[
+"wand",
+100
+],
+[
+"sceptre",
+100
+],
+[
+"dagger",
+50
+],
+[
+"str_int_shield",
+50
+],
+[
+"dex_int_shield",
+50
+],
+[
+"focus",
+50
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponColdAddedAsChaos2h1",
+"name": "Atrophic",
+"from": "3.15",
+"weights": [
+[
+"staff",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponColdAddedAsChaos2h2",
+"name": "Festering",
+"from": "3.15",
+"weights": [
+[
+"staff",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponColdAddedAsChaos2h3",
+"name": "Mortifying",
+"from": "3.15",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponFireAddedAsChaos1h1",
+"name": "Acidic",
+"from": "3.15",
+"weights": [
+[
+"wand",
+400
+],
+[
+"sceptre",
+400
+],
+[
+"dagger",
+200
+],
+[
+"str_int_shield",
+200
+],
+[
+"dex_int_shield",
+200
+],
+[
+"focus",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponFireAddedAsChaos1h2",
+"name": "Dissolving",
+"from": "3.15",
+"weights": [
+[
+"wand",
+200
+],
+[
+"sceptre",
+200
+],
+[
+"dagger",
+100
+],
+[
+"str_int_shield",
+100
+],
+[
+"dex_int_shield",
+100
+],
+[
+"focus",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponFireAddedAsChaos1h3_",
+"name": "Corrosive",
+"from": "3.15",
+"weights": [
+[
+"wand",
+100
+],
+[
+"sceptre",
+100
+],
+[
+"dagger",
+50
+],
+[
+"str_int_shield",
+50
+],
+[
+"dex_int_shield",
+50
+],
+[
+"focus",
+50
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponFireAddedAsChaos2h1_",
+"name": "Acidic",
+"from": "3.15",
+"weights": [
+[
+"staff",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponFireAddedAsChaos2h2",
+"name": "Dissolving",
+"from": "3.15",
+"weights": [
+[
+"staff",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponFireAddedAsChaos2h3_",
+"name": "Corrosive",
+"from": "3.15",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponLightningAddedAsChaos1h1",
+"name": "Agonizing",
+"from": "3.15",
+"weights": [
+[
+"wand",
+400
+],
+[
+"sceptre",
+400
+],
+[
+"dagger",
+200
+],
+[
+"str_int_shield",
+200
+],
+[
+"dex_int_shield",
+200
+],
+[
+"focus",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponLightningAddedAsChaos1h2",
+"name": "Harrowing",
+"from": "3.15",
+"weights": [
+[
+"wand",
+200
+],
+[
+"sceptre",
+200
+],
+[
+"dagger",
+100
+],
+[
+"str_int_shield",
+100
+],
+[
+"dex_int_shield",
+100
+],
+[
+"focus",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponLightningAddedAsChaos1h3_",
+"name": "Excruciating",
+"from": "3.15",
+"weights": [
+[
+"wand",
+100
+],
+[
+"sceptre",
+100
+],
+[
+"dagger",
+50
+],
+[
+"str_int_shield",
+50
+],
+[
+"dex_int_shield",
+50
+],
+[
+"focus",
+50
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponLightningAddedAsChaos2h1",
+"name": "Agonizing",
+"from": "3.15",
+"weights": [
+[
+"staff",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponLightningAddedAsChaos2h2",
+"name": "Harrowing",
+"from": "3.15",
+"weights": [
+[
+"staff",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponLightningAddedAsChaos2h3",
+"name": "Excruciating",
+"from": "3.15",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponPhysicalAddedAsChaos1h1____",
+"name": "Pernicious",
+"from": "3.15",
+"weights": [
+[
+"wand",
+400
+],
+[
+"dagger",
+600
+],
+[
+"dex_int_shield",
+50
+],
+[
+"focus",
+50
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponPhysicalAddedAsChaos1h2",
+"name": "Inimical",
+"from": "3.15",
+"weights": [
+[
+"wand",
+200
+],
+[
+"dagger",
+300
+],
+[
+"dex_int_shield",
+50
+],
+[
+"focus",
+50
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponPhysicalAddedAsChaos1h3_",
+"name": "Baleful",
+"from": "3.15",
+"weights": [
+[
+"wand",
+100
+],
+[
+"dagger",
+150
+],
+[
+"dex_int_shield",
+50
+],
+[
+"focus",
+50
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponPhysicalAddedAsChaos2h1",
+"name": "Pernicious",
+"from": "3.15",
+"weights": [
+[
+"staff",
+400
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponPhysicalAddedAsChaos2h2",
+"name": "Inimical",
+"from": "3.15",
+"weights": [
+[
+"staff",
+200
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WeaponPhysicalAddedAsChaos2h3",
+"name": "Baleful",
+"from": "3.15",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "WrathReducedReservationInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"amulet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ZealotryReducedReservationInfluence1",
+"name": "of the Crusade",
+"from": "3.15",
+"weights": [
+[
+"amulet_crusader",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalChanceToEvadeUber2",
+"name": "of the Elder",
+"from": "older",
+"weights": [
+[
+"ring_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalMinesPlacedSupportedUber1_",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"helmet_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalMinesPlacedSupportedUber2",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"helmet_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalMinesPlacedSupportedUber3",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"helmet_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalTrapsThrownSupportedUber1",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"gloves_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalTrapsThrownSupportedUber2",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"gloves_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "AdditionalTrapsThrownSupportedUber3",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"gloves_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BleedDuration1",
+"name": "of Agony",
+"from": "older",
+"weights": [
+[
+"bow",
+100
+],
+[
+"sword",
+100
+],
+[
+"axe",
+100
+],
+[
+"mace",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BleedDuration2",
+"name": "of Torment",
+"from": "older",
+"weights": [
+[
+"bow",
+100
+],
+[
+"sword",
+100
+],
+[
+"axe",
+100
+],
+[
+"mace",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BlockAppliesToSpellsShieldUber1_",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"shield_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BlockAppliesToSpellsShieldUber2_",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"shield_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BlockAppliesToSpellsUber1",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"amulet_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BlockAppliesToSpellsUber2",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"amulet_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BlockingBlocksSpellsUber1",
+"name": "of the Elder",
+"from": "older",
+"weights": [
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToBleed1",
+"name": "of Bleeding",
+"from": "older",
+"weights": [
+[
+"bow",
+100
+],
+[
+"sword",
+100
+],
+[
+"axe",
+100
+],
+[
+"mace",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToBleed2_",
+"name": "of Flaying",
+"from": "older",
+"weights": [
+[
+"bow",
+100
+],
+[
+"sword",
+100
+],
+[
+"axe",
+100
+],
+[
+"mace",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToBleed3",
+"name": "of Hemorrhaging",
+"from": "older",
+"weights": [
+[
+"bow",
+100
+],
+[
+"sword",
+100
+],
+[
+"axe",
+100
+],
+[
+"mace",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToPoison1",
+"name": "of Poisoning",
+"from": "older",
+"weights": [
+[
+"bow",
+100
+],
+[
+"sword",
+100
+],
+[
+"dagger",
+100
+],
+[
+"claw",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToPoison2",
+"name": "of Toxins",
+"from": "older",
+"weights": [
+[
+"bow",
+100
+],
+[
+"sword",
+100
+],
+[
+"dagger",
+100
+],
+[
+"claw",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ChanceToPoison3_",
+"name": "of Death",
+"from": "older",
+"weights": [
+[
+"bow",
+100
+],
+[
+"sword",
+100
+],
+[
+"dagger",
+100
+],
+[
+"claw",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamagePercentTwoHand1",
+"name": "of Snow",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamagePercentTwoHand2",
+"name": "of Sleet",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamagePercentTwoHand3",
+"name": "of Ice",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamagePercentTwoHand4",
+"name": "of Rime",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamagePercentTwoHand5",
+"name": "of Floe",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ColdDamagePercentTwoHand6",
+"name": "of Glaciation",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "DeepwaterSwordPhysAsFire",
+"name": "Enflamed",
+"from": "older",
+"weights": [
+[
+"deepwater_sword",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ElementalPenetrationUber2",
+"name": "The Shaper's",
+"from": "older",
+"weights": [
+[
+"amulet_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ElementalPenetrationWeaponUber1",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"bow_shaper",
+100
+],
+[
+"2h_axe_shaper",
+100
+],
+[
+"2h_mace_shaper",
+100
+],
+[
+"2h_sword_shaper",
+100
+],
+[
+"sword_shaper",
+100
+],
+[
+"axe_shaper",
+100
+],
+[
+"mace_shaper",
+100
+],
+[
+"claw_shaper",
+100
+],
+[
+"sceptre_shaper",
+100
+],
+[
+"dagger_shaper",
+100
+],
+[
+"wand_shaper",
+100
+],
+[
+"staff_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ElementalPenetrationWeaponUber2",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"bow_shaper",
+100
+],
+[
+"2h_axe_shaper",
+100
+],
+[
+"2h_mace_shaper",
+100
+],
+[
+"2h_sword_shaper",
+100
+],
+[
+"sword_shaper",
+100
+],
+[
+"axe_shaper",
+100
+],
+[
+"mace_shaper",
+100
+],
+[
+"claw_shaper",
+100
+],
+[
+"sceptre_shaper",
+100
+],
+[
+"dagger_shaper",
+100
+],
+[
+"wand_shaper",
+100
+],
+[
+"staff_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ElementalPenetrationWeaponUber3",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"bow_shaper",
+100
+],
+[
+"2h_axe_shaper",
+100
+],
+[
+"2h_mace_shaper",
+100
+],
+[
+"2h_sword_shaper",
+100
+],
+[
+"sword_shaper",
+100
+],
+[
+"axe_shaper",
+100
+],
+[
+"mace_shaper",
+100
+],
+[
+"claw_shaper",
+100
+],
+[
+"sceptre_shaper",
+100
+],
+[
+"dagger_shaper",
+100
+],
+[
+"wand_shaper",
+100
+],
+[
+"staff_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamagePercentTwoHand1",
+"name": "of Embers",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamagePercentTwoHand2",
+"name": "of Coals",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamagePercentTwoHand3",
+"name": "of Cinders",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamagePercentTwoHand4",
+"name": "of Flames",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamagePercentTwoHand5",
+"name": "of Immolation",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "FireDamagePercentTwoHand6",
+"name": "of Ashes",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedAccuracy1",
+"name": "of Calm",
+"from": "older",
+"weights": [
+[
+"gloves",
+100
+],
+[
+"helmet",
+100
+],
+[
+"ring",
+100
+],
+[
+"amulet",
+100
+],
+[
+"quiver",
+100
+],
+[
+"dex_shield",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedAccuracy10",
+"name": "of Lioneye",
+"from": "older",
+"weights": [
+[
+"gloves",
+100
+],
+[
+"helmet",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedAccuracy2",
+"name": "of Steadiness",
+"from": "older",
+"weights": [
+[
+"gloves",
+100
+],
+[
+"helmet",
+100
+],
+[
+"ring",
+100
+],
+[
+"amulet",
+100
+],
+[
+"quiver",
+100
+],
+[
+"dex_shield",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedAccuracy3",
+"name": "of Accuracy",
+"from": "older",
+"weights": [
+[
+"gloves",
+100
+],
+[
+"helmet",
+100
+],
+[
+"ring",
+100
+],
+[
+"amulet",
+100
+],
+[
+"quiver",
+100
+],
+[
+"dex_shield",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedAccuracy4",
+"name": "of Precision",
+"from": "older",
+"weights": [
+[
+"gloves",
+100
+],
+[
+"helmet",
+100
+],
+[
+"ring",
+100
+],
+[
+"amulet",
+100
+],
+[
+"quiver",
+100
+],
+[
+"dex_shield",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedAccuracy5",
+"name": "of the Sniper",
+"from": "older",
+"weights": [
+[
+"gloves",
+100
+],
+[
+"helmet",
+100
+],
+[
+"ring",
+100
+],
+[
+"amulet",
+100
+],
+[
+"quiver",
+100
+],
+[
+"dex_shield",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedAccuracy6",
+"name": "of the Marksman",
+"from": "older",
+"weights": [
+[
+"gloves",
+100
+],
+[
+"helmet",
+100
+],
+[
+"ring",
+100
+],
+[
+"amulet",
+100
+],
+[
+"quiver",
+100
+],
+[
+"dex_shield",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedAccuracy7",
+"name": "of the Deadeye",
+"from": "older",
+"weights": [
+[
+"gloves",
+100
+],
+[
+"helmet",
+100
+],
+[
+"ring",
+100
+],
+[
+"amulet",
+100
+],
+[
+"quiver",
+100
+],
+[
+"dex_shield",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedAccuracy8",
+"name": "of the Ranger",
+"from": "older",
+"weights": [
+[
+"gloves",
+100
+],
+[
+"helmet",
+100
+],
+[
+"ring",
+100
+],
+[
+"amulet",
+100
+],
+[
+"quiver",
+100
+],
+[
+"dex_shield",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "IncreasedAccuracy9",
+"name": "of the Assassin",
+"from": "older",
+"weights": [
+[
+"gloves",
+100
+],
+[
+"helmet",
+100
+],
+[
+"ring",
+100
+],
+[
+"amulet",
+100
+],
+[
+"quiver",
+100
+],
+[
+"dex_shield",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ItemFoundQuantityIncrease1",
+"name": "of Collecting",
+"from": "older",
+"weights": [
+[
+"ring",
+500
+],
+[
+"amulet",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ItemFoundQuantityIncrease2",
+"name": "of Gathering",
+"from": "older",
+"weights": [
+[
+"ring",
+500
+],
+[
+"amulet",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ItemFoundQuantityIncrease3",
+"name": "of Hoarding",
+"from": "older",
+"weights": [
+[
+"ring",
+500
+],
+[
+"amulet",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ItemFoundQuantityIncrease4",
+"name": "of Amassment",
+"from": "older",
+"weights": [
+[
+"ring",
+500
+],
+[
+"amulet",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeGainPerTarget4",
+"name": "of Nourishment",
+"from": "older",
+"weights": [
+[
+"ring",
+500
+],
+[
+"gloves",
+500
+],
+[
+"quiver",
+500
+],
+[
+"weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeLeech1",
+"name": "Remora's",
+"from": "older",
+"weights": [
+[
+"ring",
+500
+],
+[
+"amulet",
+500
+],
+[
+"gloves",
+500
+],
+[
+"quiver",
+500
+],
+[
+"weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeLeech2",
+"name": "Lamprey's",
+"from": "older",
+"weights": [
+[
+"ring",
+500
+],
+[
+"amulet",
+500
+],
+[
+"gloves",
+500
+],
+[
+"quiver",
+500
+],
+[
+"weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LifeLeech3",
+"name": "Vampire's",
+"from": "older",
+"weights": [
+[
+"ring",
+500
+],
+[
+"amulet",
+500
+],
+[
+"gloves",
+500
+],
+[
+"quiver",
+500
+],
+[
+"weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightRadiusAndAccuracy1",
+"name": "of Shining",
+"from": "older",
+"weights": [
+[
+"helmet",
+100
+],
+[
+"ring",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightRadiusAndAccuracy2",
+"name": "of Light",
+"from": "older",
+"weights": [
+[
+"helmet",
+100
+],
+[
+"ring",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightningDamagePercentTwoHand1",
+"name": "of Sparks",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightningDamagePercentTwoHand2",
+"name": "of Static",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightningDamagePercentTwoHand3",
+"name": "of Electricity",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightningDamagePercentTwoHand4",
+"name": "of Voltage",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightningDamagePercentTwoHand5",
+"name": "of Discharge",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LightningDamagePercentTwoHand6",
+"name": "of Arcing",
+"from": "older",
+"weights": [
+[
+"staff",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseArmourAndEnergyShieldAndLife1_",
+"name": "Coelacanth's",
+"from": "older",
+"weights": [
+[
+"str_int_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseArmourAndEnergyShieldAndLife2_",
+"name": "Swordfish's",
+"from": "older",
+"weights": [
+[
+"str_int_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseArmourAndEnergyShieldAndLife3",
+"name": "Shark's",
+"from": "older",
+"weights": [
+[
+"str_int_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseArmourAndEnergyShieldAndLife4_",
+"name": "Whale's",
+"from": "older",
+"weights": [
+[
+"str_int_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseArmourAndEvasionRatingAndLife1",
+"name": "Rhoa's",
+"from": "older",
+"weights": [
+[
+"str_dex_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseArmourAndEvasionRatingAndLife2",
+"name": "Rhex's",
+"from": "older",
+"weights": [
+[
+"str_dex_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseArmourAndEvasionRatingAndLife3",
+"name": "Chimeral's",
+"from": "older",
+"weights": [
+[
+"str_dex_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseArmourAndEvasionRatingAndLife4",
+"name": "Bull's",
+"from": "older",
+"weights": [
+[
+"str_dex_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseEvasionRatingAndEnergyShieldAndLife1",
+"name": "Vulture's",
+"from": "older",
+"weights": [
+[
+"dex_int_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseEvasionRatingAndEnergyShieldAndLife2",
+"name": "Kingfisher's",
+"from": "older",
+"weights": [
+[
+"dex_int_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseEvasionRatingAndEnergyShieldAndLife3",
+"name": "Owl's",
+"from": "older",
+"weights": [
+[
+"dex_int_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalBaseEvasionRatingAndEnergyShieldAndLife4",
+"name": "Eagle's",
+"from": "older",
+"weights": [
+[
+"dex_int_armour",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedAccuracy",
+"name": "of the Ranger",
+"from": "older",
+"weights": [
+[
+"weapon",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedAccuracy1",
+"name": "of Calm",
+"from": "older",
+"weights": [
+[
+"weapon",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedAccuracy2",
+"name": "of Steadiness",
+"from": "older",
+"weights": [
+[
+"weapon",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedAccuracy3",
+"name": "of Accuracy",
+"from": "older",
+"weights": [
+[
+"weapon",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedAccuracy4",
+"name": "of Precision",
+"from": "older",
+"weights": [
+[
+"weapon",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedAccuracy5",
+"name": "of the Sniper",
+"from": "older",
+"weights": [
+[
+"weapon",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedAccuracy6",
+"name": "of the Marksman",
+"from": "older",
+"weights": [
+[
+"weapon",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedAccuracy7",
+"name": "of the Deadeye",
+"from": "older",
+"weights": [
+[
+"weapon",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedAccuracy9_",
+"name": "of the Assassin",
+"from": "older",
+"weights": [
+[
+"bow",
+100
+],
+[
+"wand",
+100
+],
+[
+"weapon",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentEnduranceChargeOnStunUber1",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"2h_sword_elder",
+100
+],
+[
+"2h_axe_elder",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentEnduranceChargeOnStunUber2",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"2h_sword_elder",
+100
+],
+[
+"2h_axe_elder",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentEnduranceChargeOnStunUber3",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"2h_sword_elder",
+100
+],
+[
+"2h_axe_elder",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentFasterProjectilesUber1",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"bow_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentFasterProjectilesUber2_",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"bow_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentFasterProjectilesUber3",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"bow_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentFortifyUber1",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"2h_sword_elder",
+100
+],
+[
+"2h_axe_elder",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentFortifyUber2_",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"2h_sword_elder",
+100
+],
+[
+"2h_axe_elder",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentFortifyUber3",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"2h_sword_elder",
+100
+],
+[
+"2h_axe_elder",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentIronGripUber1",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"bow_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentIronGripUber2_",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"bow_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentIronGripUber3",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"bow_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentOnslaughtUber1",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"2h_sword_elder",
+100
+],
+[
+"2h_axe_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentOnslaughtUber2",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"2h_sword_elder",
+100
+],
+[
+"2h_axe_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentOnslaughtUber3",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"2h_sword_elder",
+100
+],
+[
+"2h_axe_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentPowerChargeOnCritUber1",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentPowerChargeOnCritUber2",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentPowerChargeOnCritUber3",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentProjectileAttackDamageUber1",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"bow_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentProjectileAttackDamageUber2",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"bow_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalIncreasedPhysicalDamagePercentProjectileAttackDamageUber3",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"bow_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalLightRadiusAndAccuracy1",
+"name": "of Shining",
+"from": "older",
+"weights": [
+[
+"weapon",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "LocalLightRadiusAndAccuracy2",
+"name": "of Light",
+"from": "older",
+"weights": [
+[
+"weapon",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ManaLeech1",
+"name": "Thirsty",
+"from": "older",
+"weights": [
+[
+"ring",
+500
+],
+[
+"amulet",
+500
+],
+[
+"gloves",
+500
+],
+[
+"quiver",
+500
+],
+[
+"weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ManaLeech2",
+"name": "Parched",
+"from": "older",
+"weights": [
+[
+"ring",
+500
+],
+[
+"amulet",
+500
+],
+[
+"gloves",
+500
+],
+[
+"quiver",
+500
+],
+[
+"weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MaximumLifeLeechRateUber1",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"amulet_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "MinionDamageOnTwoHandWeapon1",
+"name": "Baroness's",
+"from": "older",
+"weights": [
+[
+"staff",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PercentageAllAttributesUberShaper2",
+"name": "of Shaping",
+"from": "older",
+"weights": [
+[
+"amulet_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageOverTimeMultiplier1h1",
+"name": "Seeping",
+"from": "older",
+"weights": [
+[
+"one_hand_weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageOverTimeMultiplier1h2_",
+"name": "Spilling",
+"from": "older",
+"weights": [
+[
+"one_hand_weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageOverTimeMultiplier1h3",
+"name": "Phlebotomising",
+"from": "older",
+"weights": [
+[
+"one_hand_weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageOverTimeMultiplier1h4_",
+"name": "Hemorrhaging",
+"from": "older",
+"weights": [
+[
+"one_hand_weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageOverTimeMultiplier1h5",
+"name": "Exsanguinating",
+"from": "older",
+"weights": [
+[
+"one_hand_weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageOverTimeMultiplier2h1",
+"name": "Seeping",
+"from": "older",
+"weights": [
+[
+"two_hand_weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageOverTimeMultiplier2h2_",
+"name": "Spilling",
+"from": "older",
+"weights": [
+[
+"two_hand_weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageOverTimeMultiplier2h3",
+"name": "Phlebotomising",
+"from": "older",
+"weights": [
+[
+"two_hand_weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageOverTimeMultiplier2h4",
+"name": "Hemorrhaging",
+"from": "older",
+"weights": [
+[
+"two_hand_weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PhysicalDamageOverTimeMultiplier2h5",
+"name": "Exsanguinating",
+"from": "older",
+"weights": [
+[
+"two_hand_weapon",
+500
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PoisonDuration1",
+"name": "of Rot",
+"from": "older",
+"weights": [
+[
+"bow",
+100
+],
+[
+"sword",
+100
+],
+[
+"dagger",
+100
+],
+[
+"claw",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "PoisonDuration2",
+"name": "of Putrefaction",
+"from": "older",
+"weights": [
+[
+"bow",
+100
+],
+[
+"sword",
+100
+],
+[
+"dagger",
+100
+],
+[
+"claw",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedElementalReflectTakenUber2",
+"name": "The Shaper's",
+"from": "older",
+"weights": [
+[
+"body_armour_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "ReducedPhysicalReflectTakenUber2",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"body_armour_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageOnWeaponArcaneSurgeUber1",
+"name": "The Shaper's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"attack_staff",
+100
+],
+[
+"staff_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageOnWeaponArcaneSurgeUber2",
+"name": "The Shaper's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"attack_staff",
+100
+],
+[
+"staff_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageOnWeaponArcaneSurgeUber3",
+"name": "The Shaper's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"attack_staff",
+100
+],
+[
+"staff_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageOnWeaponPowerChargeOnCritUber1",
+"name": "The Shaper's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"attack_staff",
+100
+],
+[
+"staff_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageOnWeaponPowerChargeOnCritUber2",
+"name": "The Shaper's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"attack_staff",
+100
+],
+[
+"staff_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageOnWeaponPowerChargeOnCritUber3_",
+"name": "The Shaper's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"attack_staff",
+100
+],
+[
+"staff_shaper",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageOnWeaponReducedManaUber1",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"attack_staff",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageOnWeaponReducedManaUber2_",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"attack_staff",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "SpellDamageOnWeaponReducedManaUber3__",
+"name": "The Elder's",
+"from": "older",
+"weights": [
+[
+"grants_2h_support",
+100
+],
+[
+"attack_staff",
+100
+],
+[
+"staff_elder",
+100
+],
+[
+"default",
+0
+]
+]
+},
+{
+"id": "BreachBodyAllDefences1",
+"name": "Chayula's",
+"from": "breach",
+"weights": [
+[
+"default",
+300
+]
+]
+}
+]
+}

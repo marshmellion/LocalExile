@@ -1,0 +1,14 @@
+{
+  "id": "cosmeticdrops",
+  "name": "Cosmetic Drops",
+  "description": "Cosmetics and bought hideouts are no longer all owned: they drop. Target-farm each one where it fits (Sirus's from Sirus, a tileset's in its maps) as a Sealed Cosmetic, or open Cosmetic Caches for random ones, or both.",
+  "author": "marshmellion",
+  "version": "1.3.0",
+  "compatibleClientVersions": [
+    "0.6.0-beta"
+  ],
+  "kind": "feature",
+  "depends": [
+    "Game"
+  ]
+}

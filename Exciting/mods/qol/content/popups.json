@@ -1,0 +1,18 @@
+{
+  // Number popups for the price shown on picking up currency (QolPrices.cs): copies of the Breach splinter popup with
+  // this mod's own pictures, one in chaos and one in divines.
+  "rows": [
+    { "table": "WorldPopupIconTypes", "copyOf": { "Id": "BreachSplinter" },
+      "set": { "Id": "LocalExileChaosPopup", "__col1": "Art/2DArt/UIImages/InGame/LocalExileChaosPopup", "__col8": "Chaos" } },
+    { "table": "WorldPopupIconTypes", "copyOf": { "Id": "BreachSplinter" },
+      "set": { "Id": "LocalExileDivinePopup", "__col1": "Art/2DArt/UIImages/InGame/LocalExileDivinePopup", "__col8": "Divine" } }
+  ],
+  "files": [
+    { "path": "Art/2DArt/LocalExile/ChaosPopup.dds", "image": "chaos_popup.png" },
+    { "path": "Art/2DArt/LocalExile/DivinePopup.dds", "image": "divine_popup.png" },
+    { "path": "Art/UIImages1.txt", "appendLines": [
+      "\"Art/2DArt/UIImages/InGame/LocalExileChaosPopup\" \"Art/2DArt/LocalExile/ChaosPopup.dds\" 0 0 43 43",
+      "\"Art/2DArt/UIImages/InGame/LocalExileDivinePopup\" \"Art/2DArt/LocalExile/DivinePopup.dds\" 0 0 43 43"
+    ] }
+  ]
+}

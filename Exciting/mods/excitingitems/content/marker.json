@@ -1,0 +1,20 @@
+{
+  // The Exciting marker: an enchantment of our own with no stats, so the tooltip shows no line for it, which loot
+  // filters match by name (HasEnchantment "Exciting"). An enchantment because the server sends the enchant list also
+  // for an unidentified item; explicit mods only come once the item is identified.
+  // A modifier group (ModType) of its own first, so it shares no group with any real modifier.
+  "rows": [
+    { "table": "ModType", "copyOf": { "Name": "SocketedCursesUncastableUnique" },
+      "set": { "Name": "LocalExileExcitingMarker", "Stats": [], "ModSellPriceTypesKeys": [] } },
+    { "table": "Mods", "copyOf": { "Id": "SocketedCursesUncastableUnique" },
+      "set": {
+        "Id": "LocalExileExcitingMarker", "Name": "Exciting", "Level": 1, "Domain": 1, "GenerationType": 10,
+        "ModTypeKey": { "row": { "table": "ModType", "Name": "LocalExileExcitingMarker" } },
+        "StatsKey1": null, "StatsKey2": null, "StatsKey3": null, "StatsKey4": null,
+        "StatsKey5": null, "StatsKey6": null, "StatsKey7": null, "StatsKey8": null,
+        "Families": [], "TagsKeys": [], "ImplicitTagsKeys": [], "GrantedEffectsPerLevelKeys": [],
+        "SpawnWeight_TagsKeys": [], "SpawnWeight_Values": [], "GenerationWeight_TagsKeys": [], "GenerationWeight_Values": [],
+        "CraftingItemClassRestrictions": []
+      } }
+  ]
+}

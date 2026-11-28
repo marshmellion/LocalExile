@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "settings": {
+    "costMultiplier": {
+      "type": "number", "default": 1, "min": 0, "max": 10, "step": 0.05, "format": "multiplier",
+      "label": "Lifeforce cost",
+      "description": "Multiplies every craft's lifeforce cost. 0 makes the crafts free.",
+      "applies": "now"
+    }
+  }
+}

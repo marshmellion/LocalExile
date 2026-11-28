@@ -1,0 +1,1279 @@
+{
+ "_note": "Exciting Items: the map modifiers an exciting Idol can have as an implicit (existing modifier rows whose map stat the server acts on; leaguestone ones first). Remove a line to stop one. weight: how often it is chosen (sextant ones keep their old sextant weights, so the better ones are rarer; the others 250).",
+ "implicits": [
+  {
+   "stat": "map_+%_increased_scarab_drops",
+   "mod": "MapRelicScarabIncreasedDrops1",
+   "text": "map_+%_increased_scarab_drops",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_25%_chance_for_rare_monsters_to_be_possessed_up_to_x_times",
+   "mod": "ScarabTormentNew4",
+   "text": "Rare Monsters have a quarter chance to be Possessed by up to {0} Tormented Spirit",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_X_magic_packs_drop_cards_from_area",
+   "mod": "ScarabDivinationCardsNew3",
+   "text": "map_X_magic_packs_drop_cards_from_area",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_abyss_chance_%",
+   "mod": "MapRelicAbyssAdditionalChanceSmall",
+   "text": "map_abyss_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_abyss_encounter_chance_+%",
+   "mod": "MapRelicAbyssIncreasedChanceSmall",
+   "text": "map_abyss_encounter_chance_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_additional_harbinger_chance_%",
+   "mod": "MapRelicHarbingerAdditionalHarbingerChanceSmall",
+   "text": "map_additional_harbinger_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_additional_rogue_exile_chance_%",
+   "mod": "MapRelicAnarchyAdditionalExilesChanceSmall",
+   "text": "map_additional_rogue_exile_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_atlas_boss_pack_replacement_chance_%",
+   "mod": "ScarabUber7",
+   "text": "map_atlas_boss_pack_replacement_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_basic_currency_quantity_+%_final_from_pale_faction",
+   "mod": "MapRelicBeyondMorePaleFactionCurrencyQuantity1",
+   "text": "{0}% more Basic Currency Items found from Beyond Demons in your Maps / that are followers of Beidat",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_boss_grants_special_buff_on_death",
+   "mod": "MapRelicBeyondBossSpecialBuff1",
+   "text": "map_beyond_boss_grants_special_buff_on_death",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_boss_spawn_chance_+%",
+   "mod": "MapRelicBeyondIncreasedBossSpawnChance1",
+   "text": "map_beyond_boss_spawn_chance_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_demon_corrupted_drops",
+   "mod": "ScarabBeyond2",
+   "text": "map_beyond_demon_corrupted_drops",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_divination_card_quantity_+%_final_from_demon_faction",
+   "mod": "MapRelicBeyondMoreDemonFactionDivinationCardQuantity1",
+   "text": "{0}% more Divination Cards found from Beyond Demons in your Maps / that are followers of K'Tash",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_monster_experience_+%",
+   "mod": "MapRelicBeyondIncreasedMonsterExperience1",
+   "text": "map_beyond_monster_experience_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_monster_tainted_currency_quantity_+%",
+   "mod": "MapRelicBeyondIncreasedMonsterTaintedCurrencyQuantity1",
+   "text": "map_beyond_monster_tainted_currency_quantity_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_portal_chance_+%",
+   "mod": "MapRelicBeyondIncreasedPortalChance1",
+   "text": "Slaying Enemies has a {0}% increased chance to spawn a Beyond Portal",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_portal_search_radius_+%",
+   "mod": "MapRelicBeyondIncreasedPortalSearchRadius1",
+   "text": "map_beyond_portal_search_radius_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_rules",
+   "mod": "WatchstoneBeyondPortalChance1_",
+   "text": "Slaying Enemies close together can attract monsters from Beyond this realm",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_rules_chance_%",
+   "mod": "MapRelicBeyondAdditionalChanceSmall",
+   "text": "map_beyond_rules_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_beyond_unique_item_quantity_+%_final_from_flesh_faction",
+   "mod": "MapRelicBeyondMoreFleshFactionUniqueQuantity1",
+   "text": "{0}% more Unique Items found from Beyond Demons in your Maps / that are followers of Ghorr",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_blight_encounter_pack_size_+%_final",
+   "mod": "MapRelicBlightMorePackSize1",
+   "text": "map_blight_encounter_pack_size_+%_final",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_blight_tower_cost_+%",
+   "mod": "MapRelicBlightTowerReducedCost1",
+   "text": "{0}% increased Cost of Building and Upgrading Towers",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_boss_chance_to_be_surrounded_by_spirits_%",
+   "mod": "MapRelicTormentMapBossSurroundedBySpiritChance1",
+   "text": "Map Bosses have {0}% chance to be surrounded by Tormented Spirits",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_boss_has_rogue_exile_bodyguards_chance_%",
+   "mod": "MapRelicAnarchyMapBossExileGuardsChance1",
+   "text": "map_boss_has_rogue_exile_bodyguards_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_boss_has_two_rogues_exiles_chance_%",
+   "mod": "MapRelicAnarchyMapBossTwoExileChance1",
+   "text": "map_boss_has_two_rogues_exiles_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_boss_item_rarity_+%",
+   "mod": "WatchstoneMapBossItemRarity1_",
+   "text": "{0}% increased Rarity of Items dropped by Unique Boss",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_breach_%_chance_for_10_additional_breach",
+   "mod": "MapRelicBreachTenAdditionalBreachChance1",
+   "text": "map_breach_%_chance_for_10_additional_breach",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_breach_%_chance_for_1_additional_breach",
+   "mod": "MapRelicBreachOneAdditionalBreachChance1",
+   "text": "map_breach_%_chance_for_1_additional_breach",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_breach_%_chance_for_2_additional_breach",
+   "mod": "MapRelicBreachTwoAdditionalBreachChance1",
+   "text": "map_breach_%_chance_for_2_additional_breach",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_breach_%_chance_for_3_additional_breach",
+   "mod": "MapRelicBreachThreeAdditionalBreachChance1",
+   "text": "map_breach_%_chance_for_3_additional_breach",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_contains_additional_unstable_breaches",
+   "mod": "EagonMissionMapBreachAdditionalUnstableBreaches",
+   "text": "Area contains an additional unstable Breach",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_contains_breach_hive",
+   "mod": "ScarabBreachesNew1",
+   "text": "map_contains_breach_hive",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_contains_x_additional_exceptional_rogue_exiles",
+   "mod": "ScarabAnarchy4",
+   "text": "map_contains_x_additional_exceptional_rogue_exiles",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_contains_x_additional_magic_packs",
+   "mod": "MapAreaContainsAdditionalMagicPacks1",
+   "text": "Area contains an additional Magic Monster pack",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_contains_x_additional_rare_packs",
+   "mod": "MapAreaContainsAdditionalRarePacks1",
+   "text": "Area contains an additional pack with a Rare monster",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_currency_drop_chance_+%_final_from_uber_mod",
+   "mod": "MemoryAltarCurrencyChance",
+   "text": "map_currency_drop_chance_+%_final_from_uber_mod",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_divination_card_drop_chance_+%",
+   "mod": "MemoryAltarDivinationCardChance",
+   "text": "{0}% increased Divination Cards found in Area",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_enraging_sulphite",
+   "mod": "ScarabSulphiteNew3",
+   "text": "map_enraging_sulphite",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_essence_X_essences_at_highest_tier",
+   "mod": "MapRelicEssenceNumAtMaxTier1",
+   "text": "map_essence_X_essences_at_highest_tier",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_essence_X_mods_inherited_by_map_boss",
+   "mod": "MapRelicEssenceNumModsInheritedByMapBoss1",
+   "text": "map_essence_X_mods_inherited_by_map_boss",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_essence_monolith_contains_essence_of_corruption_%",
+   "mod": "MapRelicEssenceMonolithsHaveCorrutptionEssenceChance1",
+   "text": "Monsters Imprisoned by Essences have a {0}% chance to contain a Remnant of Corruption",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_essence_monsters_chance_for_3_additional_essences_%",
+   "mod": "MapRelicEssenceThreeAdditionalEssenceChance1",
+   "text": "Imprisoned Monsters in Area have {0}% chance to have 3 additional Essences",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_essence_monsters_drop_rare_item_with_random_essence_mod_%_chance",
+   "mod": "MapRelicEssenceRareItemWithModChance1",
+   "text": "Imprisoned Monsters have {0}% chance to drop an additional Rare Item with an Essence Modifier",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_essence_monsters_have_additional_essences",
+   "mod": "MapEssenceMonstersHaveAdditionalEssences1",
+   "text": "Imprisoned Monsters have an additional Essence",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_essence_monsters_have_an_additional_essence_%_chance",
+   "mod": "MapRelicEssenceAdditionalEssenceChance1",
+   "text": "map_essence_monsters_have_an_additional_essence_%_chance",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_essence_remnant_convert",
+   "mod": "MapRelicEssenceCorruptConvert1",
+   "text": "map_essence_remnant_convert",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_essences_are_1_tier_higher_chance_%",
+   "mod": "MapRelicEssenceOneTierHigherChance1",
+   "text": "Essences found are a tier higher",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_expedition_encounter_additional_chance_%",
+   "mod": "MapRelicExpeditionAdditionalChanceSmall",
+   "text": "{0:+d}% chance to contain an Expedition Encounter",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_expedition_encounter_chance_+%",
+   "mod": "MapRelicExpeditionIncreasedChanceSmall",
+   "text": "map_expedition_encounter_chance_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_expedition_league",
+   "mod": "MapExpeditionLeague_",
+   "text": "Area contains an Expedition Encounter",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_first_strongbox_contains_x_additional_rare_monsters",
+   "mod": "MapLeaguestoneAdditionalRareMonstersFromStrongbox1",
+   "text": "The first Strongbox Opened in this Area is guarded by an additional Rare Monster",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harbinger_additional_currency_shard_stack_chance_%",
+   "mod": "WatchstoneHarbingerShardChance1",
+   "text": "Harbingers have {0}% chance to drop an additional Stack of Currency Shards",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harbinger_additional_currency_shard_stack_tenths_to_drop",
+   "mod": "MapRelicHarbingerAdditionalCurrencyShardStacks1",
+   "text": "map_harbinger_additional_currency_shard_stack_tenths_to_drop",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harbinger_cooldown_speed_+%",
+   "mod": "MapRelicHarbingerCooldownRecovery1",
+   "text": "Harbingers have {0}% increased Cooldown Recovery Rate",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harbinger_currency_shards_duplicate_chance",
+   "mod": "ScarabHarbingerNew3",
+   "text": "map_harbinger_currency_shards_duplicate_chance",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harbinger_lucky_shard_drops",
+   "mod": "WatchstoneHarbingerLuckyDrops1__",
+   "text": "map_harbinger_lucky_shard_drops",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harbinger_portal_drops_additional_fragments",
+   "mod": "MapHarbingerPortalAdditionalFragments__",
+   "text": "Unique Boss drops an additional Harbinger Scroll",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harbinger_scarab_empower",
+   "mod": "ScarabHarbingerNew2",
+   "text": "map_harbinger_scarab_empower",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harbingers_%_chance_to_be_replaced_as_atlas_boss",
+   "mod": "MapRelicHarbingerPowerfulChance1",
+   "text": "Harbingers have a {0}% chance to be replaced by a powerful Harbinger boss",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harbingers_have_chance_to_drop_full_currency",
+   "mod": "MapRelicHarbingerNumShardsToDropAsFullCurrency1",
+   "text": "map_harbingers_have_chance_to_drop_full_currency",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_%_chance_to_duplicate_lifeforce",
+   "mod": "MapRelicHarvestDuplicateLifeforceChance1",
+   "text": "map_harvest_%_chance_to_duplicate_lifeforce",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_additional_plot_chance_%",
+   "mod": "MapRelicHarvestAdditionalPlotChance1",
+   "text": "map_harvest_additional_plot_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_always_high_tier_seeds",
+   "mod": "MapHarvestAlwaysHighTierSeeds",
+   "text": "map_harvest_always_high_tier_seeds",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_blue_plot_chance_+%",
+   "mod": "MapRelicHarvestBluePlotChance1",
+   "text": "map_harvest_blue_plot_chance_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_boss_encounter_chance_+%",
+   "mod": "MapRelicHarvestBossEncounterChance1",
+   "text": "map_harvest_boss_encounter_chance_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_chance_for_other_plot_to_not_wither_%",
+   "mod": "MapRelicHarvestOtherPlotNotWhitherChance1",
+   "text": "Harvests in Area have {0}% chance for the unchosen Crop to not wilt",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_green_plot_chance_+%",
+   "mod": "MapRelicHarvestGreenPlotChance1",
+   "text": "map_harvest_green_plot_chance_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_lifeforce_dropped_+%",
+   "mod": "MapRelicHarvestIncreasedLifeforceDropped1",
+   "text": "map_harvest_lifeforce_dropped_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_monster_granted_experience_+%",
+   "mod": "MapRelicHarvestMonsterIncreasedExperience1",
+   "text": "map_harvest_monster_granted_experience_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_red_plot_chance_+%",
+   "mod": "MapRelicHarvestRedPlotChance1",
+   "text": "map_harvest_red_plot_chance_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_seed_t2_upgrade_%_chance",
+   "mod": "EagonMissionMapHarvestUpgradeTier2Chance",
+   "text": "Tier 2 Harvest Seeds in Area have {0}% chance to be upgraded to Tier 3",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_seed_t3_upgrade_%_chance",
+   "mod": "EagonMissionMapHarvestUpgradeTier3Chance",
+   "text": "Tier 3 Harvest Seeds in Area have {0}% chance to be upgraded to Tier 4",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_seeds_%_chance_to_spawn_additional_monster",
+   "mod": "MapRelicHarvestSeedsAdditionalMonsterChance1",
+   "text": "Harvested Plants in Area have {0}% chance to spawn an additional Monster",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_seeds_%_chance_to_spawn_duplicated_monsters",
+   "mod": "MapRelicHarvestDuplicatedMonsterChance1",
+   "text": "map_harvest_seeds_%_chance_to_spawn_duplicated_monsters",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_seeds_are_at_least_t2",
+   "mod": "EagonMissionMapHarvestAtLeastTier2",
+   "text": "Harvest Seeds in Area are at least Tier 2",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_harvest_t3_chance_+%",
+   "mod": "MapRelicHarvestTierThreeChance1",
+   "text": "Harvest Crops in Area have {0}% increased chance to contain Tier 3 Plants",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_heist_smugglers_cache_encounter_chance_+%",
+   "mod": "MapRelicHeistIncreasedCacheChanceSmall",
+   "text": "map_heist_smugglers_cache_encounter_chance_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_implicit_item_drop_quantity_+%",
+   "mod": "MapCorruptionItemQuantity",
+   "text": "{0:+d}% Item Quantity",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_implicit_item_drop_rarity_+%",
+   "mod": "MapCorruptionItemRarity",
+   "text": "{0:+d}% Item Rarity",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_implicit_pack_size_+%",
+   "mod": "MapCorruptionPackSize",
+   "text": "{0:+d}% Pack Size",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_item_drop_quantity_+%",
+   "mod": "MapTempestItemQuantity",
+   "text": "map_item_drop_quantity_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_item_drop_quantity_instead_applies_to_map_item_drop_rarity_at_3_times_value",
+   "mod": "UniqueMapRelicMeticulousAppraiser",
+   "text": "map_item_drop_quantity_instead_applies_to_map_item_drop_rarity_at_3_times_value",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_item_drop_rarity_+%",
+   "mod": "MapTempestItemRarity",
+   "text": "map_item_drop_rarity_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_leaguestone_additional_rogue_exiles",
+   "mod": "MapLeaguestoneAdditionalRogueExile1",
+   "text": "map_leaguestone_additional_rogue_exiles",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_leaguestone_additional_shrines",
+   "mod": "MapAreaContainsAdditionalShrines1",
+   "text": "map_leaguestone_additional_shrines",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_legion_chests_break_out_range_+%",
+   "mod": "MapRelicLegionChestBreakOutRange1",
+   "text": "map_legion_chests_break_out_range_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_legion_duration_+%",
+   "mod": "MapRelicLegionDuration1",
+   "text": "map_legion_duration_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_legion_frozen_monsters_damage_taken_+%",
+   "mod": "MapRelicLegionFrozenMonstersDamageTaken1",
+   "text": "map_legion_frozen_monsters_damage_taken_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_legion_general_chance_+%",
+   "mod": "MapRelicLegionGeneralChance1",
+   "text": "map_legion_general_chance_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_legion_sergeants_reward_additional_chance_%",
+   "mod": "MapRelicLegionSergeantAdditionalRewardChance1",
+   "text": "map_legion_sergeants_reward_additional_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_map_item_drop_chance_+%",
+   "mod": "MapRelicIncreasedMapDropsChance1",
+   "text": "{0}% increased Maps found in your Maps",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_map_item_drop_chance_+%_per_map_mod",
+   "mod": "ScarabMapsNew1",
+   "text": "map_map_item_drop_chance_+%_per_map_mod",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_mod_effect_+%_for_non_unique_maps",
+   "mod": "MapRelicMapNonUniqueModEffect1",
+   "text": "map_mod_effect_+%_for_non_unique_maps",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_num_extra_apparition_shrines",
+   "mod": "ScarabDomination1",
+   "text": "map_num_extra_apparition_shrines",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_num_extra_evolving_shrines",
+   "mod": "ScarabDomination2",
+   "text": "map_num_extra_evolving_shrines",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_num_extra_harbingers",
+   "mod": "MapRelicHarbingerExtraHarbingersLarge",
+   "text": "Area contains an additional Harbinger",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_num_extra_shrines",
+   "mod": "MapRelicShrineNumLarge",
+   "text": "Area contains an additional Shrine",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_num_extra_strongboxes",
+   "mod": "MapRelicStrongboxAdditionalLarge",
+   "text": "Area contains an additional Strongbox",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_number_of_magic_packs_+%",
+   "mod": "WatchstoneMagicMonstersPercent1__",
+   "text": "{0}% increased Magic Monsters",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_number_of_rare_packs_+%",
+   "mod": "WatchstoneRareMonstersPercent1",
+   "text": "{0}% increased number of Rare Monsters",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_owner_sulphite_gained_+%",
+   "mod": "ScarabSulphiteNew2",
+   "text": "Map owner gains {0}% more Sulphite",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_pack_size_+%",
+   "mod": "MapRelicIncreasedPackSize1",
+   "text": "map_pack_size_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_player_shrine_effect_duration_+%",
+   "mod": "MapLeaguestoneIncreasedShrineEffectDuration_",
+   "text": "{0}% increased Duration of Shrine Effects on Players",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_possessed_and_touched_monsters_item_quantity_+%",
+   "mod": "WatchstoneTormentedTouchedItemQuantity1",
+   "text": "map_possessed_and_touched_monsters_item_quantity_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_random_unique_monster_is_possessed",
+   "mod": "MapAUniqueMonsterIsPossessed",
+   "text": "If this Area contains any Unique Monsters, one is Possessed",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rare_monsters_possessed_chance_%",
+   "mod": "MemoryAltarRareMonstersPossessedChance",
+   "text": "{0}% chance for Rare Monsters in Area to be Possessed",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rare_monsters_trapped_in_essences",
+   "mod": "ScarabEssence3",
+   "text": "map_rare_monsters_trapped_in_essences",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rogue_exile_chance_%",
+   "mod": "MapRelicAnarchyExileChanceSmall",
+   "text": "map_rogue_exile_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rogue_exile_drop_skill_gem_with_quality",
+   "mod": "MapRogueExileDropsQualityGem",
+   "text": "Rogue Exiles each drop a Skill Gem with Quality",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rogue_exile_gigantify_chance_%",
+   "mod": "ScarabAnarchy2",
+   "text": "map_rogue_exile_gigantify_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rogue_exiles_are_doubled",
+   "mod": "MapRogueExilesAreTwinned",
+   "text": "Rogue Exiles each have a Rogue Exile ally",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rogue_exiles_are_doubled_chance_%",
+   "mod": "ScarabAnarchy3",
+   "text": "{0}% chance for Wild Rogue Exiles to appear in Pairs",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rogue_exiles_chance_to_drop_additional_currency_%",
+   "mod": "MapRelicAnarchyExileAdditionalCurrencyChance1",
+   "text": "map_rogue_exiles_chance_to_drop_additional_currency_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rogue_exiles_drop_additional_currency_items_with_quality",
+   "mod": "MapRogueExileDropsAdditionalCurrency1_",
+   "text": "Rogue Exiles drop {0} additional Basic Currency Items",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rogue_exiles_dropped_items_are_corrupted",
+   "mod": "MapRogueExileDropsAreCorrupted",
+   "text": "Items dropped by Rogue Exiles are Corrupted",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rogue_exiles_dropped_items_are_duplicated",
+   "mod": "MapRogueExileDropsAreMirrored",
+   "text": "Items dropped by Rogue Exiles are Mirrored",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rogue_exiles_dropped_items_are_fully_linked",
+   "mod": "MapRogueExileDropsAreFullyLinked",
+   "text": "Items dropped by Rogue Exiles are fully Linked",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_rogue_exiles_possessed_%_chance",
+   "mod": "MapRelicAnarchyPossessed1",
+   "text": "map_rogue_exiles_possessed_%_chance",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_scarab_drop_chance_+%_final_from_uber_mod",
+   "mod": "MemoryAltarScarabChance",
+   "text": "map_scarab_drop_chance_+%_final_from_uber_mod",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_shrine_granted_player_buff_duration_+%",
+   "mod": "MapRelicShrineDuration1",
+   "text": "map_shrine_granted_player_buff_duration_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_shrine_granted_player_buff_effect_+%",
+   "mod": "MapRelicShrineBuffEffect1",
+   "text": "map_shrine_granted_player_buff_effect_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_shrines_additional_pack_chance_%",
+   "mod": "MapRelicShrineAdditionalPackChance1",
+   "text": "map_shrines_additional_pack_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_shrines_chance_to_be_greed_shrine_%",
+   "mod": "MapRelicShrineGreedShrineChance1",
+   "text": "map_shrines_chance_to_be_greed_shrine_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_shrines_grant_a_random_additional_effect",
+   "mod": "MapLeaguestoneShrinesGrantAnAdditionalShrineEffect_",
+   "text": "Shrines grant a random additional Shrine Effect",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_shrines_have_guaranteed_magic_pack",
+   "mod": "MapRelicShrineGarunteedMagicPack1",
+   "text": "map_shrines_have_guaranteed_magic_pack",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_shrines_have_standalone_map_boss",
+   "mod": "ScarabDomination4",
+   "text": "map_shrines_have_standalone_map_boss",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_spawn_20_additional_exiles_chance_%",
+   "mod": "MapRelicAnarchyManyExilesChance1",
+   "text": "map_spawn_20_additional_exiles_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_spawn_extra_exiles",
+   "mod": "UniqueWatchstoneExiles1_",
+   "text": "Area is inhabited by an additional Rogue Exile",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_spawn_two_bosses",
+   "mod": "MapCorruptedSideAreaTwoBosses",
+   "text": "Area contains two Unique Bosses",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_stable_essence_corruption",
+   "mod": "ScarabEssence4",
+   "text": "map_stable_essence_corruption",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongbox_close_after_opening_chance_%",
+   "mod": "MapRelicStrongboxReopenChance1",
+   "text": "map_strongbox_close_after_opening_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongbox_item_quantity_+%",
+   "mod": "MapRelicStrongboxItemQuantity1",
+   "text": "map_strongbox_item_quantity_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongbox_mod_effect_+%",
+   "mod": "ScarabStrongboxNew3",
+   "text": "map_strongbox_mod_effect_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongbox_rare_boxes_weighting_multiplier",
+   "mod": "ScarabStrongboxNew5",
+   "text": "map_strongbox_rare_boxes_weighting_multiplier",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_additional_pack_chance_%",
+   "mod": "MapRelicStrongboxAdditionalPackChance1",
+   "text": "Strongboxes have {0}% chance to be guarded by an additional Pack of Monsters",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_are_corrupted",
+   "mod": "MapRelicStrongboxCorrupted1",
+   "text": "Strongboxes in Area are Corrupted",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_at_least_rare",
+   "mod": "MapRelicStrongboxAtLeastRare1",
+   "text": "Strongboxes in Area are at least Rare",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_chance_to_be_rare_+%",
+   "mod": "WatchstoneStrongboxRareChance1",
+   "text": "map_strongboxes_chance_to_be_rare_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_chance_to_be_unique_+%",
+   "mod": "WatchstoneStrongboxUniqueChance1_",
+   "text": "{0}% increased chance for Strongboxes in Area to be Unique",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_currency_is_duplicated",
+   "mod": "MapRelicStrongboxCurrencyDuped1",
+   "text": "map_strongboxes_currency_is_duplicated",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_divination_cards_are_duplicated",
+   "mod": "MapRelicStrongboxDivinationCardsDuped1",
+   "text": "map_strongboxes_divination_cards_are_duplicated",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_drop_x_additional_rare_items",
+   "mod": "MapLeaguestoneAdditionalRareItemsFromStrongbox1",
+   "text": "Strongboxes each contain an additional random Rare Item",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_gems_are_duplicated",
+   "mod": "MapRelicStrongboxGemsDuped1",
+   "text": "map_strongboxes_gems_are_duplicated",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_maps_are_duplicated",
+   "mod": "MapRelicStrongboxMapsDuped1",
+   "text": "map_strongboxes_maps_are_duplicated",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_minimum_rarity",
+   "mod": "MapRelicStrongboxMinimumRarity1",
+   "text": "Strongboxes in Area are at least Magic",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_strongboxes_vaal_orb_drop_chance_%",
+   "mod": "MapLeaguestoneVaalOrbFromStrongboxChance",
+   "text": "Strongboxes in Area have {0}% chance to contain an additional Vaal Orb",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_sulphite_mined_+%",
+   "mod": "MapRelicDelveIncreasedSulphite1",
+   "text": "map_sulphite_mined_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_torment_scarab_more_likely_%",
+   "mod": "MapRelicScarabTormentMoreLikely1",
+   "text": "Scarabs dropped in Area have {0}% increased chance to be Torment Scarabs",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_tormented_spirit_release_chance",
+   "mod": "MapRelicTormentSpiritEscapeChance1",
+   "text": "map_tormented_spirit_release_chance",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_tormented_spirits_drop_x_additional_rare_items",
+   "mod": "MapTormentedSpiritsDropAdditionalItems1",
+   "text": "Tormented Spirits drop 1 additional Rare Item",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_tormented_spirits_duration_+%",
+   "mod": "MapLeaguestoneTormentSpiritDuration_",
+   "text": "Tormented Spirits have {0}% increased Duration",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_tormented_spirits_movement_speed_+%",
+   "mod": "MapLeaguestoneTormentSpiritMovementSpeed1",
+   "text": "Tormented Spirits have {0}% increased Movement Speed",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_tormented_spirits_rare_varieties",
+   "mod": "ScarabTormentNew2",
+   "text": "map_tormented_spirits_rare_varieties",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_wild_rogue_exile_dropped_item_rarity_+%",
+   "mod": "MapRelicAnarchyExileIncreasedRarity1",
+   "text": "map_wild_rogue_exile_dropped_item_rarity_+%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_wild_rogue_exiles_have_special_reward_chance_%",
+   "mod": "MapRelicAnarchyExileSpecialRewardChance1",
+   "text": "map_wild_rogue_exiles_have_special_reward_chance_%",
+   "weight": 250,
+   "from": "leaguestone/map"
+  },
+  {
+   "stat": "map_item_drop_quality_also_applies_to_map_item_drop_rarity",
+   "mod": "MapAtlasMapQualityBonusAlsoAppliesToRarity",
+   "text": "This Map's Quality also applies to Rarity of Items found",
+   "weight": 500,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_strongboxes_are_corrupted",
+   "mod": "MapAtlasStrongboxesAreCorruptedAndUnided2_",
+   "text": "Strongboxes in Area are Corrupted",
+   "weight": 500,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_strongboxes_are_corrupted",
+   "mod": "MapAtlasStrongboxesAreCorruptedAndUnidedMaven_",
+   "text": "Strongboxes in Area are Corrupted",
+   "weight": 500,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_rogue_exiles_damage_+%",
+   "mod": "MapAtlasRogueExilesDamageAndDropAdditionalJewels",
+   "text": "Rogue Exiles deal {0}% increased Damage",
+   "weight": 500,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_contains_x_additional_magic_packs_if_magic",
+   "mod": "MapAtlasMagicAndRareMapsHaveAdditionalPacks3",
+   "text": "map_contains_x_additional_magic_packs_if_magic",
+   "weight": 1000,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_contains_x_additional_magic_packs_if_magic",
+   "mod": "MapAtlasMagicAndRareMapsHaveAdditionalPacksMaven",
+   "text": "map_contains_x_additional_magic_packs_if_magic",
+   "weight": 1000,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_strongbox_monsters_item_quantity_+%",
+   "mod": "MapAtlasStrongboxMonstersEnrageAndDrops",
+   "text": "Strongbox Monsters have {0}% increased Item Quantity",
+   "weight": 250,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_strongbox_monsters_item_quantity_+%",
+   "mod": "MapAtlasStrongboxMonstersEnrageAndDropsMaven___",
+   "text": "Strongbox Monsters have {0}% increased Item Quantity",
+   "weight": 250,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_player_shrine_effect_duration_+%",
+   "mod": "MapAtlasGloomShrineEffectAndDuration2",
+   "text": "{0}% increased Duration of Shrine Effects on Players",
+   "weight": 1000,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_player_shrine_effect_duration_+%",
+   "mod": "MapAtlasGloomShrineEffectAndDurationMaven_",
+   "text": "{0}% increased Duration of Shrine Effects on Players",
+   "weight": 1000,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_player_shrine_effect_duration_+%",
+   "mod": "MapAtlasResonatingShrineEffectAndDuration2",
+   "text": "{0}% increased Duration of Shrine Effects on Players",
+   "weight": 1000,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_player_shrine_effect_duration_+%",
+   "mod": "MapAtlasResonatingShrineEffectAndDurationMaven_____",
+   "text": "{0}% increased Duration of Shrine Effects on Players",
+   "weight": 1000,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_harvest_seeds_1_of_every_2_plot_type_override",
+   "mod": "MapAtlasHarvestPlotSeedsContainBlueSeeds",
+   "text": "Harvests contain at least one Crop of Purple Plants",
+   "weight": 50,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_harvest_seeds_1_of_every_2_plot_type_override",
+   "mod": "MapAtlasHarvestPlotSeedsContainPurpleSeeds",
+   "text": "Harvests contain at least one Crop of Purple Plants",
+   "weight": 50,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_harvest_seeds_1_of_every_2_plot_type_override",
+   "mod": "MapAtlasHarvestPlotSeedsContainYellowSeeds",
+   "text": "Harvests contain at least one Crop of Purple Plants",
+   "weight": 50,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_harvest_seeds_1_of_every_2_plot_type_override",
+   "mod": "MapAtlasHarvestPlotSeedsContainBlueSeedsMaven",
+   "text": "Harvests contain at least one Crop of Purple Plants",
+   "weight": 50,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_harvest_seeds_1_of_every_2_plot_type_override",
+   "mod": "MapAtlasHarvestPlotSeedsContainPurpleSeedsMaven",
+   "text": "Harvests contain at least one Crop of Purple Plants",
+   "weight": 50,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_harvest_seeds_1_of_every_2_plot_type_override",
+   "mod": "MapAtlasHarvestPlotSeedsContainYellowSeedsMaven",
+   "text": "Harvests contain at least one Crop of Purple Plants",
+   "weight": 50,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_beyond_rules",
+   "mod": "MapAtlasBeyondAndExtraBeyondDemonChance",
+   "text": "Slaying Enemies close together can attract monsters from Beyond this realm",
+   "weight": 250,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_beyond_rules",
+   "mod": "MapAtlasBeyondAndExtraBeyondDemonChanceMaven_____",
+   "text": "Slaying Enemies close together can attract monsters from Beyond this realm",
+   "weight": 250,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_contains_additional_tormented_betrayers",
+   "mod": "MapAtlasTormentedBetrayerAndScarabDropChance",
+   "text": "Area is haunted by an additional Tormented Betrayer",
+   "weight": 520,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_contains_additional_tormented_betrayers",
+   "mod": "MapAtlasTormentedBetrayerAndPolishedScarabDropChance",
+   "text": "Area is haunted by an additional Tormented Betrayer",
+   "weight": 175,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_contains_additional_tormented_betrayers",
+   "mod": "MapAtlasTormentedBetrayerAndGildedScarabDropChance",
+   "text": "Area is haunted by an additional Tormented Betrayer",
+   "weight": 60,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_contains_additional_tormented_betrayers",
+   "mod": "MapAtlasTormentedBetrayerAndWingedScarabDropChanceMaven",
+   "text": "Area is haunted by an additional Tormented Betrayer",
+   "weight": 50,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_contains_additional_tormented_heretics",
+   "mod": "MapAtlasTormentedHereticAndMapDropChance",
+   "text": "Area is haunted by an additional Tormented Heretic",
+   "weight": 250,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_contains_additional_tormented_heretics",
+   "mod": "MapAtlasTormentedHereticAndMapDropChanceMaven__",
+   "text": "Area is haunted by an additional Tormented Heretic",
+   "weight": 250,
+   "from": "sextant"
+  },
+  {
+   "stat": "map_contains_additional_tormented_graverobbers",
+   "mod": "MapAtlasTormentedGraverobberAndUniqueDropChance",
+   "text": "Area is haunted by an additional Tormented Graverobber",
+   "weight": 250,
+   "from": "sextant"
+  }
+ ]
+}

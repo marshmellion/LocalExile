@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>qol.Client</AssemblyName>
+    <RootNamespace>LocalExile.Qol.Client</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="LocalExile.Client.Sdk"><HintPath>../../../nativemods/host/LocalExile.Client.Sdk.dll</HintPath><Private>false</Private></Reference>
+    <EmbeddedResource Include="ui/*.ui" LogicalName="%(Filename).ui" />
+  </ItemGroup>
+</Project>

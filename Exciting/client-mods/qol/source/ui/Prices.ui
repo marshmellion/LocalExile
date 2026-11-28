@@ -1,0 +1,120 @@
+// QoL (in-game panels): price lines beside the character
+<DEFINITIONS>
+
+begin Frame
+	id = qol_prices;
+	aspect_mode = scaley;
+	size = 760, 40;
+	float = centre;
+	y = 520;
+	visible = true;
+	mouse_enabled = false;
+	propagate_properties = false;
+
+	begin StackLayout
+		id = qol_prices_rows;
+		auto_size = true, true;
+		float = centre;
+
+		begin Label
+			id = line_0;
+			size = 760, 32;
+			auto_size = false;
+			text_align = MiddleCentre;
+			font = Fonts.LargeSC;
+			foreground_colour = rgb( 255, 232, 150 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_1;
+			size = 760, 32;
+			auto_size = false;
+			text_align = MiddleCentre;
+			font = Fonts.LargeSC;
+			foreground_colour = rgb( 255, 232, 150 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_2;
+			size = 760, 32;
+			auto_size = false;
+			text_align = MiddleCentre;
+			font = Fonts.LargeSC;
+			foreground_colour = rgb( 255, 232, 150 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_3;
+			size = 760, 32;
+			auto_size = false;
+			text_align = MiddleCentre;
+			font = Fonts.LargeSC;
+			foreground_colour = rgb( 255, 232, 150 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_4;
+			size = 760, 32;
+			auto_size = false;
+			text_align = MiddleCentre;
+			font = Fonts.LargeSC;
+			foreground_colour = rgb( 255, 232, 150 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_5;
+			size = 760, 32;
+			auto_size = false;
+			text_align = MiddleCentre;
+			font = Fonts.LargeSC;
+			foreground_colour = rgb( 255, 232, 150 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_6;
+			size = 760, 32;
+			auto_size = false;
+			text_align = MiddleCentre;
+			font = Fonts.LargeSC;
+			foreground_colour = rgb( 255, 232, 150 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_7;
+			size = 760, 32;
+			auto_size = false;
+			text_align = MiddleCentre;
+			font = Fonts.LargeSC;
+			foreground_colour = rgb( 255, 232, 150 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_8;
+			size = 760, 32;
+			auto_size = false;
+			text_align = MiddleCentre;
+			font = Fonts.LargeSC;
+			foreground_colour = rgb( 255, 232, 150 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Label
+			id = line_9;
+			size = 760, 32;
+			auto_size = false;
+			text_align = MiddleCentre;
+			font = Fonts.LargeSC;
+			foreground_colour = rgb( 255, 232, 150 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+	end
+end

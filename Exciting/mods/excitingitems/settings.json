@@ -1,0 +1,2998 @@
+{
+  "version": 1,
+  "settings": {
+    "implicits": {
+      "type": "group",
+      "label": "Unique implicits",
+      "description": "A dropped item gets a unique item's modifier as an extra implicit.",
+      "settings": {
+        "chance": {
+          "type": "integer",
+          "default": 1000,
+          "min": 1,
+          "max": 100000000,
+          "label": "One implicit: 1 in",
+          "description": "The chance of one unique implicit, as 1 in this many drops."
+        },
+        "chanceTwo": {
+          "type": "integer",
+          "default": 100000,
+          "min": 1,
+          "max": 100000000,
+          "label": "Two implicits: 1 in"
+        },
+        "chanceThree": {
+          "type": "integer",
+          "default": 1000000,
+          "min": 1,
+          "max": 100000000,
+          "label": "Three implicits: 1 in"
+        },
+        "mode": {
+          "type": "choice",
+          "default": "wild",
+          "options": [
+            {
+              "value": "wild",
+              "label": "Wild: any modifier on any gear"
+            },
+            {
+              "value": "sanity",
+              "label": "Sanity: only modifiers of uniques of the same kind of item"
+            },
+            {
+              "value": "thematic",
+              "label": "Thematic: modifiers that suit the slot"
+            }
+          ],
+          "label": "Which modifiers can come",
+          "description": "Thematic: offence on weapons, quivers and gloves; defence on body armours and shields; speed and ailments on boots; defence and scaling (per charge, per stat, auras) on helmets; utility and odd unique effects on rings, amulets and belts. Jewels get unique jewels' modifiers in every mode, and gear never gets those."
+        },
+        "rarityWeights": {
+          "type": "bool",
+          "default": true,
+          "label": "Rarer uniques, rarer modifiers",
+          "description": "A modifier of a rare unique (a Mageblood) comes up as seldom as that unique drops. Off: every modifier alike."
+        },
+        "rarities": {
+          "type": "choices",
+          "default": [
+            "magic",
+            "rare",
+            "unique"
+          ],
+          "options": [
+            {
+              "value": "magic",
+              "label": "Magic"
+            },
+            {
+              "value": "rare",
+              "label": "Rare"
+            },
+            {
+              "value": "unique",
+              "label": "Unique"
+            }
+          ],
+          "label": "Drops that can get them"
+        }
+      }
+    },
+    "empowered": {
+      "type": "group",
+      "label": "Empowered modifier",
+      "description": "One of the drop's modifiers, implicit or explicit (a unique implicit included), rolls higher than it can: its value times 1.1 to 2.",
+      "settings": {
+        "chance": {
+          "type": "integer",
+          "default": 500,
+          "min": 1,
+          "max": 100000000,
+          "label": "Chance: 1 in"
+        },
+        "percent": {
+          "type": "range",
+          "of": "integer",
+          "default": [
+            10,
+            100
+          ],
+          "min": 1,
+          "max": 1000,
+          "unit": "%",
+          "label": "How much stronger",
+          "description": "Picked at random in this range for each empowered modifier."
+        },
+        "rarities": {
+          "type": "choices",
+          "default": [
+            "magic",
+            "rare",
+            "unique"
+          ],
+          "options": [
+            {
+              "value": "magic",
+              "label": "Magic"
+            },
+            {
+              "value": "rare",
+              "label": "Rare"
+            },
+            {
+              "value": "unique",
+              "label": "Unique"
+            }
+          ],
+          "label": "Drops that can get it"
+        },
+        "otherItems": {
+          "type": "bool",
+          "default": true,
+          "label": "Also flasks, Heist trinkets and Idols"
+        },
+        "otherChance": {
+          "type": "integer",
+          "default": 1000,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Flasks, trinkets and Idols: 1 in"
+        },
+        "gemChance": {
+          "type": "integer",
+          "default": 20000,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Gems: empowered, 1 in",
+          "description": "Of the gems that drop: a level over its cap, or 21% quality or more. 0: never."
+        },
+        "gemLevels": {
+          "type": "integer",
+          "default": 1,
+          "min": 0,
+          "max": 10,
+          "label": "Gems: levels over the cap",
+          "description": "1: a level 20 gem drops at 21. 2 or more needs the private build."
+        },
+        "gemQualityMax": {
+          "type": "integer",
+          "default": 30,
+          "min": 21,
+          "max": 100,
+          "label": "Gems: highest quality (%)"
+        }
+      }
+    },
+    "extraModifier": {
+      "type": "group",
+      "label": "Extra fractured modifier",
+      "description": "The drop gets one modifier more than it could have: a rare 7 (a rare jewel 5), a magic item 3, a unique one rare-style prefix or suffix. Its side (prefixes or suffixes) is fractured.",
+      "settings": {
+        "chance": {
+          "type": "integer",
+          "default": 1000,
+          "min": 1,
+          "max": 100000000,
+          "label": "Chance: 1 in"
+        },
+        "rarities": {
+          "type": "choices",
+          "default": [
+            "magic",
+            "rare",
+            "unique"
+          ],
+          "options": [
+            {
+              "value": "magic",
+              "label": "Magic"
+            },
+            {
+              "value": "rare",
+              "label": "Rare"
+            },
+            {
+              "value": "unique",
+              "label": "Unique"
+            }
+          ],
+          "label": "Drops that can get it"
+        },
+        "influencedMods": {
+          "type": "bool",
+          "default": true,
+          "label": "Influenced modifiers too",
+          "description": "The extra modifier (and the ones that fill the item first) can also be one that only an influenced item rolls: one influence the item does not have is picked, and its modifiers for this base and item level join the pool. The item does not become influenced."
+        }
+      }
+    },
+    "blacklist": {
+      "type": "list",
+      "item": {
+        "type": "text",
+        "minLength": 1
+      },
+      "default": [
+        "LevelRequirementOverride",
+        "RemoveStats",
+        "LocalNoWhiteSockets",
+        "stat:in_radius",
+        "stat:jewel_radius",
+        "stat:radius_jewel",
+        "stat:alternate_tree",
+        "stat:variable_ring",
+        "stat:_index",
+        "stat:unique_jewel",
+        "stat:allocated",
+        "stat:notable",
+        "stat:cluster_jewel",
+        "stat:local_unique_",
+        "class:LifeFlask",
+        "class:ManaFlask",
+        "class:HybridFlask",
+        "class:UtilityFlask",
+        "class:Tincture",
+        "class:MapKey",
+        "class:AtlasRelic",
+        "class:Relic",
+        "class:SanctumRelic"
+      ],
+      "label": "Modifiers never used as implicits",
+      "description": "A Mods id or the start of one (LevelRequirementOverride), stat: and a piece of a stat id (stat:in_radius), or class: and a kind of item whose uniques' modifiers stay with it (class:UtilityFlask). The defaults are modifiers tied to their own item: radius jewels and tree effects, granted supports by index, effects only that unique has, and flasks', tinctures', maps' and idols' modifiers. Every other unique modifier can come on some kind of item in every mode."
+    },
+    "mark": {
+      "type": "bool",
+      "default": true,
+      "label": "Mark exciting items",
+      "description": "An item with any of these effects gets the Exciting marker (an enchantment with no text that loot filters see, from content/marker.json once the content packs are applied), or drops synthesised without it."
+    },
+    "showInFilters": {
+      "type": "bool",
+      "default": true,
+      "label": "Loot filter beam",
+      "description": "Puts a rule at the top of every loot filter in the filter folder that always shows marked items, with a beam and a sound.",
+      "when": {
+        "mark": true
+      }
+    },
+    "announce": {
+      "type": "bool",
+      "default": true,
+      "label": "Tell me in chat",
+      "description": "A chat line when an exciting item drops, naming which effects it got (not what they are)."
+    },
+    "filterFolder": {
+      "type": "text",
+      "default": "",
+      "label": "Loot filter folder",
+      "description": "Empty: Documents\\My Games\\Path of Exile, where the game lists loot filters.",
+      "advanced": true
+    },
+    "radiantOrb": {
+      "type": "group",
+      "label": "Radiant Orb",
+      "description": "A currency of this mod's own (content/radiantorb.json): right-click it, then a magic, rare or unique item, and the item gains one Exciting effect. /exciting orb [n] puts some at your feet.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Radiant Orbs drop and work"
+        },
+        "dropChance": {
+          "type": "integer",
+          "default": 400,
+          "min": 1,
+          "max": 100000000,
+          "label": "Drop chance: 1 in",
+          "description": "Per normal monster killed; magic monsters 3 times as likely, rare 6, unique 10."
+        },
+        "anyItem": {
+          "type": "bool",
+          "default": true,
+          "label": "Works on any item",
+          "description": "Also on corrupted, mirrored, fractured, synthesised and influenced items. An item that is already radiant is always refused."
+        },
+        "oneImplicit": {
+          "type": "integer",
+          "default": 300,
+          "min": 0,
+          "max": 1000000,
+          "label": "Weight: one unique implicit",
+          "description": "How often the orb gives this, against the other results (0: never)."
+        },
+        "twoImplicits": {
+          "type": "integer",
+          "default": 15,
+          "min": 0,
+          "max": 1000000,
+          "label": "Weight: two unique implicits",
+          "description": "How often the orb gives this, against the other results (0: never)."
+        },
+        "threeImplicits": {
+          "type": "integer",
+          "default": 1,
+          "min": 0,
+          "max": 1000000,
+          "label": "Weight: three unique implicits",
+          "description": "How often the orb gives this, against the other results (0: never)."
+        },
+        "empowered": {
+          "type": "integer",
+          "default": 300,
+          "min": 0,
+          "max": 1000000,
+          "label": "Weight: an empowered modifier",
+          "description": "How often the orb gives this, against the other results (0: never)."
+        },
+        "extra": {
+          "type": "integer",
+          "default": 300,
+          "min": 0,
+          "max": 1000000,
+          "label": "Weight: an extra fractured modifier",
+          "description": "How often the orb gives this, against the other results (0: never)."
+        },
+        "custom": {
+          "type": "integer",
+          "default": 200,
+          "min": 0,
+          "max": 100000,
+          "label": "Radiant Orb: a custom implicit (weight)"
+        },
+        "crucible": {
+          "type": "integer",
+          "default": 150,
+          "min": 0,
+          "max": 100000,
+          "label": "Radiant Orb: a Crucible tree (weight)"
+        }
+      }
+    },
+    "legacy": {
+      "type": "group",
+      "label": "Legacy",
+      "description": "What the game removed, back (formerly the Legacy Restored mod): Eternal Orbs and Imprints, Labyrinth enchants, alternate quality gems and Regrading Lenses, unnerfs. /legacy for the commands.",
+      "settings": {
+        "unnerfs": {
+          "type": "group",
+          "label": "Unnerfs",
+          "description": "Skills put back to how they were before a nerf. Turn the whole section off, or one skill.",
+          "settings": {
+            "enabled": {
+              "type": "bool",
+              "default": true,
+              "label": "Unnerfs on",
+              "description": "Off: every skill below plays as the current game has it."
+            },
+            "cyclone": {
+              "type": "bool",
+              "default": true,
+              "label": "Cyclone (Legion, 3.7)",
+              "description": "Cyclone's radius grows with its stages again: up to 3 at gem level 1 and 6 at gem level 20, each one a step wider.",
+              "when": {
+                "enabled": true
+              }
+            },
+            "cycloneStages": {
+              "type": "integer",
+              "default": 6,
+              "min": 1,
+              "max": 12,
+              "label": "Cyclone: most stages",
+              "description": "The stages a level 20 Cyclone reaches (3.7 had 6). A level 1 gem reaches half of them.",
+              "when": {
+                "enabled": true,
+                "cyclone": true
+              },
+              "advanced": true
+            },
+            "cycloneRadiusPerStage": {
+              "type": "integer",
+              "default": 1,
+              "min": 1,
+              "max": 5,
+              "unit": "cells",
+              "label": "Cyclone: radius per stage",
+              "description": "How much wider each stage makes Cyclone (3.7: 1; the skill's own radius is 16).",
+              "when": {
+                "enabled": true,
+                "cyclone": true
+              },
+              "advanced": true
+            }
+          }
+        },
+        "eternalOrbs": {
+          "type": "group",
+          "label": "Eternal Orbs",
+          "settings": {
+            "enabled": {
+              "type": "bool",
+              "default": true,
+              "label": "Eternal Orbs drop",
+              "description": "Monsters of level 40 and up can drop Eternal Orbs. Use one on an item to keep an imprint of it; /legacy imprints lists them and /legacy restore puts one back."
+            },
+            "rarity": {
+              "type": "number",
+              "default": 10,
+              "min": 0.1,
+              "max": 1000,
+              "step": 0.1,
+              "format": "multiplier",
+              "label": "Rarer than a Divine Orb",
+              "description": "How many times rarer than a Divine Orb an Eternal Orb is.",
+              "when": {
+                "enabled": true
+              }
+            }
+          }
+        },
+        "enchants": {
+          "type": "group",
+          "label": "Labyrinth enchantments",
+          "settings": {
+            "enabled": {
+              "type": "bool",
+              "default": true,
+              "label": "Enchant currency drops",
+              "description": "Monsters can drop the Enchant currency. Use it on a helmet, gloves, boots or a belt for a random Labyrinth enchantment, which replaces the one it has."
+            },
+            "weight": {
+              "type": "number",
+              "default": 20,
+              "min": 0,
+              "max": 1000,
+              "step": 0.5,
+              "label": "Drop weight",
+              "description": "How often it drops beside the other currency: a Divine Orb is 1, an Exalted Orb 2, a Regal Orb 20, a Chaos Orb 40.",
+              "when": {
+                "enabled": true
+              }
+            },
+            "tier": {
+              "type": "choice",
+              "default": "eternal",
+              "options": [
+                {
+                  "value": "normal",
+                  "label": "Normal Labyrinth"
+                },
+                {
+                  "value": "cruel",
+                  "label": "Cruel Labyrinth"
+                },
+                {
+                  "value": "merciless",
+                  "label": "Merciless Labyrinth"
+                },
+                {
+                  "value": "eternal",
+                  "label": "Eternal Labyrinth"
+                }
+              ],
+              "label": "Enchantment tier",
+              "description": "Which Labyrinth's enchantments the currency gives. Helmets have only Merciless and Eternal ones.",
+              "when": {
+                "enabled": true
+              }
+            },
+            "skillEffects": {
+              "type": "bool",
+              "default": true,
+              "label": "Helmet enchantments change skills",
+              "description": "An enchantment that names a skill (40% increased Fireball Damage) is applied to that skill through the game's own table of skill-specific stats. Off: such enchantments are shown but do nothing.",
+              "when": {
+                "enabled": true
+              }
+            },
+            "labyrinthOnly": {
+              "type": "bool",
+              "default": false,
+              "label": "Only in the Labyrinth",
+              "description": "Enchants drop only in the Labyrinth: from its monsters, and from its chests (below)."
+            },
+            "labyrinthChest": {
+              "type": "integer",
+              "default": 4,
+              "min": 1,
+              "max": 1000000,
+              "label": "Labyrinth chests: 1 in",
+              "description": "How many of the Labyrinth's chests hold one Enchant, as 1 in this many."
+            }
+          }
+        },
+        "altGems": {
+          "type": "group",
+          "label": "Alternate quality gems",
+          "settings": {
+            "enabled": {
+              "type": "bool",
+              "default": true,
+              "label": "Alternate quality gems",
+              "description": "Anomalous, Divergent and Phantasmal gems as they were in 3.22. The gem's tooltip cannot show the alternate quality line: chat tells you when one drops and /legacy gems lists the ones you have."
+            },
+            "anywhere": {
+              "type": "bool",
+              "default": true,
+              "label": "Drop from any monster",
+              "description": "Off: only unique monsters drop them.",
+              "when": {
+                "enabled": true
+              }
+            },
+            "dropRate": {
+              "type": "number",
+              "default": 0.1,
+              "min": 0,
+              "max": 1,
+              "step": 0.01,
+              "format": "percent",
+              "label": "Share of gem drops",
+              "description": "For every gem a monster would drop, the chance of an alternate quality gem as well.",
+              "when": {
+                "enabled": true,
+                "anywhere": true
+              }
+            },
+            "uniqueChance": {
+              "type": "number",
+              "default": 0.1,
+              "min": 0,
+              "max": 1,
+              "step": 0.01,
+              "format": "percent",
+              "label": "Unique monsters: extra chance",
+              "description": "The chance a unique monster drops one, on top of the share above.",
+              "when": {
+                "enabled": true
+              }
+            },
+            "quality": {
+              "type": "range",
+              "of": "integer",
+              "default": [
+                8,
+                20
+              ],
+              "min": 1,
+              "max": 20,
+              "unit": "%",
+              "label": "Quality of a dropped gem",
+              "when": {
+                "enabled": true
+              }
+            },
+            "lensWeight": {
+              "type": "number",
+              "default": 3,
+              "min": 0,
+              "max": 1000,
+              "step": 0.5,
+              "label": "Regrading Lens drop weight",
+              "description": "Prime (skill gems) and Secondary (support gems) Regrading Lenses change a gem's quality type to another one. Each drops with this weight: a Divine Orb is 1. 0: they do not drop.",
+              "when": {
+                "enabled": true
+              }
+            },
+            "influenceLook": {
+              "type": "bool",
+              "default": true,
+              "label": "Show the quality type as an influence",
+              "description": "The gem's tooltip cannot show its alternate quality, so the gem carries an influence to tell it apart: Anomalous is Shaper, Divergent is Elder, Phantasmal is Crusader. Type /legacy gems to update gems you already have in your backpack.",
+              "when": {
+                "enabled": true
+              }
+            }
+          }
+        },
+        "announce": {
+          "type": "bool",
+          "default": true,
+          "label": "Tell me in chat",
+          "description": "A chat line when one of this mod's items drops or is used."
+        },
+        "testCommands": {
+          "type": "bool",
+          "default": true,
+          "label": "Test commands",
+          "description": "/legacy give ... puts this mod's items on the ground for testing.",
+          "advanced": true
+        }
+      }
+    },
+    "limitBreakOrb": {
+      "type": "group",
+      "label": "Limit Break Orb",
+      "description": "A currency of this mod's own (content/limitbreakorb.json): one more socket than the item could have, up to the most below. The game's own socket limits stay as they are, so this orb is the only way past them.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Limit Break Orbs drop and work"
+        },
+        "dropChance": {
+          "type": "integer",
+          "default": 3000,
+          "min": 1,
+          "max": 100000000,
+          "label": "Drop chance: 1 in",
+          "description": "Per normal monster killed; magic monsters 3 times as likely, rare 6, unique 10."
+        },
+        "max": {
+          "type": "integer",
+          "default": 6,
+          "min": 1,
+          "max": 6,
+          "label": "Most sockets it gives"
+        },
+        "anyItem": {
+          "type": "bool",
+          "default": false,
+          "label": "Also corrupted and mirrored items"
+        },
+        "linkNew": {
+          "type": "bool",
+          "default": false,
+          "label": "The new socket is linked",
+          "description": "On: it joins the item's last link group. Off: it comes unlinked, for a Fusing to link."
+        }
+      }
+    },
+    "krangleOrb": {
+      "type": "group",
+      "label": "Krangle Orb",
+      "description": "A currency of this mod's own (content/krangleorb.json): the Blood Crucible's and Dream Furnace's transform. The item or map becomes corrupted and gets one Scourge upside and one downside, replacing a pair it had.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Krangle Orbs drop and work"
+        },
+        "dropChance": {
+          "type": "integer",
+          "default": 2500,
+          "min": 1,
+          "max": 100000000,
+          "label": "Drop chance: 1 in",
+          "description": "Per normal monster killed; magic monsters 3 times as likely, rare 6, unique 10."
+        },
+        "tier4": {
+          "type": "integer",
+          "default": 8,
+          "min": 1,
+          "max": 100000,
+          "label": "Tier 4: 1 in",
+          "description": "Of the transforms at item level 68 or more, how many are tier 4 (the strongest upsides)."
+        },
+        "rarities": {
+          "type": "choices",
+          "options": [
+            {
+              "value": "normal",
+              "label": "Normal"
+            },
+            {
+              "value": "magic",
+              "label": "Magic"
+            },
+            {
+              "value": "rare",
+              "label": "Rare"
+            },
+            {
+              "value": "unique",
+              "label": "Unique"
+            }
+          ],
+          "default": [
+            "rare",
+            "unique"
+          ],
+          "label": "Items it works on",
+          "description": "The Blood Crucible took rares (uniques with a skill of its tree)."
+        },
+        "maps": {
+          "type": "bool",
+          "default": true,
+          "label": "Works on maps"
+        }
+      }
+    },
+    "legacyMods": {
+      "type": "group",
+      "label": "Legacy affixes",
+      "description": "Modifiers that could roll in an older patch (3.9 to 3.19 data, and ones that no longer roll at all) and no longer do, such as item quantity on amulets and rings. The list is legacymods.json in this mod's folder: remove a line to stop one. They do not make an item exciting.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Legacy affixes drop"
+        },
+        "chance": {
+          "type": "integer",
+          "default": 150,
+          "min": 1,
+          "max": 100000000,
+          "label": "Chance per item: 1 in",
+          "description": "Of the magic and rare drops that can take one."
+        },
+        "rarities": {
+          "type": "choices",
+          "options": [
+            {
+              "value": "magic",
+              "label": "Magic"
+            },
+            {
+              "value": "rare",
+              "label": "Rare"
+            }
+          ],
+          "default": [
+            "magic",
+            "rare"
+          ],
+          "label": "Items that can get one"
+        },
+        "most": {
+          "type": "integer",
+          "default": 1,
+          "min": 1,
+          "max": 6,
+          "label": "Legacy affixes per item"
+        },
+        "replace": {
+          "type": "bool",
+          "default": true,
+          "label": "Replace an affix when the item is full",
+          "description": "Off: a full item only gets one on its free side."
+        },
+        "mark": {
+          "type": "bool",
+          "default": true,
+          "label": "Legacy mark",
+          "description": "The item gets the Legacy mark, and the loot filters show it with an orange border and an orange beam (needs content/legacymarker.json applied)."
+        }
+      }
+    },
+    "recombinators": {
+      "type": "group",
+      "label": "Recombinators",
+      "description": "The Sentinel league's Armour, Weapon and Jewellery Recombinators, as strong as in 3.18. Use one on an item, then on a second item of the same class: both are destroyed and one is made from their properties. Each later change (nerf) is a switch below, off by default.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Recombinators drop and work"
+        },
+        "armourDrop": {
+          "type": "integer",
+          "default": 4000,
+          "min": 0,
+          "max": 100000000,
+          "label": "Armour Recombinator drop chance: 1 in",
+          "description": "Per normal monster killed; magic 3 times as likely, rare 6, unique 10. 0: never."
+        },
+        "weaponDrop": {
+          "type": "integer",
+          "default": 4000,
+          "min": 0,
+          "max": 100000000,
+          "label": "Weapon Recombinator drop chance: 1 in"
+        },
+        "jewelleryDrop": {
+          "type": "integer",
+          "default": 6000,
+          "min": 0,
+          "max": 100000000,
+          "label": "Jewellery Recombinator drop chance: 1 in"
+        },
+        "rarities": {
+          "type": "choices",
+          "options": [
+            {
+              "value": "normal",
+              "label": "Normal"
+            },
+            {
+              "value": "magic",
+              "label": "Magic"
+            },
+            {
+              "value": "rare",
+              "label": "Rare"
+            }
+          ],
+          "default": [
+            "normal",
+            "magic",
+            "rare"
+          ],
+          "label": "Items they combine"
+        },
+        "corrupted": {
+          "type": "bool",
+          "default": true,
+          "label": "Combine corrupted items",
+          "description": "3.18: yes. 3.26 stopped it."
+        },
+        "mirrored": {
+          "type": "bool",
+          "default": true,
+          "label": "Combine mirrored items",
+          "description": "3.18: yes (the result is not mirrored). 3.19 stopped it."
+        },
+        "averageItemLevel": {
+          "type": "bool",
+          "default": true,
+          "label": "Item level is the two items' average",
+          "description": "3.18: the average. 3.30: the chosen base's own."
+        },
+        "selection": {
+          "type": "choice",
+          "options": [
+            {
+              "value": "equal",
+              "label": "Every modifier as likely (3.18)"
+            },
+            {
+              "value": "common",
+              "label": "Common modifiers more likely"
+            },
+            {
+              "value": "rare",
+              "label": "Rarer modifiers more likely (3.25.1)"
+            }
+          ],
+          "default": "equal",
+          "label": "Which modifiers are kept"
+        },
+        "sentinelChance": {
+          "type": "integer",
+          "default": 50,
+          "min": 0,
+          "max": 100000,
+          "label": "Sentinel modifier: 1 in",
+          "description": "3.18: about 1 in 50 results got one of the 52 Sentinel-only modifiers (keystones on body armours, +1 maximum charges on rings ...). 0: never (3.25)."
+        },
+        "tierUp": {
+          "type": "integer",
+          "default": 5,
+          "min": 0,
+          "max": 100,
+          "label": "Chance a modifier goes up a tier (%)",
+          "description": "3.18 moved tiers up or down at random; 3.25 stopped it."
+        },
+        "tierDown": {
+          "type": "integer",
+          "default": 5,
+          "min": 0,
+          "max": 100,
+          "label": "Chance a modifier goes down a tier (%)"
+        },
+        "keepFractured": {
+          "type": "bool",
+          "default": true,
+          "label": "Fractured modifiers stay fractured",
+          "description": "3.18: up to 6 fractured modifiers on one item."
+        },
+        "modGroups": {
+          "type": "bool",
+          "default": true,
+          "label": "Two modifiers of one group cannot both be kept",
+          "description": "Off: as 3.18's bug, which 3.19 fixed, sometimes allowed."
+        },
+        "nativeOnly": {
+          "type": "bool",
+          "default": false,
+          "label": "Nerf: only modifiers the base can roll",
+          "description": "3.25: a modifier the chosen base could not roll is dropped (spell suppression on a strength base ...)."
+        },
+        "nonNativeCount": {
+          "type": "bool",
+          "default": true,
+          "label": "Nerf off: dropped modifiers still count",
+          "description": "With the nerf above: on, they still raise the number of modifiers (3.25); off, they do not (3.30)."
+        },
+        "oneExclusive": {
+          "type": "bool",
+          "default": false,
+          "label": "Nerf: only one exclusive modifier",
+          "description": "3.25: one crafted, essence, veiled, delve, incursion or breach modifier at most."
+        },
+        "fracturedNeedsFracturedBase": {
+          "type": "bool",
+          "default": false,
+          "label": "Nerf: fractured modifiers need a fractured base",
+          "description": "3.25."
+        }
+      }
+    },
+    "defiledOrb": {
+      "type": "group",
+      "label": "Defiled Vaal Orb",
+      "description": "A currency of this mod's own (content/defiledorb.json): corrupts a corrupted item a second time. Gems can reach two levels over their cap (22) or have their quality moved again; gear can get a second corrupted implicit or another Vaal Orb outcome; a map, jewel or flask that dropped corrupted gets a Vaal Orb's outcome.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Defiled Vaal Orbs drop and work"
+        },
+        "sideAreaMonsters": {
+          "type": "integer",
+          "default": 400,
+          "min": 0,
+          "max": 100000000,
+          "label": "Vaal side area monsters: 1 in",
+          "description": "Magic 3 times as likely, rare 6, unique 10. 0: never."
+        },
+        "vessel": {
+          "type": "integer",
+          "default": 4,
+          "min": 0,
+          "max": 100000,
+          "label": "Vaal side area chests (the vessel at the end): 1 in"
+        },
+        "corruptedMapMonsters": {
+          "type": "integer",
+          "default": 2000,
+          "min": 0,
+          "max": 100000000,
+          "label": "Monsters in corrupted maps: 1 in",
+          "description": "While Vaal side areas do not work."
+        },
+        "corruptedStrongbox": {
+          "type": "integer",
+          "default": 10,
+          "min": 0,
+          "max": 100000,
+          "label": "Corrupted strongboxes: 1 in"
+        },
+        "anyItem": {
+          "type": "bool",
+          "default": false,
+          "label": "Also mirrored items"
+        },
+        "levelsOver": {
+          "type": "integer",
+          "default": 2,
+          "min": 0,
+          "max": 10,
+          "label": "Gem levels over the cap it can reach",
+          "description": "2: a level 20 gem can reach 22."
+        },
+        "qualityCap": {
+          "type": "integer",
+          "default": 23,
+          "min": 0,
+          "max": 100,
+          "label": "Gem quality cap (%)"
+        },
+        "nothing": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 10000,
+          "label": "Gem: no change (weight)"
+        },
+        "level": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 10000,
+          "label": "Gem: level up or down (weight)"
+        },
+        "quality": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 10000,
+          "label": "Gem: quality up or down by 1 to 10 (weight)"
+        },
+        "vaalGem": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 10000,
+          "label": "Gem: its Vaal gem (weight)"
+        },
+        "secondImplicit": {
+          "type": "integer",
+          "default": 34,
+          "min": 0,
+          "max": 10000,
+          "label": "Gear: a second corrupted implicit (weight)"
+        },
+        "vaalOutcome": {
+          "type": "integer",
+          "default": 33,
+          "min": 0,
+          "max": 10000,
+          "label": "Gear: a Vaal Orb outcome (weight)"
+        },
+        "gearNothing": {
+          "type": "integer",
+          "default": 33,
+          "min": 0,
+          "max": 10000,
+          "label": "Gear: no change (weight)"
+        },
+        "mostCorruptedImplicits": {
+          "type": "integer",
+          "default": 2,
+          "min": 1,
+          "max": 10,
+          "label": "Most corrupted implicits on one item"
+        }
+      }
+    },
+    "reflectingMist": {
+      "type": "group",
+      "label": "Reflecting Mist",
+      "description": "The server has no use of its own for Reflecting Mist: this mod gives it one. The item becomes two mirrored halves; each explicit modifier's values are multiplied by one roll, positive on one half and reflected (negative) on the other. content/reflectingmist.json lets the client offer it on any magic, rare or unique item.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Reflecting Mist drops and works"
+        },
+        "dropChance": {
+          "type": "integer",
+          "default": 3000,
+          "min": 0,
+          "max": 100000000,
+          "label": "Drop chance: 1 in",
+          "description": "Per monster killed of the kind below; magic 3 times as likely, rare 6, unique 10. 0: never."
+        },
+        "dropsFrom": {
+          "type": "choice",
+          "options": [
+            {
+              "value": "delirium",
+              "label": "Delirium monsters"
+            },
+            {
+              "value": "any",
+              "label": "Any monster"
+            },
+            {
+              "value": "bosses",
+              "label": "Bosses (unique monsters) only"
+            }
+          ],
+          "default": "delirium",
+          "label": "It drops from"
+        },
+        "items": {
+          "type": "choice",
+          "options": [
+            {
+              "value": "jewellery",
+              "label": "Rare rings and amulets (the game's)"
+            },
+            {
+              "value": "nonunique",
+              "label": "Any non-unique item with modifiers"
+            },
+            {
+              "value": "any",
+              "label": "Any item, uniques too"
+            }
+          ],
+          "default": "jewellery",
+          "label": "Items it reflects"
+        },
+        "minPercent": {
+          "type": "integer",
+          "default": 130,
+          "min": 1,
+          "max": 10000,
+          "label": "Smallest modifier effect (%)",
+          "description": "3.29: 130 to 160 in steps of 1. Before 3.29: 150 to 210 in steps of 2.5."
+        },
+        "maxPercent": {
+          "type": "integer",
+          "default": 160,
+          "min": 1,
+          "max": 10000,
+          "label": "Largest modifier effect (%)",
+          "description": "250 for more variance, and so on."
+        },
+        "stepPercent": {
+          "type": "integer",
+          "default": 1,
+          "min": 1,
+          "max": 1000,
+          "label": "Step (%)"
+        },
+        "balanced": {
+          "type": "integer",
+          "default": 90,
+          "min": 0,
+          "max": 100,
+          "label": "Chance the halves split evenly (%)",
+          "description": "The game's: about 92% of 6-modifier items split 3 and 3."
+        },
+        "corrupted": {
+          "type": "bool",
+          "default": false,
+          "label": "Also corrupted items (twice corrupted too)"
+        },
+        "mirrored": {
+          "type": "bool",
+          "default": false,
+          "label": "Also mirrored items"
+        },
+        "influenced": {
+          "type": "bool",
+          "default": false,
+          "label": "Also influenced items"
+        },
+        "veiled": {
+          "type": "bool",
+          "default": false,
+          "label": "Also veiled items"
+        },
+        "synthesised": {
+          "type": "bool",
+          "default": false,
+          "label": "Also synthesised items"
+        }
+      }
+    },
+    "jackpot": {
+      "type": "group",
+      "label": "Jackpots",
+      "description": "Now and then a drop gets several exciting effects at once: a unique implicit, an empowered modifier, an extra fractured modifier and a legacy affix (magic and rare items) and a custom implicit, drawn from those the item can take. On top of the ordinary rolls, which can already land together by chance.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Jackpots"
+        },
+        "two": {
+          "type": "integer",
+          "default": 20000,
+          "min": 0,
+          "max": 1000000000,
+          "label": "2 effects at once: 1 in",
+          "description": "Per magic, rare or unique drop. 0: never."
+        },
+        "three": {
+          "type": "integer",
+          "default": 200000,
+          "min": 0,
+          "max": 1000000000,
+          "label": "3 effects at once: 1 in",
+          "description": "0: never."
+        },
+        "four": {
+          "type": "integer",
+          "default": 2000000,
+          "min": 0,
+          "max": 1000000000,
+          "label": "4 effects at once: 1 in",
+          "description": "0: never."
+        }
+      }
+    },
+    "customImplicits": {
+      "type": "group",
+      "label": "Custom implicits",
+      "description": "New implicits built from effect rules (a trigger and an effect, such as \"8% chance to gain Onslaught for 4 seconds on Critical Strike\"), about 100 per gear slot, each slot with its own kind of effects: damage on weapons and gloves, movement and cleansing on boots, buffs and curses on helmets and shields, defences on body armours, flasks on belts. A roll of their own, apart from the unique implicits. Needs the private build and content/customimplicits.json applied.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Custom implicits"
+        },
+        "chance": {
+          "type": "integer",
+          "default": 1500,
+          "min": 1,
+          "max": 1000000000,
+          "label": "Chance per drop: 1 in",
+          "description": "Of the magic, rare and unique drops of the rarities below."
+        },
+        "rarities": {
+          "type": "choices",
+          "options": [
+            {
+              "value": "magic",
+              "label": "Magic"
+            },
+            {
+              "value": "rare",
+              "label": "Rare"
+            },
+            {
+              "value": "unique",
+              "label": "Unique"
+            }
+          ],
+          "default": [
+            "magic",
+            "rare",
+            "unique"
+          ],
+          "label": "Items that can get one"
+        },
+        "most": {
+          "type": "integer",
+          "default": 1,
+          "min": 1,
+          "max": 1,
+          "label": "Custom implicits per roll",
+          "description": "One for now: every custom implicit uses the same pair of item stats (the game cannot take new ones)."
+        },
+        "slots": {
+          "type": "choices",
+          "options": [
+            {
+              "value": "weapon_1h",
+              "label": "One-handed weapons"
+            },
+            {
+              "value": "weapon_2h",
+              "label": "Two-handed weapons"
+            },
+            {
+              "value": "gloves",
+              "label": "Gloves"
+            },
+            {
+              "value": "boots",
+              "label": "Boots"
+            },
+            {
+              "value": "helmet",
+              "label": "Helmets"
+            },
+            {
+              "value": "body",
+              "label": "Body armours"
+            },
+            {
+              "value": "shield",
+              "label": "Shields"
+            },
+            {
+              "value": "quiver",
+              "label": "Quivers"
+            },
+            {
+              "value": "amulet",
+              "label": "Amulets"
+            },
+            {
+              "value": "ring",
+              "label": "Rings"
+            },
+            {
+              "value": "belt",
+              "label": "Belts"
+            },
+            {
+              "value": "flask",
+              "label": "Flasks"
+            }
+          ],
+          "default": [
+            "weapon_1h",
+            "weapon_2h",
+            "gloves",
+            "boots",
+            "helmet",
+            "body",
+            "shield",
+            "quiver",
+            "amulet",
+            "ring",
+            "belt",
+            "flask"
+          ],
+          "label": "Gear slots"
+        },
+        "anySlot": {
+          "type": "bool",
+          "default": false,
+          "label": "Any implicit on any slot",
+          "description": "Off: each slot rolls its own list. On: every slot rolls from all of them."
+        },
+        "categories": {
+          "type": "choices",
+          "options": [
+            {
+              "value": "offence",
+              "label": "Offensive boosts (damage, speed, crit ...)"
+            },
+            {
+              "value": "defence",
+              "label": "Defensive boosts (armour, resistances, block ...)"
+            },
+            {
+              "value": "utility",
+              "label": "Utility boosts (cooldowns, flasks, mana ...)"
+            },
+            {
+              "value": "mobility",
+              "label": "Movement speed"
+            },
+            {
+              "value": "buffs",
+              "label": "Onslaught, Arcane Surge, Phasing, Unholy Might"
+            },
+            {
+              "value": "charges",
+              "label": "Endurance, Frenzy and Power Charges"
+            },
+            {
+              "value": "debuffs",
+              "label": "Debuffs and exposures on enemies"
+            },
+            {
+              "value": "ailments",
+              "label": "Ailments on enemies"
+            },
+            {
+              "value": "curses",
+              "label": "Curses"
+            },
+            {
+              "value": "recovery",
+              "label": "Life, Mana and Energy Shield recovery"
+            },
+            {
+              "value": "reflect",
+              "label": "Damage reflected to attackers"
+            },
+            {
+              "value": "cleanse",
+              "label": "Removing ailments from yourself"
+            },
+            {
+              "value": "unique_effects",
+              "label": "Unique effects (flasks, during their effect)"
+            }
+          ],
+          "default": [
+            "offence",
+            "defence",
+            "utility",
+            "mobility",
+            "buffs",
+            "charges",
+            "debuffs",
+            "ailments",
+            "curses",
+            "recovery",
+            "reflect",
+            "cleanse",
+            "unique_effects"
+          ],
+          "label": "Kinds of effect"
+        },
+        "triggers": {
+          "type": "choices",
+          "options": [
+            {
+              "value": "hit",
+              "label": "On Hit"
+            },
+            {
+              "value": "crit",
+              "label": "On Critical Strike"
+            },
+            {
+              "value": "kill",
+              "label": "On Kill"
+            },
+            {
+              "value": "hit_rare",
+              "label": "On Hitting a Rare or Unique"
+            },
+            {
+              "value": "kill_rare",
+              "label": "On Killing a Rare or Unique"
+            },
+            {
+              "value": "when_hit",
+              "label": "When Hit"
+            },
+            {
+              "value": "when_crit",
+              "label": "When Hit by a Critical Strike"
+            },
+            {
+              "value": "block",
+              "label": "When you Block"
+            },
+            {
+              "value": "stun",
+              "label": "When you Stun"
+            },
+            {
+              "value": "flask",
+              "label": "When you use a Flask"
+            },
+            {
+              "value": "life_flask",
+              "label": "When you use a Life Flask"
+            },
+            {
+              "value": "mana_flask",
+              "label": "When you use a Mana Flask"
+            },
+            {
+              "value": "utility_flask",
+              "label": "When you use a Utility Flask"
+            },
+            {
+              "value": "skill",
+              "label": "When you use a Skill"
+            },
+            {
+              "value": "warcry",
+              "label": "When you use a Warcry"
+            },
+            {
+              "value": "movement_skill",
+              "label": "When you use a Movement Skill"
+            },
+            {
+              "value": "spell_cast",
+              "label": "When you Cast a Spell"
+            },
+            {
+              "value": "attack_use",
+              "label": "When you Attack"
+            },
+            {
+              "value": "spell_hit",
+              "label": "On Spell Hit"
+            },
+            {
+              "value": "melee_hit",
+              "label": "On Melee Hit"
+            },
+            {
+              "value": "during",
+              "label": "During a flask's effect"
+            },
+            {
+              "value": "flask_use",
+              "label": "When the flask is used"
+            }
+          ],
+          "default": [
+            "hit",
+            "crit",
+            "kill",
+            "hit_rare",
+            "kill_rare",
+            "when_hit",
+            "when_crit",
+            "block",
+            "stun",
+            "flask",
+            "life_flask",
+            "mana_flask",
+            "utility_flask",
+            "skill",
+            "warcry",
+            "movement_skill",
+            "spell_cast",
+            "attack_use",
+            "spell_hit",
+            "melee_hit",
+            "during",
+            "flask_use"
+          ],
+          "label": "Triggers"
+        },
+        "tier1": {
+          "type": "integer",
+          "default": 100,
+          "min": 0,
+          "max": 100000,
+          "label": "Tier 1 weight (item level 1+)"
+        },
+        "tier2": {
+          "type": "integer",
+          "default": 40,
+          "min": 0,
+          "max": 100000,
+          "label": "Tier 2 weight (item level 45+)"
+        },
+        "tier3": {
+          "type": "integer",
+          "default": 10,
+          "min": 0,
+          "max": 100000,
+          "label": "Tier 3 weight (item level 75+)"
+        },
+        "ignoreItemLevel": {
+          "type": "bool",
+          "default": false,
+          "label": "Any tier at any item level"
+        },
+        "valueScale": {
+          "type": "integer",
+          "default": 100,
+          "min": 1,
+          "max": 10000,
+          "label": "Values (% of the rolled numbers)",
+          "description": "200 doubles every custom implicit's number. The text shows the scaled number."
+        },
+        "inJackpots": {
+          "type": "bool",
+          "default": true,
+          "label": "Can be one of a jackpot's effects"
+        },
+        "blacklist": {
+          "type": "list",
+          "default": [],
+          "label": "Never roll (words)",
+          "description": "Lines whose id or text has one of these words, such as \"Freeze\" or \"curse_\".",
+          "item": {
+            "type": "text",
+            "minLength": 1
+          }
+        },
+        "flaskChance": {
+          "type": "integer",
+          "default": 300,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Flasks: a custom implicit, 1 in",
+          "description": "Of the flasks that drop (any rarity): one of 214 flask implicits that act when the flask is used, during its effect (\"During Effect, ...\"), or give a unique's effect during it (Headhunter's and 69 more). Marked, so loot filters show them. 0: never."
+        },
+        "rarityWeights": {
+          "type": "bool",
+          "default": true,
+          "label": "Better effects are rarer",
+          "description": "A unique's effect is as likely as that unique is to drop, as the unique implicits on gear are. Off: every effect as likely."
+        }
+      }
+    },
+    "legacyUniques": {
+      "type": "group",
+      "label": "Legacy uniques",
+      "description": "Old versions of uniques (Kaom's Heart before 1.0.0, Bramblejack before 3.19.0 ...) and uniques the game removed, from Path of Building's records (legacyuniques.json: 819 uniques, 692 with old versions, 163 removed). They drop from bosses.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Legacy uniques drop"
+        },
+        "bossChance": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 100000000,
+          "label": "Bosses (unique monsters): 1 in",
+          "description": "0: never."
+        },
+        "rareChance": {
+          "type": "integer",
+          "default": 0,
+          "min": 0,
+          "max": 100000000,
+          "label": "Rare monsters: 1 in",
+          "description": "0: never (the default)."
+        },
+        "version": {
+          "type": "choice",
+          "options": [
+            {
+              "value": "oldest",
+              "label": "The oldest version"
+            },
+            {
+              "value": "newest",
+              "label": "The newest old version"
+            },
+            {
+              "value": "random",
+              "label": "A random old version"
+            }
+          ],
+          "default": "oldest",
+          "label": "Which version drops"
+        },
+        "overrides": {
+          "type": "map",
+          "value": {
+            "type": "text"
+          },
+          "default": {},
+          "label": "Versions per unique",
+          "description": "A unique's name to the version it drops as (as /exciting legacyuniques lists them: \"Pre 3.25.0\"), or random or newest. The others follow the setting above."
+        },
+        "oldVersions": {
+          "type": "bool",
+          "default": true,
+          "label": "Old versions of uniques still in the game"
+        },
+        "removed": {
+          "type": "bool",
+          "default": true,
+          "label": "Uniques the game removed"
+        },
+        "kinds": {
+          "type": "choices",
+          "options": [
+            {
+              "value": "amulet",
+              "label": "Amulet"
+            },
+            {
+              "value": "axe",
+              "label": "Axe"
+            },
+            {
+              "value": "belt",
+              "label": "Belt"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "boots",
+              "label": "Boots"
+            },
+            {
+              "value": "bow",
+              "label": "Bow"
+            },
+            {
+              "value": "claw",
+              "label": "Claw"
+            },
+            {
+              "value": "dagger",
+              "label": "Dagger"
+            },
+            {
+              "value": "fishing",
+              "label": "Fishing"
+            },
+            {
+              "value": "flask",
+              "label": "Flask"
+            },
+            {
+              "value": "gloves",
+              "label": "Gloves"
+            },
+            {
+              "value": "helmet",
+              "label": "Helmet"
+            },
+            {
+              "value": "jewel",
+              "label": "Jewel"
+            },
+            {
+              "value": "mace",
+              "label": "Mace"
+            },
+            {
+              "value": "quiver",
+              "label": "Quiver"
+            },
+            {
+              "value": "ring",
+              "label": "Ring"
+            },
+            {
+              "value": "shield",
+              "label": "Shield"
+            },
+            {
+              "value": "staff",
+              "label": "Staff"
+            },
+            {
+              "value": "sword",
+              "label": "Sword"
+            },
+            {
+              "value": "wand",
+              "label": "Wand"
+            }
+          ],
+          "default": [
+            "amulet",
+            "axe",
+            "belt",
+            "body",
+            "boots",
+            "bow",
+            "claw",
+            "dagger",
+            "fishing",
+            "flask",
+            "gloves",
+            "helmet",
+            "jewel",
+            "mace",
+            "quiver",
+            "ring",
+            "shield",
+            "staff",
+            "sword",
+            "wand"
+          ],
+          "label": "Kinds of item"
+        },
+        "mark": {
+          "type": "bool",
+          "default": true,
+          "label": "Legacy mark",
+          "description": "The item gets the Legacy mark: the loot filters show it with an orange border and beam."
+        },
+        "announce": {
+          "type": "bool",
+          "default": true,
+          "label": "Say in chat when one drops"
+        },
+        "blacklist": {
+          "type": "list",
+          "item": {
+            "type": "text",
+            "minLength": 1
+          },
+          "default": [],
+          "label": "Never drop (names or parts of names)"
+        }
+      }
+    },
+    "legacyCurrencies": {
+      "type": "group",
+      "label": "Legacy currencies",
+      "description": "Currencies the game no longer drops: Harbinger's (Orb of Binding, Ancient Orb, Orb of Horizons, Harbinger's Orb, shards), Scourge's Tainted ones and the Orb of Dominance. The server already uses most of them; this mod gives Orb of Horizons, Harbinger's Orb, Tainted Mythic Orb, Tainted Divine Teardrop and Orb of Dominance their use (private build). Eternal Orbs and Enchants are in the legacy group.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Legacy currencies drop"
+        },
+        "monsters": {
+          "type": "map",
+          "value": {
+            "type": "integer",
+            "min": 0,
+            "max": 1000000000
+          },
+          "default": {
+            "Orb of Binding": 4000,
+            "Ancient Orb": 15000,
+            "Orb of Horizons": 4000,
+            "Harbinger's Orb": 8000,
+            "Exalted Shard": 8000,
+            "Annulment Shard": 8000,
+            "Mirror Shard": 400000,
+            "Tainted Chaos Orb": 3000,
+            "Tainted Exalted Orb": 20000,
+            "Tainted Mythic Orb": 50000,
+            "Tainted Divine Teardrop": 20000,
+            "Tainted Jeweller's Orb": 3000,
+            "Tainted Orb of Fusing": 4000,
+            "Tainted Chromatic Orb": 3000,
+            "Tainted Armourer's Scrap": 3000,
+            "Tainted Blacksmith's Whetstone": 3000,
+            "Orb of Dominance": 60000
+          },
+          "label": "Monster drop chances: 1 in",
+          "description": "A currency's name to 1 in this many normal monsters (magic 3 times as likely, rare 6, unique 10). 0 or removing a line: never. Any stackable currency the client has can be added."
+        },
+        "strongboxes": {
+          "type": "map",
+          "value": {
+            "type": "integer",
+            "min": 0,
+            "max": 1000000000
+          },
+          "default": {
+            "Orb of Binding": 12,
+            "Ancient Orb": 60,
+            "Orb of Horizons": 12,
+            "Harbinger's Orb": 30,
+            "Exalted Shard": 25,
+            "Annulment Shard": 25,
+            "Mirror Shard": 2000,
+            "Tainted Chaos Orb": 10,
+            "Tainted Exalted Orb": 60,
+            "Tainted Mythic Orb": 200,
+            "Tainted Divine Teardrop": 60,
+            "Tainted Jeweller's Orb": 10,
+            "Tainted Orb of Fusing": 12,
+            "Tainted Chromatic Orb": 10,
+            "Tainted Armourer's Scrap": 10,
+            "Tainted Blacksmith's Whetstone": 10,
+            "Orb of Dominance": 250
+          },
+          "label": "Strongbox drop chances: 1 in",
+          "description": "A currency's name to 1 in this many strongboxes opened (private build)."
+        },
+        "uses": {
+          "type": "bool",
+          "default": true,
+          "label": "Uses for the five without one",
+          "description": "Orb of Horizons (another map of its tier), Harbinger's Orb (a map of the next tier), Tainted Mythic Orb (a corrupted rare becomes a corrupted unique), Tainted Divine Teardrop (a modifier of a corrupted item moves a tier), Orb of Dominance (elevates an influenced modifier)."
+        },
+        "harbingerMaxTier": {
+          "type": "integer",
+          "default": 16,
+          "min": 1,
+          "max": 17,
+          "label": "Harbinger's Orb: highest map tier"
+        },
+        "horizonsKeepsMods": {
+          "type": "bool",
+          "default": true,
+          "label": "Orb of Horizons keeps the map's modifiers"
+        },
+        "teardropDowngrade": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 100,
+          "label": "Tainted Divine Teardrop: chance to go down a tier instead (%)"
+        },
+        "mythicSameClass": {
+          "type": "bool",
+          "default": true,
+          "label": "Tainted Mythic Orb: any unique of the item's class",
+          "description": "Off: only uniques of the same base type."
+        },
+        "dominanceRemoves": {
+          "type": "bool",
+          "default": true,
+          "label": "Orb of Dominance removes another influenced modifier",
+          "description": "As the game did. Off: it only elevates."
+        },
+        "announce": {
+          "type": "bool",
+          "default": false,
+          "label": "Say in chat when one drops"
+        }
+      }
+    },
+    "crucible": {
+      "type": "group",
+      "label": "Crucible trees (pre-rolled)",
+      "description": "Crucible's weapon tree nodes, from the client's own data (2,632 nodes in five columns). The server cannot send a tree to choose from, so an item gets a path of nodes already allocated, one per column, for its kind of item and item level. Their lines show as enchantments by default.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Crucible trees"
+        },
+        "chance": {
+          "type": "integer",
+          "default": 300,
+          "min": 1,
+          "max": 1000000000,
+          "label": "Chance per weapon or shield drop: 1 in"
+        },
+        "rarities": {
+          "type": "choices",
+          "options": [
+            {
+              "value": "magic",
+              "label": "Magic"
+            },
+            {
+              "value": "rare",
+              "label": "Rare"
+            },
+            {
+              "value": "unique",
+              "label": "Unique"
+            }
+          ],
+          "default": [
+            "magic",
+            "rare",
+            "unique"
+          ],
+          "label": "Items that can get one"
+        },
+        "uniques": {
+          "type": "bool",
+          "default": true,
+          "label": "Uniques too",
+          "description": "Crucible's forge put trees on uniques."
+        },
+        "minNodes": {
+          "type": "integer",
+          "default": 2,
+          "min": 1,
+          "max": 5,
+          "label": "Fewest nodes"
+        },
+        "maxNodes": {
+          "type": "integer",
+          "default": 4,
+          "min": 1,
+          "max": 5,
+          "label": "Most nodes"
+        },
+        "notableChance": {
+          "type": "integer",
+          "default": 15,
+          "min": 0,
+          "max": 100,
+          "label": "Chance a node is a notable (%)"
+        },
+        "classes": {
+          "type": "choices",
+          "options": [
+            {
+              "value": "Claw",
+              "label": "Claw"
+            },
+            {
+              "value": "Dagger",
+              "label": "Dagger"
+            },
+            {
+              "value": "Rune Dagger",
+              "label": "Rune Dagger"
+            },
+            {
+              "value": "Wand",
+              "label": "Wand"
+            },
+            {
+              "value": "One Hand Sword",
+              "label": "One Hand Sword"
+            },
+            {
+              "value": "Thrusting One Hand Sword",
+              "label": "Thrusting One Hand Sword"
+            },
+            {
+              "value": "One Hand Axe",
+              "label": "One Hand Axe"
+            },
+            {
+              "value": "One Hand Mace",
+              "label": "One Hand Mace"
+            },
+            {
+              "value": "Sceptre",
+              "label": "Sceptre"
+            },
+            {
+              "value": "Bow",
+              "label": "Bow"
+            },
+            {
+              "value": "Staff",
+              "label": "Staff"
+            },
+            {
+              "value": "Warstaff",
+              "label": "Warstaff"
+            },
+            {
+              "value": "Two Hand Sword",
+              "label": "Two Hand Sword"
+            },
+            {
+              "value": "Two Hand Axe",
+              "label": "Two Hand Axe"
+            },
+            {
+              "value": "Two Hand Mace",
+              "label": "Two Hand Mace"
+            },
+            {
+              "value": "Shield",
+              "label": "Shield"
+            }
+          ],
+          "default": [
+            "Claw",
+            "Dagger",
+            "Rune Dagger",
+            "Wand",
+            "One Hand Sword",
+            "Thrusting One Hand Sword",
+            "One Hand Axe",
+            "One Hand Mace",
+            "Sceptre",
+            "Bow",
+            "Staff",
+            "Warstaff",
+            "Two Hand Sword",
+            "Two Hand Axe",
+            "Two Hand Mace",
+            "Shield"
+          ],
+          "label": "Kinds of item"
+        },
+        "section": {
+          "type": "choice",
+          "options": [
+            {
+              "value": "enchant",
+              "label": "As enchantments (their own list)"
+            },
+            {
+              "value": "implicit",
+              "label": "As implicits"
+            },
+            {
+              "value": "explicit",
+              "label": "As explicit modifiers"
+            }
+          ],
+          "default": "enchant",
+          "label": "Where the nodes' lines go"
+        },
+        "ignoreItemLevel": {
+          "type": "bool",
+          "default": false,
+          "label": "Any node tier at any item level"
+        }
+      }
+    },
+    "idols": {
+      "type": "group",
+      "label": "Idols",
+      "description": "Legacy of Phrecia's Idols from more places, each with its own chance (1 in X; 0: never). They go in the Idol inventory (the map device's storage grid in the Atlas screen's side panel) when the server's Idols module is on in your league, and work beside the scarabs in the device. Now and then an Idol has a scarab's effect as an implicit.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Idols drop"
+        },
+        "mapsOnly": {
+          "type": "bool",
+          "default": true,
+          "label": "In maps only"
+        },
+        "normal": {
+          "type": "integer",
+          "default": 0,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Normal monsters: 1 in"
+        },
+        "magic": {
+          "type": "integer",
+          "default": 0,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Magic monsters: 1 in"
+        },
+        "rare": {
+          "type": "integer",
+          "default": 600,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Rare monsters: 1 in"
+        },
+        "bosses": {
+          "type": "integer",
+          "default": 40,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Bosses (unique monsters): 1 in"
+        },
+        "rogueExiles": {
+          "type": "integer",
+          "default": 15,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Rogue Exiles: 1 in"
+        },
+        "strongboxes": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Strongboxes: 1 in",
+          "description": "Private build."
+        },
+        "rareShare": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 100,
+          "label": "Rare Idols (%)",
+          "description": "The rest are magic."
+        },
+        "uniqueShare": {
+          "type": "integer",
+          "default": 50,
+          "min": 0,
+          "max": 1000000,
+          "label": "Unique Idols: 1 in",
+          "description": "Of the Idols that drop. 0: never."
+        },
+        "scarabImplicit": {
+          "type": "integer",
+          "default": 100,
+          "min": 0,
+          "max": 1000000,
+          "label": "A scarab's effect as an implicit: 1 in",
+          "description": "Of the Idols that drop: one of the 198 scarab effects' own map modifiers on the Idol. 0: never."
+        },
+        "scarabImplicitMost": {
+          "type": "integer",
+          "default": 1,
+          "min": 1,
+          "max": 5,
+          "label": "Scarab effects on such an Idol"
+        },
+        "unidentified": {
+          "type": "bool",
+          "default": true,
+          "label": "Drop unidentified",
+          "description": "As the game's: an unidentified Idol does nothing until identified."
+        },
+        "announce": {
+          "type": "bool",
+          "default": true,
+          "label": "Say in chat when one drops"
+        },
+        "excitingImplicit": {
+          "type": "integer",
+          "default": 60,
+          "min": 0,
+          "max": 1000000,
+          "label": "Exciting Idols: 1 in",
+          "description": "Of the Idols that drop: one of 182 map modifiers (old leaguestones, Atlas sextants and other map modifiers) that change maps in fun ways (more Rogue Exiles, Strongboxes with Rare Items, extra Shrines, Harbingers, Essences, Tormented Spirits ...) as an implicit, and the Exciting mark. 0: never."
+        },
+        "excitingImplicitMost": {
+          "type": "integer",
+          "default": 1,
+          "min": 1,
+          "max": 5,
+          "label": "Fun map modifiers on such an Idol"
+        },
+        "excitingBlacklist": {
+          "type": "list",
+          "item": {
+            "type": "text",
+            "minLength": 1
+          },
+          "default": [],
+          "label": "Never on Idols (words)",
+          "description": "Map modifiers whose stat or text has one of these words (idolimplicits.json lists them)."
+        },
+        "excitingWeights": {
+          "type": "bool",
+          "default": true,
+          "label": "Better ones are rarer",
+          "description": "Atlas sextant modifiers keep their old sextant weights (a Winged Scarab's 50 against a Rusted's 520); the others are as likely as the most common. Off: all as likely."
+        }
+      }
+    },
+    "mirage": {
+      "type": "group",
+      "label": "Mirage",
+      "description": "What the Mirage league left that the server can use (its Mirage encounters are not built): The Black Barya, which opens Saresh, of the Weeping Black's arena in the map device, Saresh's Mirage uniques, and Screams of the Desiccated with two shrine buffs. Each chance is 1 in X; 0: never.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Mirage drops"
+        },
+        "mapsOnly": {
+          "type": "bool",
+          "default": true,
+          "label": "The Black Barya drops in maps only"
+        },
+        "baryaBosses": {
+          "type": "integer",
+          "default": 50,
+          "min": 0,
+          "max": 1000000000,
+          "label": "The Black Barya from bosses (unique monsters): 1 in"
+        },
+        "baryaRare": {
+          "type": "integer",
+          "default": 3000,
+          "min": 0,
+          "max": 1000000000,
+          "label": "The Black Barya from rare monsters: 1 in"
+        },
+        "baryaStrongboxes": {
+          "type": "integer",
+          "default": 150,
+          "min": 0,
+          "max": 1000000000,
+          "label": "The Black Barya from strongboxes: 1 in",
+          "description": "Private build."
+        },
+        "baryaFaridunExiles": {
+          "type": "integer",
+          "default": 5,
+          "min": 0,
+          "max": 1000000000,
+          "label": "The Black Barya from Faridun Rogue Exiles: 1 in"
+        },
+        "sareshUnique": {
+          "type": "integer",
+          "default": 1,
+          "min": 0,
+          "max": 1000000,
+          "label": "Saresh drops a Mirage unique: 1 in",
+          "description": "One of the 13, as likely as each drops elsewhere (Screams of the Desiccated and The Sands of Time the rarest)."
+        },
+        "bossMirageUnique": {
+          "type": "integer",
+          "default": 0,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Other bosses drop a Mirage unique: 1 in",
+          "description": "0: only Saresh."
+        },
+        "screamsTwoShrines": {
+          "type": "bool",
+          "default": true,
+          "label": "Screams of the Desiccated has two shrine buffs",
+          "description": "The server's data has only its first version (always Acceleration Shrine)."
+        },
+        "anyShrines": {
+          "type": "bool",
+          "default": true,
+          "label": "Any two of its thirteen shrines",
+          "description": "On (a buff): any two different ones (Divine Shrine was never one of them). Off: as the game did, one offensive shrine and one other."
+        },
+        "announce": {
+          "type": "bool",
+          "default": true,
+          "label": "Say in chat when one drops"
+        }
+      }
+    },
+    "unobtainable": {
+      "type": "group",
+      "label": "Unobtainable uniques aquirable?",
+      "description": "Uniques the server has no working source for yet (295 when this was made: their league content, boss or card isn't built, such as Heist's Replicas, Sanctum, the Incursion temple, Abyssal Depths, Breach lords, Delve, Ancestor and race rewards) drop from the normal drops, bosses, Rogue Exiles and strongboxes instead. One the server starts dropping normally leaves the list by itself. Each chance is 1 in X; 0: never.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "Unobtainable uniques can drop"
+        },
+        "inPlaceOf": {
+          "type": "integer",
+          "default": 25,
+          "min": 0,
+          "max": 1000000000,
+          "label": "A unique that drops is one of these instead: 1 in",
+          "description": "Puts them in the normal drop pool without more uniques dropping overall."
+        },
+        "mapBosses": {
+          "type": "integer",
+          "default": 40,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Bosses (unique monsters) drop one: 1 in"
+        },
+        "pinnacles": {
+          "type": "integer",
+          "default": 5,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Pinnacle bosses drop one: 1 in",
+          "description": "The Shaper, the Elder, the Maven, Sirus, the Eater of Worlds, the Searing Exarch, Atziri and uber bosses."
+        },
+        "rogueExiles": {
+          "type": "integer",
+          "default": 30,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Rogue Exiles drop one: 1 in"
+        },
+        "strongboxes": {
+          "type": "integer",
+          "default": 60,
+          "min": 0,
+          "max": 1000000000,
+          "label": "Strongboxes hold one: 1 in",
+          "description": "Private build."
+        },
+        "mapsOnly": {
+          "type": "bool",
+          "default": false,
+          "label": "Bosses, Rogue Exiles and strongboxes in maps only",
+          "description": "The in-place-of chance works everywhere either way."
+        },
+        "heist": {
+          "type": "bool",
+          "default": true,
+          "label": "Heist: Replicas and Curio Display uniques"
+        },
+        "sanctum": {
+          "type": "bool",
+          "default": true,
+          "label": "Sanctum: Lycia's uniques and the relics"
+        },
+        "ultimatum": {
+          "type": "bool",
+          "default": true,
+          "label": "Ultimatum: the Trialmaster's uniques"
+        },
+        "race": {
+          "type": "bool",
+          "default": true,
+          "label": "Race and event rewards",
+          "description": "Demigod's items, Star of Wraeclast, Talisman of the Victor. The real game never dropped these."
+        },
+        "idols": {
+          "type": "bool",
+          "default": false,
+          "label": "Unique idols",
+          "description": "The Idols part drops these already."
+        },
+        "other": {
+          "type": "bool",
+          "default": true,
+          "label": "All the others",
+          "description": "League uniques such as the Incursion temple's, Abyssal Depths', the Breach lords', Delve's, Ancestor's and Betrayal's."
+        },
+        "blacklist": {
+          "type": "list",
+          "item": {
+            "type": "text",
+            "minLength": 1
+          },
+          "default": [],
+          "label": "Never these (unique names)"
+        },
+        "extra": {
+          "type": "list",
+          "item": {
+            "type": "text",
+            "minLength": 1
+          },
+          "default": [],
+          "label": "Also these (unique names)",
+          "description": "Any unique, even one that drops normally."
+        },
+        "rarityWeights": {
+          "type": "bool",
+          "default": true,
+          "label": "Rarer uniques are rarer",
+          "description": "Each weighs what the server's drop tables give it; off: all weigh the same."
+        },
+        "defaultWeight": {
+          "type": "number",
+          "default": 0.1,
+          "min": 0.0001,
+          "max": 100,
+          "label": "Weight of one with no weight of its own (or all, with the setting above off)"
+        },
+        "announce": {
+          "type": "bool",
+          "default": true,
+          "label": "Say in chat when one drops"
+        }
+      }
+    },
+    "cardRate": {
+      "type": "group",
+      "label": "Divination cards",
+      "description": "How often divination cards drop, every card in every area (The Doctor in Burial Chambers too), from monsters, chests and strongboxes.",
+      "settings": {
+        "multiplier": {
+          "type": "number",
+          "default": 1.0,
+          "min": 0,
+          "max": 1000,
+          "label": "Card drop rate multiplier",
+          "description": "1: as the server has it. 3: three times as many. 0.5: half."
+        },
+        "perCard": {
+          "type": "map",
+          "default": {},
+          "label": "One card's own multiplier (card name: multiplier)",
+          "description": "Over the multiplier above, e.g. \"The Doctor\": 5.",
+          "value": {
+            "type": "number",
+            "min": 0,
+            "max": 1000
+          }
+        },
+        "mapsOnly": {
+          "type": "bool",
+          "default": false,
+          "label": "In maps only"
+        }
+      }
+    },
+    "ascendantJewels": {
+      "type": "group",
+      "label": "Ascendant jewels",
+      "description": "Jewels that drop with \"Allocates <ascendancy passive>\" implicits: the node works while the jewel sits in an allocated tree socket, on any class (needs the server's jewel-allocates part). A node that asks you to pick rolls as one of its options, named on the jewel.",
+      "settings": {
+        "enabled": {
+          "type": "bool",
+          "default": true,
+          "label": "On"
+        },
+        "jewelChance": {
+          "type": "number",
+          "default": 0.02,
+          "min": 0,
+          "max": 1,
+          "label": "Chance a jewel that drops anyway gets nodes (0.02 = 2%)"
+        },
+        "abyssChance": {
+          "type": "number",
+          "default": 0.01,
+          "min": 0,
+          "max": 1,
+          "label": "Chance an abyss jewel that drops anyway gets nodes"
+        },
+        "clusterChance": {
+          "type": "number",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "label": "Chance a cluster jewel that drops anyway gets nodes",
+          "description": "A cluster jewel in an open cluster socket counts too."
+        },
+        "secondChance": {
+          "type": "number",
+          "default": 0.15,
+          "min": 0,
+          "max": 1,
+          "label": "Jewels that drop anyway: chance of two nodes"
+        },
+        "thirdChance": {
+          "type": "number",
+          "default": 0.03,
+          "min": 0,
+          "max": 1,
+          "label": "Jewels that drop anyway: chance of three nodes",
+          "description": "Part of the chance for two: 0.15 and 0.03 make 12% two and 3% three."
+        },
+        "normal": {
+          "type": "bool",
+          "default": true,
+          "label": "Normal ascendancies' nodes"
+        },
+        "phrecia": {
+          "type": "bool",
+          "default": true,
+          "label": "Phrecia ascendancies' nodes",
+          "description": "Their own nodes (Aristocrat, Polytheist, Surfcaster...), in every league. The Harbinger's companion summons stay out: only the Phrecia league runs them."
+        },
+        "special": {
+          "type": "bool",
+          "default": true,
+          "label": "Reliquarian and Luminary nodes"
+        },
+        "unused": {
+          "type": "bool",
+          "default": false,
+          "label": "Nodes the game no longer uses ([UNUSED])",
+          "description": "Old nodes still in the game data. Some may do little or nothing."
+        },
+        "notablesOnly": {
+          "type": "bool",
+          "default": true,
+          "label": "Notables only",
+          "description": "Off: the small ascendancy nodes can roll too."
+        },
+        "uniques": {
+          "type": "bool",
+          "default": false,
+          "label": "Unique jewels can get them too"
+        },
+        "mapsOnly": {
+          "type": "bool",
+          "default": false,
+          "label": "Jewels that drop anyway: only in maps"
+        },
+        "chests": {
+          "type": "bool",
+          "default": true,
+          "label": "Jewels that drop anyway: from chests and strongboxes too"
+        },
+        "announce": {
+          "type": "bool",
+          "default": true,
+          "label": "Say so in chat when one drops"
+        },
+        "normalWeight": {
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 1000,
+          "label": "Weight of a normal ascendancy node"
+        },
+        "phreciaWeight": {
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 1000,
+          "label": "Weight of a Phrecia node"
+        },
+        "specialWeight": {
+          "type": "number",
+          "default": 1,
+          "min": 0,
+          "max": 1000,
+          "label": "Weight of a Reliquarian or Luminary node"
+        },
+        "unusedWeight": {
+          "type": "number",
+          "default": 0.5,
+          "min": 0,
+          "max": 1000,
+          "label": "Weight of an unused node"
+        },
+        "blacklist": {
+          "type": "list",
+          "default": [],
+          "label": "Never roll these",
+          "description": "Node names or ascendancy names (Juggernaut, Polytheist...).",
+          "item": {
+            "type": "text",
+            "minLength": 1
+          }
+        },
+        "weights": {
+          "type": "map",
+          "default": {},
+          "label": "Own weights",
+          "description": "By node name (its weight) or ascendancy name (multiplies its nodes' weight): Unbreakable 5, Surfcaster 0.5.",
+          "value": {
+            "type": "number",
+            "min": 0,
+            "max": 1000
+          }
+        },
+        "sources": {
+          "type": "group",
+          "label": "Ascendant jewels: where they drop of their own",
+          "description": "New jewels from each source, each with its own chance for one, two and three nodes. Three is tried first, then two, then one: at most one jewel per kill or chest.",
+          "settings": {
+            "normalMonsters": {
+              "type": "group",
+              "label": "Normal (white) monsters",
+              "description": "",
+              "settings": {
+                "one": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with one node (0: never)"
+                },
+                "two": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with two nodes (0: never)"
+                },
+                "three": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with three nodes (0: never)"
+                },
+                "minTier": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 17,
+                  "label": "Lowest map tier (0: anywhere)",
+                  "description": "Above 0: only in maps of that tier or higher (16: T16 and up)."
+                }
+              }
+            },
+            "magicMonsters": {
+              "type": "group",
+              "label": "Magic monsters",
+              "description": "",
+              "settings": {
+                "one": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with one node (0: never)"
+                },
+                "two": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with two nodes (0: never)"
+                },
+                "three": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with three nodes (0: never)"
+                },
+                "minTier": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 17,
+                  "label": "Lowest map tier (0: anywhere)",
+                  "description": "Above 0: only in maps of that tier or higher (16: T16 and up)."
+                }
+              }
+            },
+            "rareMonsters": {
+              "type": "group",
+              "label": "Rare monsters",
+              "description": "",
+              "settings": {
+                "one": {
+                  "type": "integer",
+                  "default": 10000,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with one node (0: never)"
+                },
+                "two": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with two nodes (0: never)"
+                },
+                "three": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with three nodes (0: never)"
+                },
+                "minTier": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 17,
+                  "label": "Lowest map tier (0: anywhere)",
+                  "description": "Above 0: only in maps of that tier or higher (16: T16 and up)."
+                }
+              }
+            },
+            "mapBosses": {
+              "type": "group",
+              "label": "Map bosses",
+              "description": "Unique monsters in maps that are not pinnacle or uber bosses.",
+              "settings": {
+                "one": {
+                  "type": "integer",
+                  "default": 400,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with one node (0: never)"
+                },
+                "two": {
+                  "type": "integer",
+                  "default": 1500,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with two nodes (0: never)"
+                },
+                "three": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with three nodes (0: never)"
+                },
+                "minTier": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 17,
+                  "label": "Lowest map tier (0: anywhere)",
+                  "description": "Above 0: only in maps of that tier or higher (16: T16 and up)."
+                }
+              }
+            },
+            "pinnacleBosses": {
+              "type": "group",
+              "label": "Pinnacle bosses",
+              "description": "The Shaper, the Elder, the conquerors, Sirus, the Maven, the Searing Exarch, the Eater of Worlds, Atziri and the like.",
+              "settings": {
+                "one": {
+                  "type": "integer",
+                  "default": 40,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with one node (0: never)"
+                },
+                "two": {
+                  "type": "integer",
+                  "default": 150,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with two nodes (0: never)"
+                },
+                "three": {
+                  "type": "integer",
+                  "default": 600,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with three nodes (0: never)"
+                },
+                "minTier": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 17,
+                  "label": "Lowest map tier (0: anywhere)",
+                  "description": "Above 0: only in maps of that tier or higher (16: T16 and up)."
+                }
+              }
+            },
+            "uberBosses": {
+              "type": "group",
+              "label": "Uber bosses",
+              "description": "The uber versions of the pinnacle bosses.",
+              "settings": {
+                "one": {
+                  "type": "integer",
+                  "default": 15,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with one node (0: never)"
+                },
+                "two": {
+                  "type": "integer",
+                  "default": 50,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with two nodes (0: never)"
+                },
+                "three": {
+                  "type": "integer",
+                  "default": 120,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with three nodes (0: never)"
+                },
+                "minTier": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 17,
+                  "label": "Lowest map tier (0: anywhere)",
+                  "description": "Above 0: only in maps of that tier or higher (16: T16 and up)."
+                }
+              }
+            },
+            "rogueExiles": {
+              "type": "group",
+              "label": "Rogue exiles",
+              "description": "",
+              "settings": {
+                "one": {
+                  "type": "integer",
+                  "default": 600,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with one node (0: never)"
+                },
+                "two": {
+                  "type": "integer",
+                  "default": 3000,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with two nodes (0: never)"
+                },
+                "three": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with three nodes (0: never)"
+                },
+                "minTier": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 17,
+                  "label": "Lowest map tier (0: anywhere)",
+                  "description": "Above 0: only in maps of that tier or higher (16: T16 and up)."
+                }
+              }
+            },
+            "izaro": {
+              "type": "group",
+              "label": "Izaro",
+              "description": "Each time he dies in the Labyrinth.",
+              "settings": {
+                "one": {
+                  "type": "integer",
+                  "default": 60,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with one node (0: never)"
+                },
+                "two": {
+                  "type": "integer",
+                  "default": 250,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with two nodes (0: never)"
+                },
+                "three": {
+                  "type": "integer",
+                  "default": 1000,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with three nodes (0: never)"
+                },
+                "minTier": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 17,
+                  "label": "Lowest map tier (0: anywhere)",
+                  "description": "Above 0: only in maps of that tier or higher (16: T16 and up)."
+                }
+              }
+            },
+            "labChests": {
+              "type": "group",
+              "label": "Labyrinth chests",
+              "description": "The server has no treasure room chests yet: these are rolled when Izaro dies (see below), and from real ones once they exist.",
+              "settings": {
+                "one": {
+                  "type": "integer",
+                  "default": 120,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with one node (0: never)"
+                },
+                "two": {
+                  "type": "integer",
+                  "default": 500,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with two nodes (0: never)"
+                },
+                "three": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with three nodes (0: never)"
+                },
+                "minTier": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 17,
+                  "label": "Lowest map tier (0: anywhere)",
+                  "description": "Above 0: only in maps of that tier or higher (16: T16 and up)."
+                }
+              }
+            },
+            "strongboxes": {
+              "type": "group",
+              "label": "Strongboxes",
+              "description": "",
+              "settings": {
+                "one": {
+                  "type": "integer",
+                  "default": 1500,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with one node (0: never)"
+                },
+                "two": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with two nodes (0: never)"
+                },
+                "three": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with three nodes (0: never)"
+                },
+                "minTier": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 17,
+                  "label": "Lowest map tier (0: anywhere)",
+                  "description": "Above 0: only in maps of that tier or higher (16: T16 and up)."
+                }
+              }
+            },
+            "campaignBosses": {
+              "type": "group",
+              "label": "Bosses outside maps",
+              "description": "Unique monsters in the campaign and elsewhere outside maps (not Izaro).",
+              "settings": {
+                "one": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with one node (0: never)"
+                },
+                "two": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with two nodes (0: never)"
+                },
+                "three": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 100000000,
+                  "label": "1 in N: a jewel with three nodes (0: never)"
+                },
+                "minTier": {
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 17,
+                  "label": "Lowest map tier (0: anywhere)",
+                  "description": "Above 0: only in maps of that tier or higher (16: T16 and up)."
+                }
+              }
+            },
+            "quantity": {
+              "type": "bool",
+              "default": true,
+              "label": "Item quantity raises the monster chances",
+              "description": "Like the other drops: 50% more quantity makes each 1 in N 1.5 times as likely."
+            },
+            "labChestsAtIzaro": {
+              "type": "bool",
+              "default": true,
+              "label": "Roll the Labyrinth chests when Izaro dies",
+              "description": "Until the server has the treasure room's chests."
+            },
+            "labChestCount": {
+              "type": "integer",
+              "default": 2,
+              "min": 0,
+              "max": 10,
+              "label": "How many Labyrinth chests that counts as"
+            },
+            "bases": {
+              "type": "list",
+              "item": {
+                "type": "text",
+                "minLength": 1
+              },
+              "default": [
+                "Cobalt Jewel",
+                "Crimson Jewel",
+                "Viridian Jewel"
+              ],
+              "label": "Jewel bases they drop as",
+              "description": "Abyss jewels (Murderous Eye Jewel...) and others can be added."
+            }
+          }
+        }
+      }
+    }
+  }
+}

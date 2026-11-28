@@ -1,0 +1,214 @@
+// QoL (in-game panels): Classic Harvest crafts
+<DEFINITIONS>
+
+begin Frame
+	id = qol_harvest;
+	aspect_mode = scaley;
+	size = 760, 200;
+	float = centre;
+	y = 170;
+	visible = true;
+	mouse_enabled = true;
+	propagate_properties = false;
+	background_colour = argb( 236, 14, 12, 10 );
+	pixel_border_colour = rgb( 137, 100, 64 );
+
+	begin StackLayout
+		id = qol_harvest_body;
+		auto_size = true, true;
+		margin = 18, 12, 18, 14;
+		float = centre;
+
+		begin Frame
+			id = qol_harvest_title_bar;
+			size = 724, 40;
+
+			begin Label
+				id = title_label;
+				location = 0, 0;
+				size = 676, 40;
+				auto_size = false;
+				text_align = MiddleLeft;
+				font = Fonts.LargeSC;
+				foreground_colour = rgb( 227, 194, 146 );
+				outline_colour = rgb( 0, 0, 0 );
+				text = "Classic Harvest crafts";
+			end
+
+			begin BasicButton
+				id = close_button;
+				location = 684, 0;
+				size = 40, 40;
+				mouse_enabled = true;
+				background = "Art/2DArt/UIImages/Common/ButtonCloseNormal", stretch;
+			end
+		end
+
+		begin Frame
+			id = hv_space_a;
+			size = 10, 6;
+		end
+		begin Label
+			id = selected_label;
+			size = 724, 34;
+			auto_size = false;
+			text_align = MiddleLeft;
+			font = Fonts.Normal;
+			foreground_colour = rgb( 200, 235, 170 );
+			outline_colour = rgb( 0, 0, 0 );
+			text = "";
+		end
+		begin Frame
+			id = hv_space_b;
+			size = 10, 6;
+		end
+		begin Frame
+			id = row_frame_0;
+			size = 724, 36;
+			begin Button
+				id = row_0;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = row_frame_1;
+			size = 724, 36;
+			begin Button
+				id = row_1;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = row_frame_2;
+			size = 724, 36;
+			begin Button
+				id = row_2;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = row_frame_3;
+			size = 724, 36;
+			begin Button
+				id = row_3;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = row_frame_4;
+			size = 724, 36;
+			begin Button
+				id = row_4;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = row_frame_5;
+			size = 724, 36;
+			begin Button
+				id = row_5;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = row_frame_6;
+			size = 724, 36;
+			begin Button
+				id = row_6;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = row_frame_7;
+			size = 724, 36;
+			begin Button
+				id = row_7;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = row_frame_8;
+			size = 724, 36;
+			begin Button
+				id = row_8;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = row_frame_9;
+			size = 724, 36;
+			begin Button
+				id = row_9;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = row_frame_10;
+			size = 724, 36;
+			begin Button
+				id = row_10;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = row_frame_11;
+			size = 724, 36;
+			begin Button
+				id = row_11;
+				size = 724, 34;
+				text = "-";
+			end
+		end
+		begin Frame
+			id = hv_space_c;
+			size = 10, 8;
+		end
+		begin Frame
+			id = hv_controls;
+			size = 724, 44;
+
+			begin Button
+				id = prev_button;
+				location = 0, 0;
+				size = 120, 42;
+				text = "Prev";
+			end
+
+			begin Label
+				id = page_label;
+				location = 130, 0;
+				size = 200, 42;
+				auto_size = false;
+				text_align = MiddleCentre;
+				font = Fonts.Normal;
+				foreground_colour = rgb( 200, 190, 160 );
+				text = "";
+			end
+
+			begin Button
+				id = next_button;
+				location = 340, 0;
+				size = 120, 42;
+				text = "Next";
+			end
+
+			begin Button
+				id = craft_button;
+				location = 524, 0;
+				size = 200, 42;
+				text = "Craft";
+			end
+		end
+	end
+end
