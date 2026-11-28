@@ -3,7 +3,7 @@
   "name": "Quality of Life (in-game panels)",
   "description": "The QoL mod's buttons, keys and panels inside the game: loot, sort, deposit all, vendor tab, sort tab, map upgrades, price lines, pop-ups, alternate quality gems and the Harvest panel. Talks to the qol server mod on this computer only.",
   "author": "marshmellion",
-  "version": "0.6.0",
+  "version": "0.7.4",
   "sdkVersionRange": ">=1.2.0 <2.0.0",
   "assembly": "qol.Client.dll",
   "enabled": true

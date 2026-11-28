@@ -13,10 +13,67 @@
     "sorttab": ""
   },
   "keysBlockTheGame": false,
-  "hudButtons": true,
-  "inventorySortButton": true,
-  "stashButtons": "header",
-  "mapButton": true,
+  "buttons": {
+    "_help": "Places are in the game's 1600-high coordinates (at 1080p one pixel is about 1.48). A negative x counts from the right edge of the screen. show: false removes a button. inRow: the stash buttons follow one another from the first one's x. origin: how the game counts a window's place; leave it at centre unless the buttons are far off, then try topleft. screenAspect: 0 means 16:9; set your screen's width divided by its height (2.333 for 21:9) if it is another shape.",
+    "loot": {
+      "show": true,
+      "x": 645,
+      "y": 1393,
+      "width": 88,
+      "height": 30
+    },
+    "inventorySort": {
+      "show": true,
+      "x": -197,
+      "y": 812,
+      "width": 120,
+      "height": 36
+    },
+    "inventorySortAlways": false,
+    "prices": {
+      "show": false,
+      "x": 695,
+      "y": 1393,
+      "width": 150,
+      "height": 30
+    },
+    "deposit": {
+      "show": true,
+      "x": 281,
+      "y": 1236,
+      "width": 170,
+      "height": 36,
+      "inRow": true
+    },
+    "sortTab": {
+      "show": true,
+      "x": 281,
+      "y": 1236,
+      "width": 130,
+      "height": 36,
+      "inRow": true
+    },
+    "vendor": {
+      "show": true,
+      "x": 281,
+      "y": 1236,
+      "width": 150,
+      "height": 36,
+      "inRow": true
+    },
+    "maps": {
+      "show": true,
+      "x": 281,
+      "y": 1236,
+      "width": 200,
+      "height": 36,
+      "inRow": true
+    },
+    "stashGap": 6,
+    "origin": "centre",
+    "logPlaces": true,
+    "screenAspect": 0
+  },
   "messagesAsToasts": true,
   "messageSeconds": 5,
   "popups": true,
