@@ -132,11 +132,13 @@ public static class PassiveBuffAuras
     }
 
     /// <summary>The 0x1c1/0x1c2 that bring the player's published self buffs to the allocated ones, or null. Run at the
-    /// send gate; a new area's connection starts with none, so area entry publishes them again.</summary>
-    public static byte[]? Presentation(Player player)
+    /// send gate; a new area's connection starts with none, so area entry publishes them again. <paramref name="nodes"/>:
+    /// the nodes whose effects the player has, when more than the tree and ascendancy (null: those two).</summary>
+    public static byte[]? Presentation(Player player, IEnumerable<ushort>? nodes = null)
     {
         if (player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return null;
-        var wanted = SelfBuffsFor([.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated], Program.LeagueFor(player).HardMode)
+        var wanted = SelfBuffsFor(nodes is null ? [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated] : [.. nodes],
+                Program.LeagueFor(player).HardMode)
             .Select(b => b.Definition).ToHashSet();
         var bytes = new List<byte>();
         foreach (var (definition, _) in player.PassiveBuffs.Where(b => !wanted.Contains(b.Key)).ToArray())

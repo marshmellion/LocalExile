@@ -334,6 +334,13 @@ public static partial class Game
             if (tree.Find(node) is { } passive)
                 nodeStats[node] = passive.IsAscendancy && selectedDefinition is not null
                     ? AscendancyPolicies.NodeStats(player, selectedDefinition, node, passive.Stats) : passive.Stats;
+        // A jewel that "Allocates" a node adds that node's own stats while socketed (JewelAllocatedPassives). Radius and
+        // timeless jewels below still read only the allocated tree, so these nodes are not transformed again.
+        var jewelNodes = JewelAllocatedNodes(player).Where(n => !nodeStats.ContainsKey(n)).ToArray();
+        foreach (ushort node in jewelNodes)
+            if (tree.Find(node) is { } passive)
+                nodeStats[node] = JewelNodeStats(passive.Stats);
+        if (jewelNodes.Length > 0) nodes = [.. nodes, .. jewelNodes];
         var radiusJewels = treeJewels
             .Where(i => Passives.ClusterNodeForSlot(i.X) is null)
             .Select(i => (Socket: tree.JewelNodeForSlot(i.X), Conversion: RadiusJewelCatalogue.ReadConversion(i.Item, catalog.Mods)))
@@ -2650,7 +2657,7 @@ public static partial class Game
                 await Send(player, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (respec, {cost} paid)");
             }
             await SendCharacterStats(player, PlayerStatChange.Build);
-            await Send(player, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(player));
+            await Send(player, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(player, EffectiveNodes(player)));
             await SendFortification(player);
             // A refund can lower the maximum life: the current life needs its own 0x1b1 (0x1b3 only carries the maximum).
             Note($"0x01b1 player life {player.PlayerLife} (passives)");

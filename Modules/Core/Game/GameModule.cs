@@ -175,6 +175,18 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => Rules.ClearPlayerMonsterAurasAsync(player));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => global::Sirus.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
+        // The Phrecia ascendancies' node stats and buffs, in every league (a jewel can allocate those nodes anywhere; where
+        // the phreciaascendancies mod runs, its own count instead): the
+        // Polytheist's maximum attack damage, the Antiquarian's duration per Strength, the Whisperer's mana per Dexterity,
+        // the Surfcaster's cast speed with a Fishing Rod; the Paladin's Light of Divinity, the Surfcaster's Ghost of the
+        // Deep and the Ancestral Commander's Born under Fire.
+        GameEvents.AttackHit.Add(module.Manifest.Id, PhreciaNodeStats.MaximumAttackDamageUnlessMod);
+        GameEvents.DerivedStats.Add(module.Manifest.Id, PhreciaNodeStats.DurationPerTenStrengthUnlessMod);
+        GameEvents.PoolSources.Add(module.Manifest.Id, PhreciaNodeStats.ManaPerDexterityUnlessMod);
+        GameEvents.CastSpeedMore.Add(module.Manifest.Id, PhreciaNodeStats.CastSpeedWithFishingRodUnlessMod);
+        PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken");
+        PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyIllegalFisherman");
+        PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyEnemyPhysicalDamageConvertedToFire");
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
         InstanceEvents.AreaDisplayStats.Add(module.Manifest.Id, Rules.MapAreaDisplayStats);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);
