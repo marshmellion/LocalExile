@@ -105,9 +105,18 @@ if (-not (Test-Path 'data\login-keys.json')) {
 }
 $patch = -not (Test-Path 'Client\Game.patched.exe')
 if (-not $patch) { $patch = (Get-Item 'Client\Game.exe').LastWriteTimeUtc -gt (Get-Item 'Client\Game.patched.exe').LastWriteTimeUtc }
+# A patched copy made with other keys (a client copied from another install, or keys made again) cannot log in: check it.
+if (-not $patch) {
+    $ErrorActionPreference = 'Continue'   # its complaint on stderr is expected here, not a failure of setup
+    & dotnet run --project src\GameServer.Auth -c Release -- verify-patch Client\Game.patched.exe data\login-keys.json 2>&1 | Out-Null
+    $ErrorActionPreference = 'Stop'
+    if ($LASTEXITCODE -ne 0) { Note 'Client\Game.patched.exe was made with other login keys (from another install?): making it again with yours'; $patch = $true }
+}
 if ($patch) {
     & dotnet run --project src\GameServer.Auth -c Release -- patch Client\Game.exe Client\Game.patched.exe
     if ($LASTEXITCODE -ne 0) { Fail 'Patching the client failed: read what it printed above.' }
+    & dotnet run --project src\GameServer.Auth -c Release -- verify-patch Client\Game.patched.exe data\login-keys.json
+    if ($LASTEXITCODE -ne 0) { Fail 'The patched client still does not trust your login keys: read what it printed above.' }
 }
 Ok 'Client\Game.patched.exe trusts your keys (the item symbol hook and the mods'' content are added when the game starts)'
 
