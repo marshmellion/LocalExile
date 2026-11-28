@@ -140,6 +140,13 @@ public static partial class Game
 
     static void GainMonsterHitChargesLocked(GameArea area, uint id, SpawnedMonster monster, double now, Random random)
     {
+        if (ItemEffectRules.Enabled)
+        {
+            foreach (var (stat, type) in ItemEffectRules.Current.MonsterHitCharges)
+                if (RandomRolls.Chance(monster.Effects[stat], 100, random))
+                    GrantMonsterChargeLocked(area, id, monster, type, now);
+            return;
+        }
         if (monster.Effects[Stat.AddFrenzyChargeOnSkillHitPct] is > 0 and var frenzy
             && RandomRolls.Chance(frenzy, 100, random))
             GrantMonsterChargeLocked(area, id, monster, ChargeType.Frenzy, now);
@@ -150,6 +157,13 @@ public static partial class Game
 
     static void GainMonsterChargeWhenHitLocked(Player player, SpawnedMonster monster, double now)
     {
+        if (ItemEffectRules.Enabled)
+        {
+            foreach (var (stat, type) in ItemEffectRules.Current.MonsterWhenHitCharges)
+                if (RandomRolls.Chance(monster.Effects[stat], 100, AreaRng(player)))
+                    GrantMonsterChargeLocked(player.Area, monster.ObjectId, monster, type, now);
+            return;
+        }
         if (monster.Effects[Stat.ChanceToGainEnduranceChargeWhenHitPct] is > 0 and var chance
             && RandomRolls.Chance(chance, 100, AreaRng(player)))
             GrantMonsterChargeLocked(player.Area, monster.ObjectId, monster, ChargeType.Endurance, now);

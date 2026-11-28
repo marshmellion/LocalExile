@@ -90,7 +90,7 @@ public static class PlayerHitDamage
             // Preserve the existing attack multiply-before-divide projection and spell factor construction.
             // Clamp the complete increased bucket once: a negative original-type subtotal must survive until here.
             var range = spell
-                ? path.Range.Scale(Math.Max(0, 1 + increased / 100.0) * (SpellMore(get, path.History) * charges))
+                ? path.Range.Scale(Math.Max(0, 1 + increased / 100.0) * (SpellDamageMore(get, path.History) * charges))
                 : DamageStats.IncreaseAttackRange(path.Range, increased);
             var support = GemSupportDamage.Multipliers(path.History, modifiers, supportTypes, fullShield, shieldLeech);
             range = range.Scale(support.GeneralOrPhysical).Scale(support.ElementalOrChaos);
@@ -98,6 +98,8 @@ public static class PlayerHitDamage
             {
                 range = range.Scale(Math.Max(0, 1 + get(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal) / 100.0));
                 if (attack) range = range.Scale(Math.Max(0, 1 + get(Stat.CombinedAttackPhysicalDamagePlusPctFinal) / 100.0));
+                if (melee && additional.AdditionalMeleePhysicalMorePct != 0)
+                    range = range.Scale(Math.Max(0, 1 + additional.AdditionalMeleePhysicalMorePct / 100d));
                 if (melee && additional.MeleePhysicalMorePct != 0)
                     range = range.Scale(Math.Max(0, 1 + additional.MeleePhysicalMorePct / 100d));
             }
@@ -111,6 +113,9 @@ public static class PlayerHitDamage
             // its history, as the other elemental buckets are.
             if ((path.History & DamageTypeHistory.Elemental) != 0)
                 range = range.Scale(elementalMore * Math.Max(0, 1 + get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) / 100.0));
+            if ((path.History & additional.MaximumMore.History) != 0 && additional.MaximumMore.Percent != 0)
+                range = range with { Max = Math.Max(range.Min,
+                    range.Max * Math.Max(0, 100d + additional.MaximumMore.Percent) / 100d) };
             result = result.Add(path.Type, range, trackPhysicalOrigin && (path.History & DamageTypeHistory.Physical) != 0);
         }
         // WithCharges expands increases and additions, but leaves more multipliers separate. Spell portions retain
@@ -122,12 +127,16 @@ public static class PlayerHitDamage
         // per hit, so the skill's damage stats (its tooltip) carry it too; a totem's hits read its owner's stats.
         if (get(Stat.HierophantPassiveDamagePlusPctFinalPerTotem) is var perTotem and not 0)
             result = result.Scale(Math.Max(0, 1 + (double)perTotem * get(Stat.NumberOfActiveTotems) / 100));
+        if (attack && additional.AttackMorePct is int attackMore and not 0)
+            result = result.Scale(Math.Max(0, 1 + attackMore / 100d));
         return spell || charges == 1 ? result : result.Scale(charges);
     }
 
-    static double SpellMore(Func<uint, int> get, DamageTypeHistory history) =>
+    /// <summary>The caster's spell damage multipliers, including those inherited through conversion.</summary>
+    public static double SpellDamageMore(Func<uint, int> get, DamageTypeHistory history) =>
         Math.Max(0, 1 + get(Stat.SpellDamageAuraSpellDamagePlusPctFinal) / 100.0)
         * Math.Max(0, 1 + get(Stat.RighteousFireSpellDamagePlusPctFinal) / 100.0)
+        * Math.Max(0, 1 + get(Stat.VaalRighteousFireSpellDamagePlusPctFinal) / 100.0)
         // Arcane Surge's own more Spell Damage (Arcane Blessing), a stat of the buff on the player.
         * Math.Max(0, 1 + get(Stat.SpellDamagePlusPctFinalFromArcaneSurge) / 100.0)
         // Pain Attunement: "30% more Spell Damage when on Low Life".
@@ -151,4 +160,8 @@ public readonly record struct HitIncreases(int Physical = 0, int Elemental = 0,
     IReadOnlyList<(DamageTypeHistory History, int Increased)>? Typed = null)
 {
     public int MeleePhysicalMorePct { get; init; }
+    /// <summary>A second, independently multiplied more/less melee physical modifier supplied by the caller.</summary>
+    public int AdditionalMeleePhysicalMorePct { get; init; }
+    public (DamageTypeHistory History, int Percent) MaximumMore { get; init; }
+    public int AttackMorePct { get; init; }
 }

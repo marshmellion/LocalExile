@@ -22,6 +22,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Yugul has mirror intervals, pool chill, Fearful orbs and turret volleys; calibrate Fearful magnitudes and orb AI.
   Solaris/Lunaris have celestial fire/cold hazards; calibrate original handoff timing, target distribution and radii.
   Normal Sirus has its laboratory and four-phase controller; calibrate official decision weights and reward chances.
+  Act 11 pinnacle bosses (Maven, Infinite Hunger, Black Star, Eater of Worlds, Searing Exarch, and Incarnations of
+  Neglect, Fear, and Dread) have dedicated multi-phase controllers and boss drop tables; live verification and tuning
+  remain pending ([status](../status/monsters.md#partly-working)).
   Hits can make monsters flee ([11](../docs/protocol/11-skills.md) §6); a live check should settle the flee distance
   and whether the real server walks a fleeing monster with Monster.ot's `Flee` action instead of Move.
   Inherited Life corpse/sinking flags and the source eligibility predicate are implemented for ordinary creation
@@ -36,7 +39,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   curses on the player; [14](../docs/protocol/14-monster-packs.md) §5), live calibration of Act 1–10 boss controllers,
   pack `Grounds`, the varieties with BlightTower / Mercenary … components
   (each needs its deserializer, schema.md; NPC, InteractionAction and Timer are written), tile spawner bosses
-  (Marceus), and wiring campaign Bestiary, Blight, Ritual, Delirium and Vaal Side Area encounters once their league
+  (Marceus), and wiring campaign Bestiary, Blight, Delirium and Vaal Side Area encounters once their league
   modules are implemented.
   Emerge monsters: the official emerge distance and whether a pack rises together are unknown (the server's `.ais`
   files); types whose Transitionable lists more states (SpiderBoss: 3) are still created risen.

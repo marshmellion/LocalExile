@@ -12,8 +12,10 @@ public static partial class Game
         public bool StatsPending;
     }
     internal static readonly RuleTable<Player, TemporaryAuraState> TemporaryAuraStates = new();
+    const string GluttonyOfElementsEffect = "GluttonyOfElements";
     static readonly Dictionary<string, ushort> TimedVaalAuraBuffRows = new(StringComparer.Ordinal)
     {
+        [GluttonyOfElementsEffect] = 404,
         ["VaalClarity"] = 158,
         ["VaalGrace"] = 159,
         ["VaalDiscipline"] = 160,
@@ -60,6 +62,7 @@ public static partial class Game
         int before = state.Active.Count;
         foreach (var (id, value) in state.Active.ToArray())
             if (player.PlayerLife == 0 || InTown(player) || AreaTime(player) >= value.Until
+                || value.Blessing && BlessingsDisabled(player)
                 || !player.Auras.TryGetValue(id, out var aura) || aura.Buff != value.Aura.Buff
                 || !SameTriggerSource(value.Source, SupportedSkill(player, id)))
                 RemoveTemporaryAura(player, state, id);
@@ -121,7 +124,7 @@ public static partial class Game
         if (!current()) return false;
         var skill = SupportedSkill(player, id);
         string effect = SkillsFor(player).EffectId(skill.Effect) ?? "";
-        if (!IsBlessing(skill) || !AuraCatalog.Supported(effect)) return false;
+        if (!IsBlessing(skill) || !AuraCatalog.Supported(effect) || BlessingsDisabled(player)) return false;
         double seconds = VaalAuraSeconds(GolemStat(skill.Stats, Stat.SupportAuraDurationBaseBuffDuration),
             CharacterPlayerStats(player), skill.Stats);
         if (seconds <= 0) return false;
@@ -245,6 +248,11 @@ public static partial class Game
             if (!aura.AffectsSelf) continue;
             switch (aura.EffectId)
             {
+                case GluttonyOfElementsEffect:
+                    stats[Stat.BaseElementalDamageHeals] = 1;
+                    stats[Stat.CannotGainSouls] = 1;
+                    stats[Stat.ImmuneToCurses] = 1;
+                    break;
                 case "VaalClarity": stats[Stat.NoManaCost] = 1; break;
                 case "VaalDiscipline": stats[Stat.EnergyShieldRechargeNotDelayedByDamage] = 1; break;
                 case "VaalImpurityOfFire": stats[Stat.BaseImmuneToIgnite] = stats[Stat.ImmuneToIgnite] = 1; break;

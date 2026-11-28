@@ -64,9 +64,17 @@ public static partial class Game
     public static bool IsBossOptionEligible(byte bossOption, int tier, ItemRarity rarity) =>
         bossOption is >= 1 and <= 3 && rarity != ItemRarity.Unique && tier >= BossOptionMinTier(bossOption) && tier <= 16;
 
+    /// <summary>Optional hook registered by the Atlas module for special off-Atlas areas (Maven Void1..6 witness bosses)
+    /// that Maven can witness when bossOption == 1 even when the area is not a regular Atlas map.</summary>
+    public static Func<ushort, bool>? IsMavenWitnessableSpecialArea;
+
     /// <summary>Validates a map device boss option against Atlas eligibility, map rarity/tier, special layouts, and the player's unlock flag.</summary>
     public static byte EligibleBossOption(Player player, MapDevice.Opening opening, byte bossOption)
     {
+        if (bossOption == 1 && BossOptionUnlockFlags.TryGetValue(1, out int mavenFlag)
+            && player.Character.LeagueQuestFlags.Contains(mavenFlag)
+            && IsMavenWitnessableSpecialArea?.Invoke(opening.Area.Hash16) == true)
+            return 1;
         if (!opening.Area.UsesAtlas || !IsBossOptionEligible(bossOption, opening.Area.Tier, opening.Mods.MapRarity))
             return 0;
         if (MapDevices.Atlas?.ByHash16(opening.Area.Hash16) is { RequiresSpecificItem: true })
@@ -74,6 +82,45 @@ public static partial class Game
         if (BossOptionUnlockFlags.TryGetValue(bossOption, out int flag) && !player.Character.LeagueQuestFlags.Contains(flag))
             return 0;
         return bossOption;
+    }
+
+    /// <summary>Determines <c>Stat.MapSpawnEnvoy</c> (wire key 15661) for Eldritch Envoy terrain generation:
+    /// <c>2</c> = <c>TangleQuest</c> (T5+ before LQF 351 / Flesh Compass), <c>3</c> = <c>CleansingFireQuest</c>
+    /// (T6+ before LQF 352 / Luminous Astrolabe), or <c>0</c> when none applies.</summary>
+    public static int ResolveEnvoySpawnStat(int tier, ItemRarity rarity, IReadOnlySet<int> leagueFlags,
+        bool hasTangleAlteration = false, bool hasCleansingAlteration = false)
+    {
+        const int mavenBeaconUnlocked = 225, exploreAtlas = 1038, tangleIntro = 204,
+            tangleBeaconUnlocked = 351, cleansingBeaconUnlocked = 352;
+        if (rarity == ItemRarity.Unique || tier < 5) return 0;
+        if (!leagueFlags.Contains(mavenBeaconUnlocked) && !leagueFlags.Contains(exploreAtlas)) return 0;
+        bool needTangle = !leagueFlags.Contains(tangleBeaconUnlocked) && !hasTangleAlteration;
+        bool needCleansing = tier >= 6 && !leagueFlags.Contains(cleansingBeaconUnlocked) && !hasCleansingAlteration;
+        if (needTangle && needCleansing)
+            return leagueFlags.Contains(tangleIntro) ? 3 : 2;
+        if (needTangle) return 2;
+        if (needCleansing) return 3;
+        return 0;
+    }
+
+    static int ResolveMapEnvoyStat(string? league, MapDevice.Run map)
+    {
+        if (map.Mods.MapRarity == ItemRarity.Unique || map.Area.Tier < 5) return 0;
+        var online = Program.InGame.Keys.FirstOrDefault(p =>
+            !p.Closed && string.Equals(Program.CharacterName(p), map.Owner, StringComparison.OrdinalIgnoreCase));
+        if (online is not null)
+        {
+            return ResolveEnvoySpawnStat(map.Area.Tier, map.Mods.MapRarity, online.Character.LeagueQuestFlags,
+                ClientHasQuestFlag(online, "HaveTangleMapDeviceAlteration"),
+                ClientHasQuestFlag(online, "HaveCleansingFireMapDeviceAlteration"));
+        }
+        var save = CharacterSaves.Load(map.Owner);
+        var stash = AccountStash.For(AccountStash.Key(map.Owner, league), Program.Items);
+        var lqfs = new HashSet<int>(stash.LeagueQuestFlags);
+        var qfs = save?.QuestFlags ?? [];
+        return ResolveEnvoySpawnStat(map.Area.Tier, map.Mods.MapRarity, lqfs,
+            qfs.Contains("HaveTangleMapDeviceAlteration"),
+            qfs.Contains("HaveCleansingFireMapDeviceAlteration"));
     }
 
     /// <summary>InstanceEvents.AreaStats: the stats of the instance <paramref name="request"/> opens.</summary>
@@ -84,7 +131,8 @@ public static partial class Game
         // Not an Atlas map: the mods' own stats, without the atlas, the tier block, its hidden life or the preset.
         if (!map.Atlas) return ComposeMapAreaStats(map.Mods, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1, deepwater);
         var (atlas, families, preset) = LoadMapAtlas(request.League, map.Owner);
-        return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset, deepwater, map.BossOption);
+        int spawnEnvoy = ResolveMapEnvoyStat(request.League, map);
+        return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset, deepwater, map.BossOption, spawnEnvoy);
     }
 
     /// <summary>InstanceEvents.AreaDisplayStats: only the map's own modifiers (explicit mods scaled by Atlas modifier
@@ -108,23 +156,74 @@ public static partial class Game
         return (global::AtlasStats.Compose(nodes), families, preset);
     }
 
+    static void AddMapModStats(MapMods mods, int effect, Action<uint, int> add)
+    {
+        foreach (var mod in mods.ExplicitMods)
+            foreach (var (id, value) in mod) if (value != 0) add(id, (int)Math.Clamp((long)value * (100L + effect) / 100, int.MinValue, int.MaxValue));
+        foreach (var (id, value) in mods.Implicit) if (value != 0) add(id, value);
+        foreach (var (id, value) in mods.Fragments) if (value != 0) add(id, value);
+        // Older modules construct a flat MapMods. Preserve their stats when there is no breakdown to compose.
+        if (mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0)
+            foreach (var (id, value) in mods.Stats) if (value != 0) add(id, value);
+    }
+
+    static readonly (uint Source, uint Target)[] FoldedMapDropStats =
+    [
+        (Stat.MapImplicitItemDropQuantityPlusPct, Stat.MapItemDropQuantityPlusPct),
+        (Stat.MapImplicitItemDropRarityPlusPct, Stat.MapItemDropRarityPlusPct),
+        (Stat.MapImplicitPackSizePlusPct, Stat.MapPackSizePlusPct),
+        (Stat.MapUnscaledItemDropQuantityPlusPct, Stat.MapItemDropQuantityPlusPct),
+        (Stat.MapUnscaledItemDropRarityPlusPct, Stat.MapItemDropRarityPlusPct),
+        (Stat.MapUnscaledPackSizePlusPct, Stat.MapPackSizePlusPct),
+    ];
+
+    static readonly uint[] EffectiveDisplayStats =
+    [
+        Stat.MapItemDropQuantityPlusPct,
+        Stat.MapItemDropRarityPlusPct,
+        Stat.MapPackSizePlusPct,
+    ];
+
+    static void FoldEffectiveMapStats(Dictionary<uint, int> stats, MapMods mods, IReadOnlyDictionary<uint, int>? atlas = null)
+    {
+        void Add(uint key, int value) => stats[key] = stats.GetValueOrDefault(key) + value;
+
+        foreach (var (source, target) in FoldedMapDropStats)
+            if (stats.Remove(source, out int value) && value != 0) Add(target, value);
+
+        bool qualityToRarity = stats.Remove(Stat.MapItemDropQualityAlsoAppliesToMapItemDropRarity, out int qr) && qr > 0
+            || atlas is not null && atlas.GetValueOrDefault(Stat.MapItemDropQualityAlsoAppliesToMapItemDropRarity) > 0;
+        if (qualityToRarity && mods.Quality > 0)
+            Add(Stat.MapItemDropRarityPlusPct, mods.Quality);
+
+        // Meticulous Appraiser: the quantity modifiers apply to rarity instead, at 300%.
+        bool appraiser = stats.GetValueOrDefault(Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue) != 0
+            || atlas is not null && atlas.GetValueOrDefault(Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue) != 0;
+        if (appraiser && stats.Remove(Stat.MapItemDropQuantityPlusPct, out int quantity) && quantity != 0)
+            Add(Stat.MapItemDropRarityPlusPct, 3 * quantity);
+    }
+
     public static Dictionary<uint, int> ComposeMapDisplayStats(MapMods? mods, IReadOnlyDictionary<uint, int> atlas)
     {
         var stats = new Dictionary<uint, int>();
         if (mods is null) return stats;
         void Add(uint key, int value) => stats[key] = stats.GetValueOrDefault(key) + value;
         int effect = global::AtlasStats.ModEffect(atlas, mods.MapRarity == ItemRarity.Unique, mods.ExplicitMods.Count, mods.FragmentCount);
-        foreach (var mod in mods.ExplicitMods)
-            foreach (var (id, value) in mod) if (value != 0) Add(id, (int)Math.Clamp((long)value * (100L + effect) / 100, int.MinValue, int.MaxValue));
-        foreach (var (id, value) in mods.Implicit) if (value != 0) Add(id, value);
-        foreach (var (id, value) in mods.Fragments) if (value != 0) Add(id, value);
-        if (mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0)
-            foreach (var (id, value) in mods.Stats) if (value != 0) Add(id, value);
+        AddMapModStats(mods, effect, Add);
+        // Include Atlas passive IIQ/IIR/PackSize (plus implicit/unscaled contributions) so world + 0x140 always
+        // reflects effective area IIQ/IIR/PackSize on White/Normal/Unique maps without leaking raw Atlas-only stats.
+        foreach (uint key in EffectiveDisplayStats)
+            if (atlas.TryGetValue(key, out int value) && value != 0) Add(key, value);
+        foreach (var (source, _) in FoldedMapDropStats)
+            if (atlas.TryGetValue(source, out int value) && value != 0) Add(source, value);
+        FoldEffectiveMapStats(stats, mods, atlas);
+        foreach (uint key in EffectiveDisplayStats)
+            if (stats.TryGetValue(key, out int value) && value == 0) stats.Remove(key);
         return stats;
     }
 
     public static Dictionary<uint, int> ComposeMapAreaStats(MapMods? mods, int tier, IReadOnlyDictionary<uint, int> atlas,
-        IReadOnlySet<string> families, int preset, bool deepwater = false, byte bossOption = 0)
+        IReadOnlySet<string> families, int preset, bool deepwater = false, byte bossOption = 0, int spawnEnvoy = 0)
     {
         var stats = new Dictionary<uint, int>();
         void Add(uint name, int value)
@@ -142,13 +241,7 @@ public static partial class Game
         if (preset >= 0) Add(Stat.MapActiveAtlasPassiveTreeIndex, preset + 1);
         int effect = global::AtlasStats.ModEffect(atlas, mods.MapRarity == ItemRarity.Unique, mods.ExplicitMods.Count, mods.FragmentCount);
         // Each explicit mod's values scaled by the mod effect and truncated on their own; implicits and fragments unscaled.
-        foreach (var mod in mods.ExplicitMods)
-            foreach (var (id, value) in mod) if (value != 0) Add(id, (int)Math.Clamp((long)value * (100L + effect) / 100, int.MinValue, int.MaxValue));
-        foreach (var (id, value) in mods.Implicit) if (value != 0) Add(id, value);
-        foreach (var (id, value) in mods.Fragments) if (value != 0) Add(id, value);
-        // Older modules construct a flat MapMods. Preserve their stats when there is no breakdown to compose.
-        if (mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0)
-            foreach (var (id, value) in mods.Stats) if (value != 0) Add(id, value);
+        AddMapModStats(mods, effect, Add);
         // The scarab's legacy stat is not a CoreLeagues forced-count input. Publish its count in the input both
         // generators read, before the instance freezes its area stats; room placement and shrine ownership stay shared.
         if (Stat.MapLeaguestoneAdditionalShrines is var shrineKey
@@ -160,15 +253,7 @@ public static partial class Game
             if (Stats.Key($"map_contains_x_additional_{kind}_packs_if_{kind}") is uint key && stats.Remove(key, out int value)
                 && mods.MapRarity == rarity && value != 0)
                 Add(Stat.Of($"map_contains_x_additional_{kind}_packs"), value);
-        // Meticulous Appraiser: the quantity modifiers apply to rarity instead, at 300%.
-        if (Stat.MapItemDropQuantityInsteadAppliesToMapItemDropRarityAt3TimesValue is var appraiser
-            && stats.GetValueOrDefault(appraiser) != 0)
-        {
-            int quantity = 0;
-            foreach (uint id in new[] { Stat.MapItemDropQuantityPlusPct, Stat.MapImplicitItemDropQuantityPlusPct, Stat.MapUnscaledItemDropQuantityPlusPct })
-                if (stats.Remove(id, out int value)) quantity += value;
-            Add(Stat.MapItemDropRarityPlusPct, 3 * quantity);
-        }
+        FoldEffectiveMapStats(stats, mods);
         // The derived counts.
         Set(Stat.MapRarity, (int)mods.MapRarity);
         Set(Stat.MapNumberOfExplicitMods, mods.ExplicitMods.Count);
@@ -190,8 +275,12 @@ public static partial class Game
             if (tier > 1) Set(Stat.MapHiddenMonsterDamagePlusPctFinal, tier - 1);
         }
         Set(Stat.MapDeviceType, 1);
-        // AtlasPrimordialBossOptions: 1 Maven, 2 Eater of Worlds, 3 Searing Exarch (C→S 0xd8 / 0x297).
-        if (IsBossOptionEligible(bossOption, tier, mods.MapRarity)) Set(Stat.MapAtlasPrimordialBossInfluence, bossOption);
+        // Stat 0x2a03 (10755, map_atlas_primordial_boss_influence) selects Eldritch Altar UI art (0x140c78279):
+        // 1 = Tangle (Eater of Worlds, bossOption 2), 2 = Cleansing Fire (Searing Exarch, bossOption 3).
+        if (bossOption is 2 or 3 && IsBossOptionEligible(bossOption, tier, mods.MapRarity))
+            Set(Stat.MapAtlasPrimordialBossInfluence, bossOption == 2 ? 1 : 2);
+        // map_spawn_envoy (wire 15661): 2 = TangleQuest, 3 = CleansingFireQuest terrain feature room.
+        if (spawnEnvoy is 2 or 3) Set(Stat.MapSpawnEnvoy, spawnEnvoy);
         // The league blocks of the tree's families and of the families the map names itself (MapMods.AtlasFamilies);
         // a family both hold is carried once.
         foreach (string family in mods.AtlasFamilies.Count == 0 ? families : families.Union(mods.AtlasFamilies, StringComparer.Ordinal))

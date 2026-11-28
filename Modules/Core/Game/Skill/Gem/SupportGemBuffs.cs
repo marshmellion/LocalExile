@@ -144,7 +144,9 @@ public static partial class Game
     {
         stats = WithSelfBuffs(player, WithTriggeredGuard(player, stats));
         stats = WithVaalArcticArmour(player, stats);
+        AddVaalRighteousFireStats(player, stats);
         AddMomentumStats(player, stats);
+        AddTraumaStats(player, stats);
         double now = AreaTime(player);
         bool timed = player.SupportGems.ArcaneSurgeActiveAt(now);
         bool fromFlask = stats.GetValueOrDefault(Stat.ArcaneSurgeDuringManaFlaskEffect) != 0 && player.FlaskEffects.AnyMana;

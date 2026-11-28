@@ -72,7 +72,7 @@ public static partial class Game
                 + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
                 + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
         if (critical && shot.ActualCaster is null) CommitProjectileCritFlasks(session, now, random);
-        if (hit.Life == 0 && shot.FromTotem) OwnedKillLocked(target, 0);
+        if (hit.Life == 0 && shot.FromTotem) TotemKillLocked(target, 0);
         if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource, playerKill: shot.ActualCaster is null, skillStats: shot.SkillStats);
         if (hit.StageStarts) CommitProjectileBossStage(session, id, target, contact.At);
         // Charges affect the next chronological hit/use, rather than waiting for the presentation ticker.
@@ -133,30 +133,49 @@ public static partial class Game
         bool playerKill = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         var player = session.Player;
+        if (player.Area.Owned) player.Area.Delta.DiscardActions(id);
+        double now = at / (double)ProjectileRuntime.QuantaPerSecond;
+        var position = monster.Walk.Position(now);
+        if (monster.ShockedAtDeath is null) CaptureLootAilmentsAtDeath(monster, now);
+        if (!playerKill && GravebindCreditsKill(player, position, now)) playerKill = true;
         // The projectile's lethal hit froze this decision before the output queue can publish it.
         TinctureKillBonus? tinctureKill;
         bool destroyCorpse;
         tinctureKill = playerKill ? TakeTinctureKill(player, monster) : null;
         destroyCorpse = playerKill && TakeUnhingedHitKillLocked(player, monster);
         if (playerKill) QueueMadnessExplosionLocked(player, id, monster);
-        StopCorpseBlocking(player, id, monster);
+        if (!destroyCorpse || HardcoreProgressBlocked(player) || monster.Variety is null || !monster.Hostile)
+            StopCorpseBlocking(player, id, monster);
         DetonateExplosiveFusesOnDeath(monster, session);
-        QueueInfernalBlowDeath(monster, at / (double)ProjectileRuntime.QuantaPerSecond, session);
+        QueueInfernalBlowDeath(monster, now, session);
+        QueueInfernalCryDeath(id, monster, now, session);
+        QueueVoltaxicBurstDeath(id, monster, now, session);
         SpreadPestilentStrike(player, id, monster, at / (double)ProjectileRuntime.QuantaPerSecond);
         // A soul only moves on some kills: an unchanged balance must not take a gate turn through the presentation.
         if (VaalSoulsUnpresented(player))
             session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
-        double now = at / (double)ProjectileRuntime.QuantaPerSecond;
+        if (playerKill && monster.Hostile)
+        {
+            IndexExistingHitMarksLocked(player);
+            if (HitMarkedMonsters.TryGetValue(monster, out _))
+                HitSummonsOnDeathLocked(player, id, monster, now);
+        }
         TransferMarksOnDeathLocked(player, monster, now);
-        var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(player) || monster.Variety is not { } variety || !monster.Hostile) return;
+        // Hit-kill corpse destruction (Axe Mastery, Kitava's Feast, Unhinged, Pyre, Cremator): remove the corpse before
+        // death skills (e.g. Porcupine spines), corpse consumption, or targeting can observe it.
+        bool corpseDestroyed = destroyCorpse && DestroyHitKillCorpseLocked(player, id, monster);
+        if (corpseDestroyed)
+            session.Enqueue(() => SendWorldRemoval(player, id,
+                $"0x02bd corpse 0x{id:x} ({monster.Label}) destroyed on hit kill"));
         // Devour consumes the killing blow's corpse: its object leaves before the kill's loot and quest work.
-        bool devoured;
-        devoured = ConsumeDevouredCorpseLocked(player, id, monster, now);
+        bool devoured = !corpseDestroyed && ConsumeDevouredCorpseLocked(player, id, monster, now);
         if (devoured)
             session.Enqueue(() => SendWorldRemoval(player, id,
                 $"0x02bd corpse 0x{id:x} ({monster.Label}) devoured by the supported skill"));
+        else if (!corpseDestroyed && ConsumeVoidSphereCorpseLocked(player, id, monster, now))
+            session.WorldRecords(id, () => [InstanceProtocol.RemoveObject(id)], remove: true);
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(player);
         var modMonster = ModMonster(monster, position);
@@ -171,17 +190,23 @@ public static partial class Game
             // the projectile step's world group, and the first kill's life update went a frame before the others.
             if (GameEvents.MonsterKilled.Any)
                 session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(PlayerOf(killer), modMonster)));
-            if (OnslaughtOnKill(player)) session.EnqueueLater(() => SendKillOnslaught(player));
-            ChargesOnKill(player, monster, skillStats ?? TakeAcceptedKillSkill(player));
+            if (OnslaughtOnKill(player, now, monster.TauntedAtDeath))
+                session.EnqueueLater(() => SendKillOnslaught(player));
+            var killSkill = skillStats ?? TakeAcceptedKillSkill(player);
+            ChargesOnKill(player, monster, killSkill);
             if (RecoverOnKill(player, monster, tinctureKill) is int deathEpoch)
                 session.EnqueueLater(() => PlayerDiedAtEpoch(player, "death from life lost on kill", deathEpoch));
             else if (player.PlayerLife > 0)
                 GainPhasingOnKill(player);
             var explosionStats = PlayerStatValues(player);
             var explosionEquipment = CaptureKillEquipment(player, monster, position, now, explosionStats);
-            if (MayExplodeOnKill(player, monster, explosionEquipment, explosionStats))
-                session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment));
+            SporeguardOnKillLocked(player, position, now);
+            if (MayExplodeOnKill(player, monster, explosionEquipment, explosionStats, killSkill))
+                session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment, killSkill));
         }
+        else if (IsTotemKill(monster)
+            && PlayerStatValues(player).GetValueOrDefault(Stat.ExplodeEnemiesFor500PctLifeAsFireOnKillPctChance) > 0)
+            session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, totemOnly: true));
         SoulEaterSoul(player, id, position);
         MonsterKits.GrantKinDeathChargesLocked(player.Area, id, monster, now);
         session.EnqueueLater(() => MonsterKits.ExecuteDeathSkills(player, id, monster, position));
@@ -204,7 +229,7 @@ public static partial class Game
             session.PlayerExperience(change.After);
             if (level != player.Pools.Level)
             {
-                CommitExperienceLevel(player, level);
+                int before = CommitExperienceLevel(player, level);
                 player.PlayerLife = LifeCap(player); player.PlayerMana = (uint)UnreservedMana(player);
                 RefillPlayerEnergyShield(player);
                 TrimLeechLocked(player);
@@ -212,13 +237,18 @@ public static partial class Game
                 session.Enqueue(() => SendPlayerMana(player, "projectile kill level"));
                 session.Packet(PassivesMessage(player).Bytes);
                 session.Enqueue(() => BroadcastLevelChange(player, level));
+                session.Enqueue(() => GameEvents.RunLevelUp(player, before, level));
                 // Account-level persistence is a projection of the committed XP ledger.
                 session.Enqueue(async () => { await SynchronizeAccountLevel(player); });
             }
         }
-        if (!MonsterGivesNoRewards(monster))
+        if (MonsterGrantsKillFlaskCharges(monster))
+        {
+            int flaskChargesPct = ActorScale.Saturate((long)(tinctureKill?.FlaskChargesPct ?? 0)
+                + BleedingKillFlaskChargesPct(player, monster.BleedSourcesAtDeath?.Contains(player.Id) == true));
             CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
-                : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(player).Mods, tinctureKill?.FlaskChargesPct ?? 0));
+                : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(player).Mods, flaskChargesPct));
+        }
         // The map overlay's "X monsters remain" (S→C 0x1a0): coalesced once per batch instead of once per kill.
         session.QueueRemainingMonsters();
         // Loot rolling is catalogue work (ItemDrops.Roll); doing it under the projectile runtime's Monsters lock held
@@ -229,8 +259,6 @@ public static partial class Game
             CommitProjectileLoot(session, monster, position, firstBossKill);
             return Task.CompletedTask;
         });
-        if (destroyCorpse)
-            session.Enqueue(() => PublishUnhingedCorpseDestruction(player, id, monster, destroyCorpse));
     }
 
     static void CommitProjectileLoot(ProjectileSession session, SpawnedMonster monster, (int X, int Y) position, bool firstBossKill = false)
@@ -302,7 +330,7 @@ public static partial class Game
         foreach (var (flask, local, charges, amount) in gaining)
         {
             if (!CanGainFlaskCharges(player, flask, local, stats)) continue;
-            int whole = player.FlaskChargeCarry.Take(flask.Id, amount * FlaskCharges.GainMultiplier(local, Get, areaIncrease));
+            int whole = player.FlaskChargeCarry.Take(flask.Id, amount * FlaskGainMultiplier(player, flask.Id, local, Get, areaIncrease));
             if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, value => Flasks.Gain(value, charges, whole)) is { } item)
                 changed.Add(item);
         }
@@ -328,9 +356,8 @@ public static partial class Game
         }
         if (!anyNotFull) return;
         var stats = PlayerStatValues(player);
-        int Get(uint key) => stats.GetValueOrDefault(key);
         bool precision = AffectingAuras(player).Any(a => a.EffectId == "Precision");
-        var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), player.FlaskChargeCarry, at, random.Next);
+        var gains = FlaskCharges.OnCrit(bar, PlayerFlaskCritSources(player, stats, precision), player.FlaskChargeCarry, at, random.Next);
         if (gains.Count > 0) CommitProjectileFlaskGain(session, (f, _) => gains.GetValueOrDefault(f.Id));
     }
 }

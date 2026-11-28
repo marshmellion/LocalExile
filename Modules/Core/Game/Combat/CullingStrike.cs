@@ -112,6 +112,10 @@ public static partial class Game
             int Get(uint k) => cullStats.GetValueOrDefault(k);
             int lifeGained = Get(Stat.LifeGainedOnCull);
             int manaGained = Get(Stat.ManaGainedOnCull);
+            if (m.Hostile && player.PlayerLife > 0
+                && Get(Stat.OnslaughtBuffDurationOnCullingStrikeMs) is > 0 and var onslaughtMs
+                && KillOnslaughtOf(player).Gain(AreaTime(player), onslaughtMs / 1000d))
+                Marked(player, PlayerStatStep.Onslaught);
             if (!cannotRecoverLife && lifeGained > 0 && player.PlayerLife > 0)
             {
                 // The same capped recovery the other instant Life sources use: reserved Life and Petrified Blood apply.
@@ -140,7 +144,7 @@ public static partial class Game
     static bool BurningTarget(Player player, SpawnedMonster m, double? at = null)
     {
         double now = at ?? ProjectileWorldTime(player);
-        if (m.Ignites.IgnitedAt(now) || m.HeraldBurns.IgnitedAt(now)
+        if (m.Ignites.IgnitedAt(now) || m.HeraldBurns.IgnitedAt(now) || TrarthusBurning(m, now) || ConflagrationBurning(m, now)
             || ProjectileSession.OnBurningDamageGround(player.Area, m, now)
             || InfernalLegionFields.TryGetValue(player, out var field) && field.Burning.Contains(m)) return true;
         foreach (var other in player.Instance?.Presence.PlayersExcept(player.Id) ?? [])

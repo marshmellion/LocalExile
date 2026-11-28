@@ -43,11 +43,13 @@ public static partial class Game
         return (int)Math.Clamp(SoulEaterState.MaximumStacks + (long)bonus, 0, ushort.MaxValue);
     }
 
-    static bool MapSoulEater(Player player) =>
-        MapModsOf(player)?.Get(Stat.MapPlayerConsumeNearbySouls) > 0;
+    static bool NearbySoulsActive(Player player, IReadOnlyDictionary<uint, int> stats) =>
+        stats.GetValueOrDefault(Stat.MapPlayerConsumeNearbySouls) > 0
+        || MapModsOf(player)?.Get(Stat.MapPlayerConsumeNearbySouls) > 0
+        || SoulEaterStatPresent(stats) && AnyFlaskEffect(player);
 
     public static bool SoulEaterActive(Player player, IReadOnlyDictionary<uint, int> stats) =>
-        MapSoulEater(player) || SoulEaterHitCooldownMs(stats) > 0 || SoulEaterStatPresent(stats) && AnyFlaskEffect(player);
+        NearbySoulsActive(player, stats) || SoulEaterHitCooldownMs(stats) > 0;
 
     /// <summary>The buff's attack speed part, added to the final main-hand value without rebuilding the pools.</summary>
     public static int SoulEaterAttackSpeed(Player player, IReadOnlyDictionary<uint, int> stats)
@@ -69,7 +71,7 @@ public static partial class Game
     // The sources as the stats give them (PlayerStatsUpdated): which ones feed souls, and the maximum.
     static void ConfigureSoulEater(Player player, IReadOnlyDictionary<uint, int> stats)
     {
-        bool flask = MapSoulEater(player) || SoulEaterStatPresent(stats) && AnyFlaskEffect(player);
+        bool flask = NearbySoulsActive(player, stats);
         int hitCooldown = SoulEaterHitCooldownMs(stats);
         bool active = flask || hitCooldown > 0;
         player.SoulEater.Enabled = active;
@@ -144,9 +146,19 @@ public static partial class Game
         bool usingFlask = Stat.UsingFlask is var flaskKey && currentStats.GetValueOrDefault(flaskKey) != 0;
         int stacks = SoulEaterCount(player, now);
         bool auraChanged = active != (player.SoulEater.AuraBuff != 0);
-        bool statsChanged = auraChanged || stacks != player.SoulEater.SentStacks || usingFlask != player.SoulEater.SentUsingFlask;
+        bool stacksChanged = stacks != player.SoulEater.SentStacks;
+        bool usingFlaskChanged = usingFlask != player.SoulEater.SentUsingFlask;
         if (!active) player.SoulEater.Souls.Clear();
-        if (!statsChanged && player.SoulEater.Souls.Count == 0) return null;
+        if (!auraChanged && !stacksChanged && !usingFlaskChanged && player.SoulEater.Souls.Count == 0) return null;
+        // When Soul Eater itself is inactive and only using_flask toggled (e.g. an ordinary life/mana flask starting
+        // or ending), update the single client stat in place instead of rebuilding full stats + skills and logging 0/45.
+        if (!active && !auraChanged && !stacksChanged && player.SoulEater.Souls.Count == 0)
+        {
+            if (Stat.UsingFlask is var usingKey) SetStats(player, player.Id, [(usingKey, usingFlask ? 1 : 0)]);
+            player.SoulEater.SentUsingFlask = usingFlask;
+            return null;
+        }
+        bool statsChanged = auraChanged || stacksChanged || usingFlaskChanged;
         if (player.SoulEater.Souls.Count > 0)
         {
             // One line per soul, from the corpse to the player, as the official server's ServerBeamEffect.

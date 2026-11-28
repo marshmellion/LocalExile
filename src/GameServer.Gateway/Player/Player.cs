@@ -32,6 +32,43 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 /// it (<c>action_should_face_away_from_target</c>: the Sand Spitter spits from its rear).</summary>
 public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway);
 
+/// <summary>How a combo child fires on the client when its parent clip event triggers (S3, 3.29.3c RE).</summary>
+public enum MonsterComboDispatch
+{
+    /// <summary>Send S→C 0x1ce (triggered=true) so the client draws Geometry/EffectDriven/Beam/GEAL/Melee visuals
+    /// without interrupting Actor+0x1b0, plus resolve server AoE/melee hit.</summary>
+    TriggeredAction,
+    /// <summary>Spawn authoritative server projectile/mortar via S→C 0x2bb without duplicate 0x1ce.</summary>
+    Projectile,
+    /// <summary>Spawn server summon/object/ground via S→C 0x2bb without 0x1ce.</summary>
+    ServerSpawn,
+}
+
+/// <summary>One scheduled child trigger bound to a named animation clip event on an <c>EmptyAction*</c> combo parent.</summary>
+public sealed record MonsterComboStep(
+    string EventName,
+    int Ms,
+    double Fraction,
+    int ChildEffect,
+    MonsterAttack ChildAttack,
+    MonsterComboDispatch Dispatch,
+    ContactPoint? Point = null);
+
+/// <summary>Engine facing/motion control event parsed from a parent combo clip (<c>StartFaceEventType</c>,
+/// <c>EndFaceEventType</c>, <c>MoveEventType</c>, or <c>face</c>).</summary>
+public sealed record MonsterComboControl(
+    string Kind,
+    int Ms,
+    int? EndMs = null,
+    ContactPoint? Point = null,
+    bool TerrainClamped = false)
+{
+    /// <summary>Start time as a fraction of the raw clip length, clamped to [0, 1].</summary>
+    public double Fraction { get; init; }
+    /// <summary>End time as a fraction of the raw clip length (when <see cref="EndMs"/> is set), clamped to [0, 1].</summary>
+    public double? EndFraction { get; init; }
+}
+
 /// <summary>One skill of a boss's kit (BossKits): the granted effect it is built from, its action, and how long the
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
 public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds)
@@ -43,6 +80,11 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
     public bool IsTeleport { get; init; }
     /// <summary>Whether one cast of this kit skill fires a barrage of shots (<c>BossMoves.BarrageOf</c>).</summary>
     public bool IsBarrage { get; init; }
+    /// <summary>Minimum distance in cells before this skill may be chosen (e.g. <c>projectile_minimum_range</c>,
+    /// <c>leap_slam_minimum_distance</c>; 0 means no extra minimum beyond <see cref="MonsterSkillUse.MinRange"/>).</summary>
+    public double MinRange { get; init; }
+    /// <summary>Shared cooldown group from <c>GrantedEffectsPerLevel.CooldownGroup</c> (0 = independent cooldown).</summary>
+    public int CooldownGroup { get; init; }
 }
 
 /// <summary>A delayed strike: how long its marker waits, the art it shows while it waits and as it strikes (null for
@@ -144,6 +186,7 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
     /// <summary>The skill's own poison chance (%) and duration (seconds), applied on an unblocked hit beside the monster's
     /// mods (an essence boulder whose skill carries 100% poison). Zero: the skill adds none.</summary>
+    public bool AlwaysBleedsOnHit { get; init; }
     public int PoisonChance { get; init; }
     public double PoisonSeconds { get; init; }
     public CorruptedBloodOnHit? CorruptedBlood { get; init; }
@@ -240,8 +283,15 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>A kit skill that is no plain hit (<see cref="MonsterSkillUse"/>): a travel, a buff on its user, a curse.</summary>
     public MonsterSkillUse? Use { get; init; }
 
+    /// <summary>Ordered child triggers fired at named clip events during an <c>EmptyAction*</c> combo parent (S3).</summary>
+    public IReadOnlyList<MonsterComboStep>? ComboSteps { get; init; }
+
+    /// <summary>Clip-driven facing/motion control events (<c>StartFace</c>/<c>EndFace</c>/<c>MoveEventType</c>) synchronized
+    /// with a combo parent.</summary>
+    public IReadOnlyList<MonsterComboControl>? ComboControls { get; init; }
+
     /// <summary>Plays where the actor stands. A plain melee attack instead walks the monster up (07 §5).</summary>
-    public bool InPlace => Ranged || Spell || Scripted || Use is not null;
+    public bool InPlace => Ranged || Spell || Scripted || Use is not null || ComboSteps is { Count: > 0 };
 
     /// <summary>The skill's stats. A melee attack keeps the client's pathing step: the action walks the monster up to its
     /// target and waits there until S→C 0x1ac starts the swing (07 §5). Anything else plays where it stands.</summary>
@@ -348,11 +398,21 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>The rest of a boss's skills (BossKits): the effect each one comes from, its action and its cooldown.
     /// Empty for every monster that swings one attack.</summary>
     public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
+    public IReadOnlyList<int>? OwnedSkillEffects { get; init; }
     /// <summary>The effect behind each id on the actor's skill list, so a mod's command can play any of the monster's own
     /// skills by the GrantedEffects Id the client shows. Empty when the spawn named none.</summary>
     public IReadOnlyList<(int Effect, ushort Id)> SkillIds { get; init; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), in the area's frame.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
+    /// <summary>Slot-indexed mirror of <see cref="KitReadyAt"/> aligned with <see cref="Kit"/> for O(1) zero-hash AI selection.</summary>
+    public double[]? KitReadyAtSlot;
+    /// <summary>Shared cooldown group expiry times (<see cref="MonsterKitSkill.CooldownGroup"/> → ready Clock seconds).</summary>
+    public Dictionary<int, double>? KitCooldownGroupReadyAt;
+    /// <summary>Most recent Clock time a cooldown skill (special) or zero-cooldown skill (plain) was consumed from <see cref="Kit"/>.</summary>
+    public double LastSpecialAt;
+    public double LastPlainAt;
+    /// <summary>True once per-monster kit state (teleport opener, ranged burst streak, or melee walk-up timer) is attached.</summary>
+    public bool HasKitState;
     /// <summary>The damage taken toward each kit trigger on damage taken since it was last cast, by granted effect.</summary>
     public readonly Dictionary<int, double> KitDamageTaken = [];
     bool originallyHostile = true;
@@ -368,6 +428,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it. Read
     /// each frame, so a caller may give a monster its body later (false), in the area's frame.</summary>
     public bool NonBlocking { get; set; }
+    /// <summary>Player-allied minion carrying Positioned +0x1e0 bit 15 (0x8000): players pass through it while hostile
+    /// monsters and other minions still collide with it (0x141e65ae0, 0x141e36100).</summary>
+    public bool AlliedMinion { get; init; }
     public uint? OwnerId { get; init; }
     // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
@@ -380,6 +443,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// them": your modifiers do not apply), so it carries no <c>is_player_minion</c> stat, takes no minion modifier, is
     /// not in <see cref="PlayerMinions"/> and counts towards no minion limit.</summary>
     public bool AlliedFighter;
+    /// <summary>An allied companion bound to a player (distinct from summoned minions and shrine allies).</summary>
+    public bool IsAlliedCompanion;
+    /// <summary>True when this allied companion is a permanent follower (eligible for permanent-companion passives and links).</summary>
+    public bool IsPermanentCompanion;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
@@ -521,6 +588,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double Burn;
     // Life regeneration not yet applied (fractions of a point between ticks; RegenerateMonsters).
     public double Regen;
+    public double? PeriodicLifeRegenStarted;
     // When the player last hit it (Clock seconds): "enemies you've Hit Recently". Reset at the player's death.
     public double PlayerHitAt = double.NegativeInfinity;
     // When its attack last hit the player (Clock seconds; evaded and blocked attacks do not hit): "enemies that have Hit
@@ -591,6 +659,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // damage taken, shown with BuffDefinitions 807 (cover_in_ash).
     public double CoveredInAshUntil = double.NegativeInfinity, CoveredInAshShownUntil;
     public ushort CoveredInAshBuff;
+    public double CoveredInFrostUntil = double.NegativeInfinity, CoveredInFrostShownUntil;
+    public ushort CoveredInFrostBuff;
     // Maimed by his hits until when (the sole movement owner) and the physical damage increase its support gave, whose
     // independent time plain Maim does not refresh; shown with its own maimed buff.
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
@@ -606,6 +676,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
     public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;
     public double TotemHinderedUntil = double.NegativeInfinity;
+    public List<(double Until, int Pct)>? WitherHinders;
     public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;
@@ -669,6 +740,13 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     {
         foreach (var ((source, k), until) in sourceMarks) if (k == key) yield return (source, until);
     }
+    /// <summary>Changes the remaining time of each source's active mark when its clock rate changes.</summary>
+    public void RetimeSourceMarks(string key, double now, double oldRate, double newRate)
+    {
+        foreach (var (source, until) in SourceMarks(key).ToArray())
+            if (until > now)
+                sourceMarks[(source, key)] = RecipientEffectTime.RetimedDeadline(until, now, oldRate, newRate);
+    }
     /// <summary>Removes every value and mark <paramref name="source"/> keeps on it (the source left the instance).</summary>
     public void ForgetSource(uint source)
     {
@@ -691,6 +769,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Its life; a change goes to every client at the frame's end (AreaLife).</summary>
     public uint Life { get; set { if (field == value) return; field = value; LifeChanged?.Invoke(); } } = maxLife;
     internal Action? LifeChanged;
+    public double? LastLifeEndedAt { get; internal set; }
     // Until when its last flinch plays (Clock seconds; HitReaction): no new action or flinch before.
     // Owned by the area's frame.
     public double FlinchUntil = double.NegativeInfinity;
@@ -719,6 +798,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public bool CorpseConsumed;
     public int HitFireExplosionPercent;
     public bool CursedAtDeath;
+    public bool? ShockedAtDeath, FrozenAtDeath;
+    public IReadOnlyList<uint>? BleedSourcesAtDeath;
+    public bool TauntedAtDeath;
+    public int WitherStacksAtDeath;
     public double NonAuraHexUntilAtDeath;
     // Shared-instance sync shows these bodies to new viewers and removes each view on consumption or expiry.
     public bool CreatedAsCorpse;
@@ -796,6 +879,8 @@ public sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? ta
     public Func<double> Hold { get; } = hold;
     // Ground attacks have no target-hit task to advance their repeat timer when the swing starts.
     public Func<double>? GroundAttackSeconds { get; init; }
+    // Full attack duration delegate used to clamp LockstepBusyUntil when a walk-up reaches its swing.
+    public Func<double>? AttackSeconds { get; init; }
     // Placed where its 0x1ab went out and not decided yet: the step pass tests its goal every frame.
     public bool Open;
     // When MoveTo's search timer (+0x55c) last started (Game.StepWalkUp).
@@ -867,8 +952,32 @@ public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtW
 /// steps that read them.</summary>
 public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents, Items, Passives, RecentEnemyHits, FlaskEffects, EnemyHit }
 
+/// <summary>An active allied companion accompanying a player in the current area (for example, an invited mercenary
+/// follower). Owned by the module that spawned it and cleared when the companion leaves or dies.</summary>
+public sealed class ActiveCompanion(uint entityId, SpawnedMonster monster, bool isPermanent)
+{
+    public uint EntityId { get; } = entityId;
+    public SpawnedMonster Monster { get; } = monster;
+    public bool IsPermanent { get; } = isPermanent;
+
+    /// <summary>Number of unique items currently equipped on this companion (for per-unique scaling stats).</summary>
+    public int EquippedUniqueCount { get; set; }
+
+    /// <summary>Synchronous hit/diversion damage handler invoked inside a locked combat frame; returns actual life
+    /// damage taken by the companion.</summary>
+    public Func<Player, int, double, int>? ApplyDamageLocked { get; init; }
+
+    /// <summary>Asynchronous damage handler for out-of-frame callers; returns actual life damage taken.</summary>
+    public Func<Player, int, double, Task<int>>? ApplyDamageAsync { get; init; }
+
+    /// <summary>Optional callback invoked synchronously when this companion hits a hostile monster.</summary>
+    public Action<Player, SpawnedMonster>? OnHitEnemy { get; init; }
+}
+
 public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : IHasComponents
 {
+    /// <summary>The player's currently spawned allied companion in this area, if any.</summary>
+    public ActiveCompanion? Companion { get; set; }
     /// <summary>The character this player entity is (its save data).</summary>
     public Character Character => character ??= new() { StatsChanged = MarkStatsDirty };
     Character? character;
@@ -1076,6 +1185,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public const int NpcBlockerSize = 4, StashBlockerSize = 2, MapDeviceBlockerSize = 3;
     readonly Dictionary<uint, ClientPathfinder.Blocker> _blockers = [];
     volatile IReadOnlyList<ClientPathfinder.Blocker> _blockerList = [];
+    readonly HashSet<uint> nonPlayerBlockers = [];
+    volatile IReadOnlyList<ClientPathfinder.Blocker> _playerStationaryBlockers = [];
     // Cached player blocker snapshot (Blockers): reused while stationary, monster and peer bodies stay on the same cells.
     // Never mutated after publication so concurrent readers stay race-free.
     readonly Lock _playerBlockersGate = new();
@@ -1086,7 +1197,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         get
         {
             if (Instance?.World.AreaBodies is { } area) return area(Id);
-            var fixedOnes = _blockerList;
+            var fixedOnes = _playerStationaryBlockers;
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
             lock (_playerBlockersGate)
@@ -1098,12 +1209,12 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
                 if (Area.DormantMonsters.Count == 0)
                 {
                     foreach (var (id, m) in Area.Monsters)
-                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
+                        if (!m.AlliedMinion && MonsterBody(id, m, now) is { } body) list.Add(body);
                 }
                 else
                 {
                     foreach (var (id, m) in CollisionMonsters)
-                        if (MonsterBody(id, m, now) is { } body) list.Add(body);
+                        if (!m.AlliedMinion && MonsterBody(id, m, now) is { } body) list.Add(body);
                 }
                 // Another player stands where its own walk has it.
                 var peers = Instance?.PlayersExcept(Id);
@@ -1142,6 +1253,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     }
 
     public IReadOnlyList<ClientPathfinder.Blocker> StationaryBlockers => _blockerList;
+    /// <summary>Stationary blockers that also block player walkers (excludes player-allied totems, which carry
+    /// Positioned +0x1e0 bit 15 so players walk through them while hostile monsters stay blocked).</summary>
+    public IReadOnlyList<ClientPathfinder.Blocker> PlayerStationaryBlockers => _playerStationaryBlockers;
 
     public (int X, int Y)? StationaryPosition(uint id)
     {
@@ -1167,22 +1281,47 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     }
 
     public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null) =>
-        UpdateBlocker(id, x, y, size, collisionRadius, null);
+        UpdateBlocker(id, x, y, size, collisionRadius, null, blocksPlayer: true);
+
+    public void SetRingBlocker(uint id, int x, int y, double ringRadius)
+    {
+        lock (_blockers)
+        {
+            actorOrChestBlockers.Remove(id);
+            nonPlayerBlockers.Remove(id);
+            _blockers[id] = new(x, y, 0) { RingRadius = ringRadius };
+            RefreshBlockerListsLocked();
+        }
+        BlockersChanged?.Invoke();
+    }
 
     public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius = null) =>
-        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest);
+        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest, blocksPlayer: true);
 
-    void UpdateBlocker(uint id, int x, int y, int size, double? collisionRadius, bool? actorOrChest)
+    public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius, bool blocksPlayer) =>
+        UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest, blocksPlayer);
+
+    void UpdateBlocker(uint id, int x, int y, int size, double? collisionRadius, bool? actorOrChest, bool blocksPlayer)
     {
         lock (_blockers)
         {
             if (actorOrChest == true) actorOrChestBlockers.Add(id);
             else if (actorOrChest == false) actorOrChestBlockers.Remove(id);
+            if (blocksPlayer) nonPlayerBlockers.Remove(id);
+            else nonPlayerBlockers.Add(id);
             _blockers[id] = new(x, y, size) { CollisionRadius = collisionRadius };
-            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
-            sceneryBlockers = null;
+            RefreshBlockerListsLocked();
         }
-        BlockersChanged?.Invoke();
+        if (blocksPlayer) BlockersChanged?.Invoke();
+    }
+
+    void RefreshBlockerListsLocked()
+    {
+        _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+        _playerStationaryBlockers = nonPlayerBlockers.Count == 0
+            ? _blockerList
+            : new GameServer.Core.World.BlockerSet(_blockers.Where(b => !nonPlayerBlockers.Contains(b.Key)).Select(b => b.Value));
+        sceneryBlockers = null;
     }
 
     /// <summary>A stationary blocker was added or moved (the player may now stand in it).</summary>
@@ -1194,8 +1333,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         {
             if (!_blockers.Remove(id)) return;
             actorOrChestBlockers.Remove(id);
-            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
-            sceneryBlockers = null;
+            nonPlayerBlockers.Remove(id);
+            RefreshBlockerListsLocked();
         }
     }
 
@@ -1207,13 +1346,20 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public void ReplaceAreaTransition(uint id, AreaTransitionObject transition) =>
         Layout = Layout with { AreaTransitions = [.. Layout.AreaTransitions.Select(e => e.Id == id ? (e.Id, transition) : e)] };
 
+    /// <summary>Publishes a dynamically added exit in this view without resetting the current walk.</summary>
+    public void AddAreaTransition(uint id, AreaTransitionObject transition)
+    {
+        if (Layout.AreaTransitions.Any(e => e.Id == id)) return;
+        Layout = Layout with { AreaTransitions = [.. Layout.AreaTransitions, (id, transition)] };
+    }
+
     // The quest walls (Barrier) are read on every path, so a wall that opens or closes counts from the next order on.
     private PlayerWalk NewPlayerWalk()
     {
         var l = Layout;
         Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && (Barrier is not { Count: > 0 } b || !b.Contains((cx, cy))) : null;
         return new(l.SpawnX, l.SpawnY, Program.WalkSpeed, walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
-            () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf };
+            () => Blockers, sight: l.Sight) { FrameOf = LockstepFrameOf, TrackDistance = true };
     }
     /// <summary>True when C→S 0x7d's tile hash differed from the server's generated <see cref="ServerLevels.Level.TileHash"/>.</summary>
     public bool LevelDesynced { get; set; }
@@ -1261,6 +1407,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // spike traps close, by id.
     public readonly Dictionary<uint, AreaPopulation.RoomObject> TrialObjects = [];
     public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> DoorBarriers = [];
+    // Optional per-door sight/projectile layer overrides (layer 1: proj_tri/proj_circle only). Doors absent from this
+    // map default to blocking both walking and sight; walk-only grates register an empty set so blink/dash can cross.
+    public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> SightDoorBarriers = [];
     // Cells server objects' Hull projectile shapes close to the server's projectiles, as the client stamps them into its
     // own projectile map (a trial's dart turrets). Changed and read in the area's frame.
     public readonly HashSet<(int X, int Y)> ProjectileWalls = [];
@@ -1268,10 +1417,28 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // QuestRoomObjects' and DoorBarriers' cells.
     public volatile IReadOnlySet<(int X, int Y)> Barrier = new HashSet<(int X, int Y)>();
 
-    /// <summary>Recomputes <see cref="Barrier"/> from the standing quest walls and closed doors; the player's walk estimate
-    /// reads it on its next order (call in the area's frame).</summary>
-    public void UpdateBarrier() =>
-        Barrier = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells).Concat(DoorBarriers.Values.SelectMany(c => c)));
+    sealed class DoorLayers(IEnumerable<(int X, int Y)> walk, IReadOnlySet<(int X, int Y)> sight)
+        : HashSet<(int X, int Y)>(walk)
+    {
+        public IReadOnlySet<(int X, int Y)> Sight { get; } = sight;
+    }
+
+    public IReadOnlySet<(int X, int Y)> SightBarrier => Barrier switch { DoorLayers layers => layers.Sight, var walk => walk };
+
+    public void UpdateBarrier()
+    {
+        var quest = QuestRoomObjects.Values.SelectMany(o => o.Cells);
+        var walk = quest.Concat(DoorBarriers.Values.SelectMany(c => c));
+        if (SightDoorBarriers.Count == 0)
+        {
+            Barrier = walk.ToHashSet();
+            return;
+        }
+        var sight = quest.ToHashSet();
+        foreach (var (id, cells) in DoorBarriers)
+            sight.UnionWith(SightDoorBarriers.TryGetValue(id, out var custom) ? custom : cells);
+        Barrier = new DoorLayers(walk, sight);
+    }
     // The player's attacks: the next time one may start (Clock seconds). The client repeats 0x24 while the button is held.
     public double NextAttackAt;
     // Counts the player's actions; an attack's hit lands only if no other action started since (moving cancels it).
@@ -1282,7 +1449,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly WardState Ward = new();
     public readonly WardBreakState WardBreak = new();
     public double WitchbaneImmunityUntil;
-    public readonly TimedLifeRecovery EnduringCryRecovery = new();
     /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>
     public readonly PetrifiedBloodState PetrifiedBlood = new();
     /// <summary>Lifetap Support's life-paid costs, spent-Life counter and buff (Combat/Lifetap.cs).</summary>
@@ -1293,8 +1459,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly LeechDisplayState LeechDisplay = new();
     // Life Recoup of the hits the player took (Game.RecoupHitLocked), paid by the resource recovery loop.
     public readonly RecoupRecovery LifeRecoup = new();
-    public double SentEnduringCryUntil = double.NaN;
-    public ushort EnduringCryBuff;
     public bool AppliedAdrenaline;
     public (uint Maximum, bool Broken)? SentWard;
     public double SentAdrenalineUntil = double.NaN;
@@ -1465,6 +1629,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     /// <summary>Life the client predicted was not written (AreaLife.LifePredicted): the last written value is behind.</summary>
     public bool LifeAheadOfWire;
     uint playerLife;
+    public double? LastLifeEndedAt { get; private set; }
     public uint PlayerLife
     {
         get => playerLife;
@@ -1473,7 +1638,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             // Resource loss belongs to the actual death transition, never a delayed death notification.
             if (playerLife > 0 && value == 0)
             {
-                VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
+                LastLifeEndedAt = Frames.Now(this);
+                // Vaal souls are kept on death (poewiki "Vaal skill"); only the use in flight and prevention end.
+                VaalPreventionUntil = 0; VaalUseState = null;
                 MoltenStrikeAttackCounts.Clear(); MoltenStrikeFifthBuffs.Clear();
                 Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
             }

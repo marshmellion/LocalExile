@@ -15,6 +15,7 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
     // admission paid nothing and the cast pays when its effect starts.
     public (uint Mana, uint Life)? Paid { get; init; }
     internal int? TotemPlacements { get; init; }
+    internal int FrozenLegionUses { get; init; }
     /// <summary>The attack window reserved with this use, before movement or the native action echo.</summary>
     public (ushort Skill, double At, double Seconds)? Attack { get; init; }
     internal int? EnduranceChargesAfterCost { get; set; }
@@ -27,7 +28,9 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
             && (State is null || !Reserved || State.Uses > 1 || State.UseVersion == UseVersion)
             && (Stance is null || Stance.CurrentLocked(player));
     }
-    public bool CommitNativeUse(Player player, ushort skillId)
+    public bool CommitNativeUse(Player player, ushort skillId) => CommitNativeUse(player, skillId, synchronizeProgress: false);
+
+    internal bool CommitNativeUse(Player player, ushort skillId, bool synchronizeProgress)
     {
         if (!Current(player)) return false;
         if (Reserved)
@@ -35,7 +38,7 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
             if (CooldownReset)
                 State?.SynchronizeNativeReset(skillId, ResetBaseMilliseconds);
             else
-                State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant && !player.Connection.LockstepClient);
+                State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress || Instant && !player.Connection.LockstepClient);
             foreach (var (state, version, skill) in SharedUses)
                 state.ConfirmNativeUse(version, skill, synchronizeProgress: true);
         }

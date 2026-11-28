@@ -305,17 +305,20 @@ public static partial class Game
         cache.Last = input;
         bool changed = false;
         bool stanceTouched = false;
+        bool blessingsDisabled = input.Raw.GetValueOrDefault(Stat.DisableBlessingSkillsAndDisplaySocketedAuraGemsReserveNoMana) != 0;
         var changedAuras = new List<AuraCatalog.Aura>();
         foreach (var aura in player.Auras.Values.ToArray())
         {
             if (IsTemporaryAura(player, aura)) continue;
             var gem = SupportedSkill(player, aura.SkillId);
-            if (IsBlessing(gem) || IsBlessingSkill(gem) != IsBlessingAura(aura)
+            bool wasBlessing = IsBlessingAura(aura);
+            if (IsBlessing(gem) || IsBlessingSkill(gem) != wasBlessing || wasBlessing && blessingsDisabled
                 || AuraHasStat(aura, Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills)
                     != (gem.Stats.GetValueOrDefault(Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills) != 0))
             {
-                CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
                 player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura);
+                if (!player.Auras.Values.Any(a => a.EffectId == aura.EffectId))
+                    CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
                 changed = true; continue;
             }
             var reservation = SupportedReservationCost(player, aura.SkillId);
@@ -329,7 +332,7 @@ public static partial class Game
                 continue;
             }
             var support = AuraSupport(player, aura.SkillId);
-            var context = ReservationContext(player, aura.SkillId);
+            var context = ReservationContext(player, aura.SkillId, input.Raw);
             string? stance = StanceCatalog.IsStance(aura.EffectId)
                 ? StanceCatalog.SelectionOf(aura, player.Stance) : null;
             var repriced = aura with
@@ -343,6 +346,7 @@ public static partial class Game
                 SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf, Stance = stance,
                 ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
                 FixedManaReservation = reservation.Value.FixedMana,
+                FixedLifeReservation = reservation.Value.FixedLife,
             };
             repriced = WithCasterAuraStamps(player, repriced, input.Raw);
             if (repriced == aura) continue;
@@ -440,6 +444,7 @@ public static partial class Game
             foreach (var aura in gone) { player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura); }
             if (gone.Length > 0) player.AuraStatsDirty = true;
         }
+        if (InTown(player)) ClearCooldownTriggersLocked(player);
         if (player.AuraStatsDirty)
         {
             player.Pools = PoolsFor(player, player.Pools.Level);
@@ -481,13 +486,15 @@ public static partial class Game
         ClampReservedResources(player);
         // The player's own aura buffs are its auras now (both buffs of each, Generosity's too: its received one only has
         // its icon suppressed); the Buffs component writes what changed.
-        player.Area.Buffs.Replace(player.Id, b => b.Source == player.Id && b.Tag is 0 or (ushort)BuffTag.BloodAndSand or (ushort)BuffTag.VaalAura
+        player.Area.Buffs.Replace(player.Id, b => b.Source == player.Id
+                && (b.Tag is 0 or (ushort)BuffTag.BloodAndSand or (ushort)BuffTag.VaalAura || b.Row == AuraCatalog.BuffRow(SpellslingerEffect))
                 && (AuraCatalog.IsAuraRow(b.Row) || TimedVaalAuraBuffRows.ContainsValue(b.Row)),
             player.Auras.Values.SelectMany(aura => AuraBuffs(player.Id, aura, TemporaryAuraSecondsLeft(player, aura))));
         PresentAvianPhaseLocked(player);
         PresentCrabLocked(player);
         PresentSelfVulnerabilityLocked(player);
         PresentMadnessLocked(player);
+        PresentCooldownTriggersLocked(player);
         // Reconciliation changes Cat phase and earned charges after the caller's validation/pricing scope was built.
         // Publish every following 1b3/Actor payload from a fresh post-change snapshot, then restore that outer scope.
         using var publicationStats = new PlayerStatScope(player, fresh: true);
@@ -495,7 +502,7 @@ public static partial class Game
         {
             player.AuraStatsDirty = false;
             packets.Add(PlayerStatsOffFrames(player));
-            packets.AddRange(PlayerSkillsBatchesIfChanged(player, PlayerSkills(player)));
+            packets.AddRange(PlayerSkillsBatchesIfChanged(player, PlayerSkills(player), forceRestore: true));
             player.Frames.Area?.Life.Changed(player);
         }
         var petrified = player.PetrifiedBlood;

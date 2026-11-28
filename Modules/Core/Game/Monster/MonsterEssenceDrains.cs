@@ -11,7 +11,7 @@ static partial class Game
         Stat.SupportControlledDestructionSpellDamagePlusPctFinal, Stat.SupportVoidManipulationChaosDamagePlusPctFinal,
         Stat.SupportRapidDecayDamageOverTimePlusPctFinal, Stat.SupportEfficacySpellDamagePlusPctFinal,
         Stat.SupportEfficacyDamageOverTimePlusPctFinal, Stat.SupportPhysChaosProjectileChaosDamageOverTimePlusPctFinal,
-        Stat.CrueltyDamageOverTimePlusPctFinal,
+        Stat.CrueltyDamageOverTimePlusPctFinal, Stat.SupportDivineCryDamagePlusPctFinal,
     ];
 
     /// <summary>Essence Drain (GrantedEffects <c>EssenceDrain</c>) and its transfigured versions: the debuff one projectile
@@ -167,7 +167,9 @@ static partial class Game
                         if (cast.LossPermyriad > 0 && actual > 0 && !m.Invulnerable)
                             (losses ??= []).Add((cast, actual));
                         CreditSiphonLeechLocked(player, cast.Caster, m, life);
-                    });
+                    }, MaimDotTaken.TryGetValue(m, out _)
+                        ? (from, until) => MonsterDotTakenOver(m, DamageType.Chaos, from, until, now)
+                        : null);
                 if (damage <= 0)
                 {
                     ApplyLosses(1);
@@ -184,6 +186,7 @@ static partial class Game
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
+                    if (owner is null) CaptureLootAilmentsAtDeath(m, now);
                     m.Dead = true;
                     CleanupDeadMonsterLocked(player.Area, id, m);
                     m.LastHitBy = owner;

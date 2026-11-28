@@ -17,25 +17,33 @@ public static class SkillArea
     /// Ground Slam ("GroundSlam") has none either: the +40% final radius belongs to the old "ExileGroundSlam" row, which
     /// no gem grants (see GroundSlamWave).</summary>
     public static int BaseRadius(string? effect, Func<uint, int> get) =>
-        get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
+        effect == Game.ManabondEffect ? Math.Max(0, ActorScale.Saturate(18L + get(Stat.ActiveSkillBaseAreaOfEffectRadius)))
+            : get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
 
     static int? KnownBaseRadius(string? effect) =>
-        Game.IsLightningWarpEffect(effect) ? 16
+        effect == Game.WitherEffect ? 18 : Game.IsLightningWarpEffect(effect) ? 16
             : effect == "VaalGroundSlam" ? GroundSlamWave.VaalBaseRadius : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
-            : effect is "Earthquake" or "Earthshatter" ? 18
+            : effect == Game.SmokeMineEffect ? Game.SmokeMineCloudRadius
+            : effect is "Earthquake" or "Earthshatter" or "EarthshatterAltX" or "EarthshatterAltY" ? 18
+            : effect is "ConsecratedPath" or "ConsecratedPathAltX" ? 23
             : Game.LacerateEffect(effect) ? LacerateWaves.BaseRadius
             : Game.CleaveAttack(effect) ? Game.CleaveBaseRadius
-            : effect == "TectonicSlam" ? 15
+            : Game.IsBladestorm(effect) ? 24
+            : effect is "TectonicSlam" or "VaalBladeVortex" or Game.SpectrumHitEffect ? 15
+            : effect == "PrismaticBurst" ? 13
             : GatewayProjectileSkillProfiles.IsShatteringSteel(effect) ? 28
-            : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactAltX" or "DarkPactRoyale" ? 26
-            : effect is "StormCall" or "StormCallAltX" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" || Game.IsPyroclastMine(effect) ? 20
+            : effect is "FireTrap" or "FireTrapAltX" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactAltX" or "DarkPactRoyale" ? 26
+            : effect is "StormCall" or "StormCallAltX" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" or "FrostblinkRoyale"
+                || Game.IsPyroclastMine(effect) ? 20
             : effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY" ? 28
-            : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY"
-                or "PenanceBrand" or "PenanceBrandAltX" or "PenanceBrandAltY"
+            : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY" ? 9
+            : effect is "PenanceBrand" or "PenanceBrandAltX" or "PenanceBrandAltY"
                 or "WintertideBrand" or "WintertideBrandAltX" or "WintertideBrandAltY" ? 22
             : effect == "Brandsurge" ? 26
             : effect == "EarthquakeAltX" ? 18
             : effect == "TectonicSlamAltX" ? 15
+            : effect == Game.WitheringStepEffect ? Game.WitheringStepBaseRadius
+            : effect == Game.PlagueBearerEffect ? Game.PlagueBearerBaseRadius
             : GatewayProjectileSkillProfiles.IsMoltenStrike(effect) ? 9 : 12;
 
     static readonly uint[] MoreArea =
@@ -67,8 +75,10 @@ public static class SkillArea
         get(Stat.BaseSkillAreaOfEffectPlusPct) + get(Stat.SkillAreaOfEffectPlusPct) + (spell ? get(Stat.SpellAreaOfEffectPlusPct) : 0);
 
     /// <summary>The client's precomputed radius percentage (0x1591), not the increased area percentage.</summary>
-    public static int RadiusPercent(Func<uint, int> get, bool spell) =>
-        (int)Math.Clamp((long)Math.Floor(100 * Math.Sqrt(Modifier(get, spell)))
+    public static int RadiusPercent(Func<uint, int> get, bool spell) => RadiusPercent(get, spell, 1);
+
+    internal static int RadiusPercent(Func<uint, int> get, bool spell, double areaMore) =>
+        (int)Math.Clamp((long)Math.Floor(100 * Math.Sqrt(Modifier(get, spell) * areaMore))
             * Math.Max(0L, 100L + get(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal)) / 100 - 100, -100, int.MaxValue);
 
     /// <summary>Supports' more or less area, each a "_final" multiplier on the supported skill: Spell Cascade, Arcanist
@@ -96,6 +106,8 @@ public static class SkillArea
         foreach (uint more in SupportMoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
         if (get(Stat.IsTotem) != 0)
             mod *= Math.Max(0, 1 + get(Stat.StygianSpireTotemAreaOfEffectPlusPctFinalPerMaximumTotem) / 100.0);
+        if (get(Stat.AffectedBySandstorm) != 0)
+            mod *= Math.Max(0, 1 + get(Stat.BladestormAreaOfEffectPlusPctFinalWhileInSandstorm) / 100.0);
         // Discharge: more area per removable charge it will spend (the charges above the minimum).
         if (get(MorePerRemovableCharge) is int perCharge and not 0)
             mod *= Math.Max(0, 1 + perCharge * Charges.Types.Sum(t => Math.Max(0, get(Stat.Of($"current_removable_{Charges.Name(t)}_charges")))) / 100.0);
@@ -123,7 +135,8 @@ public static class SkillArea
     internal static int Radius(int baseRadius, Func<uint, int> get, bool spell, double areaMore)
     {
         int radius = baseRadius + get(Stat.ActiveSkillBaseRadiusPlus);
-        double scaled = radius * Math.Floor(100 * Math.Sqrt(Modifier(get, spell) * areaMore)) / 100;
+        double hundredths = 100 * Math.Sqrt(Modifier(get, spell) * areaMore);
+        double scaled = radius * Math.Floor(hundredths > 0 ? Math.BitIncrement(hundredths) : hundredths) / 100;
         scaled *= Math.Max(0, 1 + get(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal) / 100.0);
         return Math.Max(0, (int)Math.Floor(scaled));
     }

@@ -40,6 +40,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Equipped jewel, weapon and flask modifiers affect qualifying hits, projectiles and recovery.
 - Read-only inventories emit `0x00c2` permissions; Heist NPC equipment handles `0x00fd` and controller `0x002d` moves.
 - Soul Ripper spends charges for Vaal souls when allowed, and Forbidden Taste applies its recovery and chaos damage.
+- Forbidden Flame/Flesh roll a class ascendancy notable and a matching socketed pair grants its stats (checked offline).
 - The Wise Oak, Taste of Hate and Soul Catcher apply their qualified damage modifiers during the flask effect.
 - Map flask penalties apply to utility and recovery flask effects and to awarded charges.
 - Alchemist's Genius: flask use rolls grant (10% effect, 20% charges, 4 s from ReminderText 189), rescaling flasks.
@@ -64,8 +65,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
 - Conditional item operators and qualified source lifetimes (#504). Docs: [13](../docs/protocol/13-items.md).
 - Influenced item mods (Shaper, Elder, conquerors) apply, curses on hit and ground immunities included.
-  Not checked live: ground immunities, bleeding removal on warcry.
-  Not read yet: nearby-enemy auras, reflect, Unholy Might, Conflux, triggered marks, damage against ailing enemies,
+  Item-local Assassin's Mark levels enter the wearer's accepted-hit trigger path.
+  Not checked live: ground immunities, bleeding removal on warcry, Assassin's Mark after this change.
+  Not read yet: nearby-enemy auras, reflect, Unholy Might, Conflux, damage against ailing enemies,
   damage over time with attacks and the weapon-local ailment stats.
 - Item modifier effect and affix-cap implicits. Docs: [13](../docs/protocol/13-items.md), "Item modifier effect".
 - Utility-flask orbs: Enkindling/Instilling enchantments, incoming Bleed/Poison triggers, and automatic use of full utility flasks.
@@ -77,7 +79,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Yriel and Beacon creation variants use world-data modifier bundles; their gameplay remains partial.
 - Unique items, Mageblood, Headhunter and Replica Headhunter, Bino's Kitchen Knife, The Squire, abyss jewels,
   Paradoxica's double damage (main hand only), Yoke of Suffering's damage taken per ailment type its wearer inflicted
-  (no scorch, brittle or sap) and Forbidden Shako's random supports; most uniques' own mechanics are missing.
+  (no scorch, brittle or sap), Forbidden Shako's random supports, Death's Oath (Death Aura, walls block it; on-kill
+  degeneration), The Sundered Will's chaos aura effect (Blasphemy hexes too) and hexes' no reservation as an aura
+  (Impresence); most uniques' own mechanics are missing.
   Bino's spreads the strongest poison and regenerates nearby players and allied monsters; fresh client checks are pending.
   Every client unique has a definition (from Path of Building, or the PoE wiki for those it lacks) but the maps,
   Impossible Escape, watchstones and the six unique Heist contracts. Docs: [13](../docs/protocol/13-items.md) §2e, §8a.

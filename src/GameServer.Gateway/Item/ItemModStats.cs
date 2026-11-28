@@ -20,7 +20,7 @@ public static class ItemModStats
     /// <summary>The item-local stats that raise the effect of the item's own explicit modifiers: every explicit one,
     /// or only that side (Simplex and Focused Amulets, the Simplex ring bases, Subsume the Source).</summary>
     const uint ExplicitEffect = Stat.LocalExplicitModEffectPlusPct, PrefixEffect = Stat.LocalPrefixModEffectPlusPct,
-        SuffixEffect = Stat.LocalSuffixModEffectPlusPct;
+        SuffixEffect = Stat.LocalSuffixModEffectPlusPct, UnveiledEffect = Stat.UnveiledModEffectPlusPct;
 
     /// <summary>The summed values of the stats on these items' mods, by Stats.dat Id: global ones, or with
     /// <paramref name="local"/> the item's own. An explicit modifier counts with the item's increased effect applied
@@ -134,11 +134,12 @@ public static class ItemModStats
             }
     }
 
-    /// <summary>The item's own increased-effect stats, summed raw: explicit (every explicit modifier), prefix and
-    /// suffix (only that side). The stats are local, so they are read here rather than from the character's list.</summary>
-    static (long Explicit, long Prefix, long Suffix) Effect(Item item, ModCatalog mods)
+    /// <summary>The item's own increased-effect stats, summed raw: explicit (every explicit modifier), prefix,
+    /// suffix, and unveiled explicit modifiers (Cane of Kulemak). The stats are local, so they are read here rather
+    /// than from the character's list.</summary>
+    static (long Explicit, long Prefix, long Suffix, long Unveiled) Effect(Item item, ModCatalog mods)
     {
-        long explicitAll = 0, prefix = 0, suffix = 0;
+        long explicitAll = 0, prefix = 0, suffix = 0, unveiled = 0;
         foreach (var mod in item.Mods)
             if (mods.ByHash(mod.Hash) is { } row)
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
@@ -147,25 +148,34 @@ public static class ItemModStats
                         case ExplicitEffect: explicitAll += mod.Values[s]; break;
                         case PrefixEffect: prefix += mod.Values[s]; break;
                         case SuffixEffect: suffix += mod.Values[s]; break;
+                        case UnveiledEffect: unveiled += mod.Values[s]; break;
                     }
-        return (explicitAll, prefix, suffix);
+        return (explicitAll, prefix, suffix, unveiled);
     }
 
+    static bool IsVeiledMod(ModCatalog.Mod row) =>
+        row.Domain == 28
+        || row.Tags.Contains("unveiled_mod")
+        || row.Id.StartsWith("JunMasterVeiled", StringComparison.Ordinal);
+
     /// <summary>How much the item's effect stats raise this modifier: only explicit affixes are affected, by the
-    /// all-explicit stat plus the stat for their own side.</summary>
-    static long EffectPercent(ItemMod mod, ModCatalog.Mod row, (long Explicit, long Prefix, long Suffix) effect) =>
+    /// all-explicit stat, the stat for their own side, plus unveiled modifier effect when unveiled.</summary>
+    static long EffectPercent(ItemMod mod, ModCatalog.Mod row, (long Explicit, long Prefix, long Suffix, long Unveiled) effect) =>
         mod.Section != ModSection.Explicit ? 0
-        : effect.Explicit + (row.GenerationType == ItemRolls.Prefix ? effect.Prefix
-            : row.GenerationType == ItemRolls.Suffix ? effect.Suffix : 0);
+        : effect.Explicit
+            + (row.GenerationType == ItemRolls.Prefix ? effect.Prefix
+                : row.GenerationType == ItemRolls.Suffix ? effect.Suffix : 0)
+            + (effect.Unveiled != 0 && IsVeiledMod(row) ? effect.Unveiled : 0);
 
     /// <summary>Whether a stat marks its mod as an aura for other creatures. The marker is a display stat: "nearby"
     /// (enemies or allies) or a debuff the wearer puts on them.</summary>
     static bool IsOthersAura(ModCatalog.ModStat stat) => stat.Name is var id && id.StartsWith("local_display_", StringComparison.Ordinal)
+        && stat.Id != Stat.LocalDisplayEnemiesKilledNearbyCountAsBeingKilledByYou
         && !StatConditions.SourceLocalCondition(id)
         && (id.Contains("nearby", StringComparison.OrdinalIgnoreCase)
             || id.EndsWith("_debuff", StringComparison.OrdinalIgnoreCase));
 
-    static bool IsEffectStat(uint id) => id is ExplicitEffect or PrefixEffect or SuffixEffect;
+    static bool IsEffectStat(uint id) => id is ExplicitEffect or PrefixEffect or SuffixEffect or UnveiledEffect;
 
     /// <summary>The Eldritch condition stat (Stats 15802, IsLocal): a mod carrying it with a nonzero value only
     /// applies while a Pinnacle Boss is in the wearer's presence (1,362 Mods rows, value 1).</summary>
@@ -220,7 +230,7 @@ public static class ItemModStats
     }
 
     /// <summary>One item's local stats by Stats.dat Id (local_critical_strike_chance_+% …).</summary>
-    sealed record LocalValues(Dictionary<uint, int> Stats);
+    sealed record LocalValues(long Revision, Dictionary<uint, int> Stats);
     sealed class LocalItems
     {
         public readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, LocalValues> Items = new();
@@ -244,8 +254,12 @@ public static class ItemModStats
         var game = Program.GameLogicOrNull;
         var rules = LocalCatalogs.GetOrCreateValue(mods);
         var cache = (game is null ? rules.Default : rules.Games.GetOrCreateValue(game)).Items;
-        return cache.GetValue(item, current => new(SumValues(
-            Values(current, mods, local: true, subject: default, statExists: null, game: game)))).Stats;
+        long revision = mods.Revision;
+        if (cache.TryGetValue(item, out var existing) && existing.Revision == revision)
+            return existing.Stats;
+        var stats = SumValues(Values(item, mods, local: true, subject: default, statExists: null, game: game));
+        cache.AddOrUpdate(item, new LocalValues(revision, stats));
+        return stats;
     }
 
     /// <summary>Local conditional rows need the current actor's subject and cannot use the immutable item cache.</summary>
@@ -253,12 +267,16 @@ public static class ItemModStats
         Func<string, bool> statExists) => Sum([item], mods, local: true, subject: subject, statExists: statExists);
 
     /// <summary>A shield's block chance: the base type's from ShieldTypes.dat plus the shield's own local added block
-    /// ("+X% Chance to Block" is a local modifier). A local no-block modifier (Kongming's Stratagem) removes it.</summary>
+    /// ("+X% Chance to Block" is a local modifier), that sum raised by the shield's own local increased block
+    /// ("X% increased Chance to Block", the Adamant prefix's local_block_chance_+% ). Path of Building computes the
+    /// same item value: Item.lua:2411 floors (base + local BASE) * (1 + local INC / 100). A local no-block modifier
+    /// (Kongming's Stratagem) removes it.</summary>
     public static int ShieldBlock(ItemCatalog items, Item item, ItemCatalog.BaseType type)
     {
-        var local = Local(item, items.Mods);
-        return local.GetValueOrDefault(Stat.LocalNoBlockChance) != 0 ? 0
-            : items.ShieldBlock(type) + local.GetValueOrDefault(Stat.LocalAdditionalBlockChancePct);
+        var local = LocalCached(item, items.Mods);
+        if (local.GetValueOrDefault(Stat.LocalNoBlockChance) != 0) return 0;
+        long flat = Math.Max(0, items.ShieldBlock(type) + local.GetValueOrDefault(Stat.LocalAdditionalBlockChancePct));
+        return (int)(flat * Math.Max(0, 100 + local.GetValueOrDefault(Stat.LocalBlockChancePlusPct)) / 100);
     }
 
     /// <summary>An item's attribute requirements after its own local modifiers: the base's requirement raised or lowered

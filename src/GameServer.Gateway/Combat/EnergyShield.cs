@@ -2,6 +2,11 @@
 /// Character.ot supplies 2000%/minute recharge (one third of maximum per second). Caller supplies game time.</summary>
 public sealed class EnergyShield
 {
+    static readonly FinalStatMultipliers RechargeMultipliers = new();
+
+    /// <summary>Registers a stat that applies a final multiplier to the recharge rate.</summary>
+    public static IDisposable HandOverRechargeMoreStat(uint stat) => RechargeMultipliers.Register(stat);
+
     public readonly record struct Snapshot(uint Current, double Fraction, double? InterruptedSecondsAgo);
 
     public uint Current { get => current; private set { bool was = Full; if (current != value) { current = value; Changed?.Invoke(); } if (Full != was) ConditionsChanged?.Invoke(); } }
@@ -27,8 +32,13 @@ public sealed class EnergyShield
 
     public void SetMaximum(uint maximum, bool refill = false)
     {
+        uint previous = Maximum;
         Maximum = maximum;
-        Current = refill ? maximum : Math.Min(Current, maximum);
+        // A change between two non-zero maximums keeps the same percentage of maximum energy shield.
+        Current = refill ? maximum
+            : previous > 0 && maximum > 0 && maximum != previous
+                ? (uint)Math.Min(maximum, Math.Round((double)Current * maximum / previous))
+                : Math.Min(Current, maximum);
         if (Current == Maximum) { fraction = 0; StopRecharge(); }
     }
     public void Interrupt(double now)
@@ -72,11 +82,14 @@ public sealed class EnergyShield
         if (Current == Maximum) { fraction = 0; StopRecharge(); }
     }
     // Leech/gain does not start recharge or reset its interruption timer.
-    public void Gain(double amount)
+    public void Gain(double amount) => Gain(amount, Maximum);
+
+    public void Gain(double amount, uint ceiling)
     {
         if (!double.IsFinite(amount) || amount <= 0) return;
-        Current = RecoveryPool.Advance(Current, Maximum, amount, ref fraction);
-        if (Current == Maximum) StopRecharge();
+        uint cap = Math.Min(Maximum, Math.Max(Current, ceiling));
+        Current = RecoveryPool.Advance(Current, cap, amount, ref fraction);
+        if (Current >= cap) StopRecharge();
     }
     /// <summary>Loss of a pool, independent of incoming damage and its recharge interruption.</summary>
     public void Lose(double amount, ref double carry)
@@ -127,22 +140,33 @@ public sealed class EnergyShield
 
     public static double BaseRechargePerMinute(uint max, Func<uint, int> get) =>
         max * 20.0 * Math.Max(0, 1 + get(Stat.EnergyShieldRechargeRatePlusPct) / 100.0)
+        * RechargeMultipliers.Factor(get)
         // Wicked Ward: "40% less Energy Shield Recharge Rate".
         * (get(Stat.KeystoneWickedWard) != 0 ? 0.6 : 1)
         // Eldritch Battery: "50% less Energy Shield Recharge Rate".
         * (get(Stat.KeystoneEldritchBattery) != 0 ? 0.5 : 1);
-    public static double RegenPerMinute(uint max, Func<uint, int> get) =>
-        get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.NoEnergyShieldRechargeOrRegeneration) != 0 ? 0 :
-        Math.Max(0, get(Stat.BaseEnergyShieldRegenerationRatePerMinute) + max * get(Stat.BaseEnergyShieldRegenerationRatePerMinutePct) / 100.0)
-        * Math.Max(0, 1 + get(Stat.EnergyShieldRegenerationRatePlusPct) / 100.0)
+    /// <summary>Whether Energy Shield regeneration (native, Zealot's Oath, or Pious Path) is blocked.</summary>
+    public static bool RegenerationBlocked(Func<uint, int> get) =>
+        get(Stat.MapPlayersNoRegenerationIncludingEs) != 0
+        || get(Stat.NoEnergyShieldRechargeOrRegeneration) != 0
+        || get(Stat.CannotRegenerateEnergyShield) != 0
+        || get(Stat.CannotRecoverEnergyShield) != 0
+        || get(Stat.NoEnergyShieldRecovery) != 0;
+
+    /// <summary>Combined multiplier for Energy Shield regeneration (and Zealot's Oath converted life regeneration).</summary>
+    public static double RegenerationMultiplier(Func<uint, int> get) =>
+        RegenerationBlocked(get) ? 0 :
+        Math.Max(0, 1 + get(Stat.EnergyShieldRegenerationRatePlusPct) / 100.0)
         * Math.Max(0, 1 + get(Stat.EnergyShieldRecoveryRatePlusPct) / 100.0) * PanelStats.MapRecoveryMultiplier(get);
 
-    /// <summary>Whether life regeneration converted to Energy Shield by Zealot's Oath may run. The native ES
-    /// regeneration prohibitions apply to the converted amount as well.</summary>
-    public static bool ConversionAllowed(Func<uint, int> get) =>
-        get(Stat.MapPlayersNoRegenerationIncludingEs) == 0 && get(Stat.NoEnergyShieldRechargeOrRegeneration) == 0 &&
-        get(Stat.CannotRecoverEnergyShield) == 0 &&
-        get(Stat.NoEnergyShieldRecovery) == 0;
+    public static double RegenPerMinute(uint max, Func<uint, int> get) =>
+        Math.Max(0, get(Stat.BaseEnergyShieldRegenerationRatePerMinute)
+            + 60d * get(Stat.EnergyShieldRegenerationRatePerSecond)
+            + max * get(Stat.BaseEnergyShieldRegenerationRatePerMinutePct) / 100.0)
+        * RegenerationMultiplier(get);
+
+    /// <summary>Whether life regeneration converted or mirrored to Energy Shield (Zealot's Oath / Pious Path) may run.</summary>
+    public static bool ConversionAllowed(Func<uint, int> get) => !RegenerationBlocked(get);
     // The ordinary 0x1b3 virtual recharge-active stat does not start the client's recharge predictor. Feed its
     // verified native recovery input during the recharge phase instead; keep the recharge-rate stat for the panel.
     public static double PredictionPerMinute(uint max, Func<uint, int> get, bool recharging) =>
@@ -152,7 +176,9 @@ public sealed class EnergyShield
         if (!alive) { Empty(); return; }
         if (NotDelayed(get)) interruptedAt = double.NegativeInfinity;
         if (to <= from) return;
-        if (Current >= Maximum) { StopRecharge(); return; }
+        int ceilingPct = PetrifiedBlood.RecoveryCeilingPct(get);
+        uint ceiling = ceilingPct < 100 ? (uint)((long)Maximum * ceilingPct / 100) : Maximum;
+        if (Current >= Maximum || Current >= ceiling) { StopRecharge(); return; }
         double start = Recharging ? rechargeStartedAt : interruptedAt + Delay(get);
         double recharge = RechargePerMinute(Maximum, get);
         if (to >= start && recharge > 0)
@@ -164,8 +190,8 @@ public sealed class EnergyShield
         double rechargeSeconds = Math.Max(0, to - Math.Max(from, start));
         double change = fraction + RegenPerMinute(Maximum, get) * (to - from) / 60 + recharge * rechargeSeconds / 60;
         uint whole = (uint)Math.Min(uint.MaxValue, Math.Floor(change));
-        Current = (uint)Math.Min(Maximum, (long)Current + whole);
-        fraction = Current == Maximum ? 0 : change - whole;
-        if (Current == Maximum) StopRecharge();
+        Current = (uint)Math.Min(ceiling, (long)Current + whole);
+        fraction = Current >= ceiling ? 0 : change - whole;
+        if (Current >= ceiling) StopRecharge();
     }
 }

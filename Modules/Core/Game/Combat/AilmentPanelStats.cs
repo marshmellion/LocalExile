@@ -25,8 +25,10 @@ using GameServer.Core.World;
 public static class AilmentPanelStats
 {
     /// <summary>The hit's context: which rows it fills (<paramref name="Hand"/>: main_hand, off_hand, spell,
-    /// secondary), whether it is a spell and whether it is a melee hit.</summary>
-    public readonly record struct Context(string Hand, bool Spell, bool Melee = false)
+    /// secondary), whether it is a spell and whether it is a melee hit. <paramref name="Skill"/> is the hit
+    /// ActiveSkills Id (<c>artillery_ballista</c>) for the stats a Crucible tree names after one skill
+    /// (<see cref="SkillPoisonStats"/>); null leaves them out, as they name no skill then.</summary>
+    public readonly record struct Context(string Hand, bool Spell, bool Melee = false, string? Skill = null)
     {
         public bool Attack => Hand is "main_hand" or "off_hand";
         public IReadOnlyDictionary<uint, int>? WeaponStats { get; init; }
@@ -44,8 +46,10 @@ public static class AilmentPanelStats
     // (GemSupportDamage applies those to the hit, with the generic and typed ones here).
     static readonly More[] SupportMore =
     [
+        new(Stat.ActiveSkillAilmentDamagePlusPctFinal),
         new(Stat.DoedreAuraDamagePlusPctFinal), new(Stat.CastOnDamageTakenDamagePlusPctFinal),
         new(Stat.SupportCastWhileChannellingTriggeredSkillDamagePlusPctFinal),
+        new(Stat.SupportDivineCryDamagePlusPctFinal),
         new(Stat.SupportManaforgedArrowsDamagePlusPctFinal),
         new(Stat.SupportEchoDamagePlusPctFinal), new(Stat.SupportReducedDurationDamagePlusPctFinal),
         new(Stat.SupportSpiritStrikeDamagePlusPctFinal), new(Stat.SupportStormBarrierDamagePlusPctFinal),
@@ -115,6 +119,7 @@ public static class AilmentPanelStats
         Add("ignite", DamageType.Fire, ignite, IgnitePercent);
         if (igniteOnly) return rows;
         Add("poison", DamageType.Chaos, get(Stat.AllDamageCanPoison) != 0
+            || context.Skill is not null && SkillPoisonStats.Of(context.Skill, get).AllDamage
             || context.Attack && (context.WeaponStats?.GetValueOrDefault(Stat.LocalAllDamageCanPoison) ?? 0) != 0
             || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanPoison) != 0
             ? DamageTypes.ConversionOrder : [DamageType.Physical, DamageType.Chaos], PoisonPercent);
@@ -163,7 +168,11 @@ public static class AilmentPanelStats
         var more = SupportMore.Where(m => (m.Only is null || m.Only.Contains(ailment)) && (!m.MeleeHit || context.Melee)
             && (!m.Attack || context.Attack) && get(m.Stat) != 0).ToList();
         more.Add(new(Stat.DeliriumAuraDamageOverTimePlusPctFinal));
-        if (ailment == "poison") more.Add(new(Stat.HeraldOfAgonyPoisonDamagePlusPctFinal));
+        if (ailment == "poison")
+        {
+            more.Add(new(Stat.HeraldOfAgonyPoisonDamagePlusPctFinal));
+            more.Add(new(Stat.CorrosiveShroudPoisonDamagePlusPctFinalWhileAccumulatingPoison));
+        }
         if (ailmentType == DamageType.Physical) more.Add(new(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal));
         // Elemental Overload: "Ailments never count as being from Critical Strikes" for as long as the keystone is
         // allocated, so the critical rows lose the critical ailment multipliers (the application side rolls the hit's
@@ -194,6 +203,8 @@ public static class AilmentPanelStats
         int localIgniteMore = attack && ailment == "ignite"
             ? context.WeaponStats?.GetValueOrDefault(Stat.LocalIgniteDamagePlusPctFinalWithThisWeapon) ?? 0 : 0;
         double multiplier = dotMultiplier * Math.Max(0, 1 + localIgniteMore / 100d)
+            * (ailment == "poison" && critical && !neverFromCrit
+                ? Math.Max(0, 1 + get(Stat.PoisonFromCriticalStrikesDamagePlusPctFinal) / 100d) : 1)
             // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).
             * (ailmentType == DamageType.Fire ? Math.Max(0, 1 + get(Stat.ActiveSkillIgniteDamagePlusPctFinal) / 100.0) : 1)
             // Puncture's "49% more Damage with Bleeding".

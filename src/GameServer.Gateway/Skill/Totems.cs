@@ -25,7 +25,7 @@ public sealed class TotemState
     }
 
     /// <summary>What a nova totem (Shockwave Totem) does with its skill: the granted id its object carries for the
-    /// action the client plays and the cells around the totem it hits; the hit itself is worked out at each contact.</summary>
+    /// action the client plays and its hit radius. The affected targets are worked out at each contact.</summary>
     public sealed class Strike(ushort grantedId, int radius)
     {
         public ushort GrantedId { get; } = grantedId;
@@ -62,6 +62,7 @@ public sealed class TotemState
         public (int X, int Y) At { get; private set; } = at;
         public void Relocate((int X, int Y) destination) => At = destination;
         public uint MaxLife { get; } = maxLife;
+        public int PhysicalDamageReductionPct { get; init; }
         public double Until { get; set; } = until;
         public Aura? Aura => aura;
         /// <summary>Its nova; null for every other totem (an aura, Devouring Totem, an adopted projectile spell).</summary>

@@ -36,23 +36,34 @@ public sealed class MapMods
     /// second part of a node's id): what a module's own sources of those families' stats name. A family's league block is
     /// carried once, whoever holds it.</summary>
     public IReadOnlySet<string> AtlasFamilies { get; init; } = System.Collections.Frozen.FrozenSet<string>.Empty;
+    /// <summary>Named, non-numeric map content selected by modules before device payment.</summary>
+    public IReadOnlySet<string> ContentFlags { get; init; } = System.Collections.Frozen.FrozenSet<string>.Empty;
 
     public int Get(uint id) => Stats.GetValueOrDefault(id);
 
     /// <summary>Replaces one fragment contribution while preserving every other map source.</summary>
-    public MapMods WithFragmentStat(uint id, int value)
+    public MapMods WithFragmentStat(uint id, int value) => WithFragmentStats(new Dictionary<uint, int> { [id] = value });
+
+    public MapMods WithContentFlags(IEnumerable<string> flags) => Copy(Stats, Fragments, ContentFlags.Concat(flags).ToHashSet(StringComparer.Ordinal));
+
+    public MapMods WithFragmentStats(IReadOnlyDictionary<uint, int> values)
     {
         var fragments = Fragments.ToDictionary();
         var stats = Stats.ToDictionary();
-        stats[id] = checked(stats.GetValueOrDefault(id) - fragments.GetValueOrDefault(id) + value);
-        fragments[id] = value;
-        return new(stats, Quality)
+        foreach (var (id, value) in values)
         {
-            ExplicitMods = ExplicitMods, Implicit = Implicit, Fragments = fragments,
-            FragmentCount = FragmentCount, ScarabCount = ScarabCount, ScarabKinds = ScarabKinds,
-            MapRarity = MapRarity, Corrupted = Corrupted, AtlasFamilies = AtlasFamilies,
-        };
+            stats[id] = checked(stats.GetValueOrDefault(id) - fragments.GetValueOrDefault(id) + value);
+            fragments[id] = value;
+        }
+        return Copy(stats, fragments, ContentFlags);
     }
+
+    MapMods Copy(IReadOnlyDictionary<uint, int> stats, IReadOnlyDictionary<uint, int> fragments, IReadOnlySet<string> flags) => new(stats, Quality)
+    {
+        ExplicitMods = ExplicitMods, Implicit = Implicit, Fragments = fragments,
+        FragmentCount = FragmentCount, ScarabCount = ScarabCount, ScarabKinds = ScarabKinds,
+        MapRarity = MapRarity, Corrupted = Corrupted, AtlasFamilies = AtlasFamilies, ContentFlags = flags,
+    };
 
     public int Quantity => Get(Stat.MapItemDropQuantityPlusPct) + Get(Stat.MapImplicitItemDropQuantityPlusPct)
         + Get(Stat.MapUnscaledItemDropQuantityPlusPct);
@@ -113,10 +124,16 @@ public sealed class MapRunCatalog
     public sealed record Fragment(int Family, int Limit, int MinAreaLevel, IReadOnlyList<int> ModRows);
 
     public sealed record Recipe(string Id, IReadOnlyList<int> Items, bool AnyOne, int WorldArea, int AreaLevel,
-        IReadOnlyList<int> ModRows);
+        IReadOnlyList<int> ModRows)
+    {
+        /// <summary>MapDeviceRecipes.MicrotransactionPortalVariation as the 0x8f Index; 0 none. An init property so the
+        /// constructor and Deconstruct mods compiled against stay as they were.</summary>
+        public ushort PortalVariation { get; init; }
+    }
 
     readonly Dictionary<int, Fragment> _fragments;
     readonly List<Recipe> _recipes;
+    readonly Dictionary<int, ushort> _portalByArea = [];
     readonly Dictionary<int, (int Scale, IReadOnlyList<uint> Stats)> _qualityTypes;
     readonly int? _defaultQualityType;
 
@@ -125,6 +142,8 @@ public sealed class MapRunCatalog
     {
         _fragments = new(fragments);
         _recipes = [.. recipes];
+        foreach (var r in _recipes)
+            if (r.PortalVariation != 0) _portalByArea.TryAdd(r.WorldArea, r.PortalVariation);
         _qualityTypes = qualityTypes is null ? [] : new(qualityTypes);
         _defaultQualityType = _qualityTypes
             .Where(kv => kv.Value.Stats.Any(s => Program.Stats.Name(s).Contains("item_drop_quantity", StringComparison.OrdinalIgnoreCase)))
@@ -162,11 +181,19 @@ public sealed class MapRunCatalog
                 int[] recipeMods = [.. row.Ints("Mods")];
                 recipes.Add(new(row.Text("Id") ?? "", items, anyOne,
                     area, (row.IntOrNull("AreaLevel") ?? 0),
-                    recipeMods));
+                    recipeMods) { PortalVariation = PortalVariationOf(row.IntOrNull("MicrotransactionPortalVariation")) });
             }
         }
         return new MapRunCatalog(fragments, recipes, LoadQualityTypes(folder));
     }
+
+    /// <summary>The portal variation (0x8f Index) of the recipe that opens this WorldAreas row; 0 when it has none.</summary>
+    public ushort PortalVariationOfArea(int worldArea) => _portalByArea.GetValueOrDefault(worldArea);
+
+    // MicrotransactionPortalVariation is a row of MicrotransactionPortalVariations; 0x8f names that row by its Index.
+    static ushort PortalVariationOf(int? row) =>
+        row is int r && ClientTables.TableOrNull("MicrotransactionPortalVariations")?.Row(r) is { } v
+            && v.IntOrNull("Index") is int index and > 0 and <= ushort.MaxValue ? (ushort)index : (ushort)0;
 
     static Dictionary<int, (int Scale, IReadOnlyList<uint> Stats)> LoadQualityTypes(string folder)
     {
@@ -243,6 +270,7 @@ public sealed class MapRunCatalog
                     if (System.Text.RegularExpressions.Regex.Match(leaf, @"^Scarab([A-Za-z]+?)\d") is { Success: true } kind)
                     {
                         string name = kind.Groups[1].Value.ToLowerInvariant();
+                        if (name.EndsWith("new", StringComparison.Ordinal)) name = name[..^3];
                         scarabKinds[name] = scarabKinds.GetValueOrDefault(name) + 1;
                     }
                 }
@@ -286,7 +314,9 @@ public sealed class MapRunCatalog
                 why = $"{slot.Name} needs an area level of {fragment.MinAreaLevel}.";
                 return false;
             }
-            int n = count[fragment.Family] = count.GetValueOrDefault(fragment.Family) + 1;
+            // MapFragmentMods stores 149 (or null) for ungrouped fragments/oils/vessels without a family; count each BaseRow separately.
+            int familyKey = fragment.Family is < 0 or 149 ? -slot.BaseRow - 1 : fragment.Family;
+            int n = count[familyKey] = count.GetValueOrDefault(familyKey) + 1;
             if (n > fragment.Limit)
             {
                 why = $"Only {fragment.Limit} of that kind of map fragment can be used at once.";
