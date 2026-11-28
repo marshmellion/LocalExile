@@ -134,6 +134,10 @@ public static partial class Game
     {
         var player = session.Player;
         if (player.Area.Owned) player.Area.Delta.DiscardActions(id);
+        double now = at / (double)ProjectileRuntime.QuantaPerSecond;
+        var position = monster.Walk.Position(now);
+        if (monster.ShockedAtDeath is null) CaptureLootAilmentsAtDeath(monster, now);
+        if (!playerKill && GravebindCreditsKill(player, position, now)) playerKill = true;
         // The projectile's lethal hit froze this decision before the output queue can publish it.
         TinctureKillBonus? tinctureKill;
         bool destroyCorpse;
@@ -149,7 +153,6 @@ public static partial class Game
         // A soul only moves on some kills: an unchanged balance must not take a gate turn through the presentation.
         if (VaalSoulsUnpresented(player))
             session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
-        double now = at / (double)ProjectileRuntime.QuantaPerSecond;
         if (playerKill && monster.Hostile)
         {
             IndexExistingHitMarksLocked(player);
@@ -157,7 +160,6 @@ public static partial class Game
                 HitSummonsOnDeathLocked(player, id, monster, now);
         }
         TransferMarksOnDeathLocked(player, monster, now);
-        var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(player) || monster.Variety is not { } variety || !monster.Hostile) return;
         // Hit-kill corpse destruction (Axe Mastery, Kitava's Feast, Unhinged, Pyre, Cremator): remove the corpse before

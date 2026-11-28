@@ -104,6 +104,7 @@ public static partial class Game
         QueueVaalSoulPresentationLocked(player, "Vaal souls after minion kill");
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(player) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
+        if (!playerKill && GravebindCreditsKill(player, at, now)) playerKill = true;
         var partyShares = PartyExperienceShares(player, at);
         ShareKill(player, victimId, monster, variety, at, partyShares);
         SoulEaterSoul(player, victimId, at);

@@ -5868,6 +5868,8 @@ public static partial class Game
     {
         if (player.Area.Owned) player.Area.Delta.DiscardActions(id);
         if (m.ShockedAtDeath is null) CaptureLootAilmentsAtDeath(m, ProjectileWorldTime(player));
+        double deathNow = AreaTime(player);
+        if (!playerKill && GravebindCreditsKill(player, m.Walk.Position(deathNow), deathNow)) playerKill = true;
         // Guarantee the mini life bar is hidden for every kill path (AreaStats deduplicates when already set at the hit/DoT site).
         SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
         if (m.HasCurses || playerKill && m.Hostile && (HitMarkedMonsters.TryGetValue(m, out _)

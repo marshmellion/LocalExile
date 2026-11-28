@@ -64,6 +64,15 @@ public static partial class Game
                     if (MonsterGrantsKillFlaskCharges(m))
                         await GainKillCharges(other, m.Rarity, $"party kill: {m.Rarity} {m.Label}", BleedingKillFlaskChargesPct(other, inflictedBleed));
                 }
+                if (other.PlayerLife > 0 && !m.CorpseConsumed
+                    && HasGravebind(other) && Dist(other.Walk.Position(AreaTime(other)), at) <= GravebindRadius
+                    && ClaimGravebindPartyKill(m))
+                {
+                    RecordPlayerMonsterKill(other, m, AreaTime(other));
+                    ChargesOnKill(other, m, skillStats: null);
+                    await GameEvents.RunMonsterKilled(new(other, monster));
+                    await ExplodeOnKill(other, id, m, at);
+                }
                 if (QuestsOf(other).LevelAfterKill(other.Layout.Id, variety.Id) is int level and > 1 && level <= CharacterStats.LevelStarts.Count)
                 {
                     uint needed = CharacterStats.LevelStarts[level - 1], have;
