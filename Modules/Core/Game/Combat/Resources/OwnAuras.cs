@@ -316,8 +316,9 @@ public static partial class Game
                 || AuraHasStat(aura, Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills)
                     != (gem.Stats.GetValueOrDefault(Stat.SkillAuraAlsoDisablesNonBlessingManaReservationSkills) != 0))
             {
-                CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
                 player.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(player, aura);
+                if (!player.Auras.Values.Any(a => a.EffectId == aura.EffectId))
+                    CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
                 changed = true; continue;
             }
             var reservation = SupportedReservationCost(player, aura.SkillId);
