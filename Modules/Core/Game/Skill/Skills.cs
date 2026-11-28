@@ -1978,6 +1978,10 @@ public static partial class Game
         foreach (var placed in player.Placed.All.Values.Where(p => gone.Contains(p.Skill)).ToArray())
         {
             player.Placed.All.Remove(placed.Id);
+            RemoveEnemyMineAura(player.Area, placed.Id);
+            player.Area.Buffs.Clear(placed.Id, TrarthanRuin, placed.Id);
+            BladeTrapSpins.Remove(placed);
+            SpectralTrapHands.Remove(placed);
             if (!player.Placed.Grounds.Any(g => g.Object == placed.Id))
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(placed.Id), "placed skill source removed", WorldId: placed.Id, RemovesObject: true));
             player.Placed.Dirty = true;

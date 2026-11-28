@@ -268,6 +268,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearInstantBuffSkills(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaTotems(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaPlacedSkills(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaSporeguard(player); Rules.EndAreaVoltaxicBurst(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearOwnerAttacks(player); return Task.CompletedTask; });
@@ -511,6 +512,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IW
         Rules.ReleaseCharacter(player);
         Rules.ForgetVitalsAdmission(player);
         Rules.ClearEnemyMineAuras(player);
+        Rules.EndAreaPlacedSkills(player);
         Rules.ForgetSourceValues(player);
         Rules.EndAreaSporeguard(player);
         Rules.EndAreaVoltaxicBurst(player);

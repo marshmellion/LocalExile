@@ -208,9 +208,13 @@ public sealed class KillExplosionBatchTests
             Assert.Equal(100, global.GetValueOrDefault(Stat.PhysicalDamagePlusPct));
 
             string repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
-            string sqlPath = Path.Combine(repoRoot, "sql", "updates", "pending_world", "quecholli_explode_mod.sql");
-            Assert.True(File.Exists(sqlPath));
-            string sql = File.ReadAllText(sqlPath);
+            string pendingSql = Path.Combine(repoRoot, "sql", "updates", "pending_world", "quecholli_explode_mod.sql");
+            string? sqlPath = File.Exists(pendingSql)
+                ? pendingSql
+                : Directory.EnumerateFiles(Path.Combine(repoRoot, "sql", "updates", "world"), "*_quecholli_explode_mod.sql")
+                    .SingleOrDefault();
+            Assert.NotNull(sqlPath);
+            string sql = File.ReadAllText(sqlPath!);
             Assert.Contains("EnemiesExplodeOnDeathUniqueTwoHandMace7", sql);
             Assert.DoesNotContain("\r\n", sql);
         }

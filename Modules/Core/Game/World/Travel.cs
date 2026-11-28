@@ -211,7 +211,7 @@ public static partial class Game
         return supported.Effect >= 0 && (IsTotemSkill(player, skillId) || PlacedKind(supported) is (true, _) or (_, true));
     }
 
-    static (int X, int Y)? ResolveObjectAimCell(Player player, uint targetId, SpawnedMonster? monster, double now)
+    internal static (int X, int Y)? ResolveObjectAimCell(Player player, uint targetId, SpawnedMonster? monster, double now)
     {
         if (monster is not null) return monster.Walk.Position(now);
         if (targetId == player.Id) return player.Walk.Position(now);
