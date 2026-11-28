@@ -110,6 +110,15 @@ public static partial class Game
     {
         RefreshSingleUseCooldowns(player);
         var stats = ClientStats(player, FinalPlayerStats(player).ToList());
+        if (RecoveryFlaskWaivesManaCost(player)) PublishFlag(Stat.NoManaCost);
+        if (KiaraImmunityAt(player, AreaTime(player)))
+            foreach (uint flag in KiaraClientImmunities) PublishFlag(flag);
+        void PublishFlag(uint flag)
+        {
+            int index = stats.FindIndex(row => row.Item1 == flag);
+            if (index < 0) stats.Add((flag, 1));
+            else if (stats[index].Item2 == 0) stats[index] = (flag, 1);
+        }
         player.Area.Stats.SetAll(player.Id, stats);
         RefreshPeerScale(player, stats.Single(s => s.Item1 == ActorScale.Final).Item2);
         // The ground around a stationary player follows the stats the client was told (the stat presentations).
@@ -331,9 +340,16 @@ public static partial class Game
     // Resolve conversion history and modifiers from raw local/added damage, then apply Rage once.
     public static DamagePacket AttackHitConverted(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats,
         bool melee, GameServer.Core.World.DamageConversion? conversion, AttackAccuracyProfile accuracy, long additionalIncreased = 0)
+        => AttackHitConverted(weapon, stats, melee, conversion, accuracy, additionalIncreased, default);
+
+    static DamagePacket AttackHitConverted(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats,
+        bool melee, GameServer.Core.World.DamageConversion? conversion, AttackAccuracyProfile accuracy, long additionalIncreased,
+        DamageRange addedPhysical)
     {
         var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), name => RageStat(stats, name));
-        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, accuracy, melee: melee), SupportedAttackDamage.HitModifiers(weapon, Get, accuracy.Rating),
+        var raw = SupportedAttackDamage.Raw(weapon, Get, accuracy, melee: melee);
+        if (!addedPhysical.IsZero) raw = raw.Add(DamageType.Physical, addedPhysical);
+        var hit = PlayerHitDamage.Resolve(raw, SupportedAttackDamage.HitModifiers(weapon, Get, accuracy.Rating),
             conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get));
@@ -435,6 +451,7 @@ public static partial class Game
         string? character = player.Character.Name;
         var playerStats = new Dictionary<uint, int>();
         foreach (var (key, value) in playerStats2) playerStats[key] = value;
+        bool freeManaFromRecovery = RecoveryFlaskWaivesManaCost(player);
         var gems = GemSkillEffects(player).ToArray();
         if (BuildScopeOf(player) is { Building: true } building) building.Gems = gems;
         RemoveMissingSealSources(player, gems.Select(g => g.Id));
@@ -446,8 +463,9 @@ public static partial class Game
             var own = WithManaPoolCost(player, supported, WithBlessingCost(player, supported), ManaCostPool(player, supported));
             UnleashSeals(player, id, supported, ProjectileWorldTime(player));
             var skills = SkillsFor(player);
-            var stats = MergeSkillStats(playerStats, own, skills.IsChannelled(effect), SkillCostMore(player, own),
-                SkillCostScopeFor(skills, supported));
+            var costScope = SkillCostScopeFor(skills, supported);
+            var stats = MergeSkillStats(playerStats, own, skills.IsChannelled(effect), SkillCostMore(player, own), costScope,
+                LightningCostShock(player, costScope, playerStats, own));
             // A shield attack swings the shield in the off hand, which OffStats leaves out (not a weapon): the client then
             // read off_hand_total_base_weapon_attack_duration_ms 0, and Shield Charge's end-of-charge attack never finished
             // (Frida 2026-11-01, 11-skills.md "Shield Charge"). Its base time is the gem's own AttackTime.
@@ -480,6 +498,8 @@ public static partial class Game
             string? effectId = skills.EffectId(effect);
             if (CooldownTriggerController(effectId) != 0)
                 stats[Stat.MetaSkillLinkedSkillCount] = CooldownTriggerLinkedCount(player, id, effect);
+            if (effectId == SpellslingerEffect)
+                stats[Stat.MetaSkillLinkedSkillCount] = SpellslingerLinks(player, id).Count();
             if (effectId == TrarthusBlastRain)
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             bool gatheringLightning = IsGatheringLightning(effect);
@@ -688,7 +708,8 @@ public static partial class Game
                 double seconds = SkillsFor(player).IsAttack(effect)
                     ? shieldSpeed?.Seconds ?? SupportedAttackSeconds(player, id)
                     : Math.Max(.001, (CastMs(player, effect, id) ?? 0) / 1000.0);
-                var finalPlan = SkillHitPlan.ForSkill(SkillsFor(player), effect, supported.Level, supported.Quality);
+                var finalPlan = ManaStaffHitPlan(player,
+                    SkillHitPlan.ForSkill(SkillsFor(player), effect, supported.Level, supported.Quality), own);
                 int criticalChance = SupportedCriticalChance(player, id);
                 int criticalMultiplier = SupportedCriticalMultiplier(player, id);
                 var accuracy = SkillsFor(player).IsAttack(effect) ? SupportedAccuracy(player, id) : default;
@@ -896,16 +917,21 @@ public static partial class Game
                 && skills.IsAttack(effect) && own.TryGetValue(Stat.ManaCost, out int baseMana))
             {
                 var (remainingMana, _, convertedLife) = ManaRecoveryRules.SplitCostToLife(
-                    baseMana, Get, skills.IsChannelled(effect), SkillCostMore(player, own), split);
+                    baseMana, Get, skills.IsChannelled(effect),
+                    ScopedManaCostMore(player, SkillCostMore(player, own), skills.HasType(effect, "Lightning"), Get), split);
                 Publish(Stat.ManaCost, remainingMana);
                 if (convertedLife > 0)
                     Publish(Stat.LifeCost, (int)Math.Min(int.MaxValue, (long)Math.Max(0, Get(Stat.LifeCost)) + convertedLife));
             }
-            if (Get(Stat.NoManaCost) != 0)
+            if (freeManaFromRecovery || Get(Stat.NoManaCost) != 0)
             {
                 Publish(Stat.ManaCost, 0);
                 Publish(Stat.ManaCostPerMinute, 0);
             }
+            if (Get(Stat.LifeCost) is > 0 and var lifeCost
+                && Get(Stat.SkillLifeCostPlusPctFinalWhileOnLowLife) is var lowLifeCost and not 0
+                && CriticalOnLowLife(player, stats))
+                Publish(Stat.LifeCost, LowLifeSkillCost(lifeCost, lowLifeCost));
             // Bladefall of Trarthus' volley interval: 0 hung the client on its first use (#584).
             if (Get(Stat.BladefallBaseVolleyFrequencyMs) is int volleyMs and > 0)
                 Publish(Stat.BladefallVolleyFrequencyMs, BladefallVolleys.FrequencyMs(volleyMs,
@@ -1436,9 +1462,18 @@ public static partial class Game
             && !CooldownTriggerExecutable(player, gem)
             && !SnipeTriggeredAttackExecutable(player, skillId, gem)
             && !ManaforgedAttackExecutable(player, skillId, gem)) return "this trigger payload has no server executor";
+        if (SkillsFor(player).EffectId(effect) == EnergyBladeEffect)
+        {
+            if (triggered) return "Energy Blade must be used directly";
+            if (!CanUseEnergyBlade(player)) return "Energy Blade requires swords in the active weapon set";
+        }
         if (triggered && SkillsFor(player).EffectId(effect) == ThunderstormEffect)
             return "Thunderstorm must be used directly";
         if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;
+        if (SkillsFor(player).EffectId(effect) == SpellslingerEffect && !SpellslingerLinks(player, skillId).Any())
+            return "Spellslinger requires a linked spell";
+        if (SkillsFor(player).EffectId(effect) == ManaInfusedStaffEffect && player.Pools.Mana == 0)
+            return "Mana-Infused Staff requires mana to reserve";
         if ((ActorSkillInstanceDisabled(player, effect, skillId) ?? WeaponRestricted(player, effect)
                 ?? GemRequirementsUnmet(player, gem.SourceGem)) is { } disabled)
             return disabled;
@@ -1746,13 +1781,14 @@ public static partial class Game
                 LifeFlat = reservation.LifeFlat, LifePercent = reservation.LifePercent,
                 ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
                 FixedManaReservation = reservation.FixedMana,
+                FixedLifeReservation = reservation.FixedLife,
                 Level = gem.Level, Quality = gem.Quality, WornGrant = gem.WornGrant,
                 SkillStats = skillStats
             };
             player.AuraStatsDirty |= before.ManaFlat != reservation.ManaFlat || before.ManaPercent != reservation.ManaPercent
                 || before.LifeFlat != reservation.LifeFlat || before.LifePercent != reservation.LifePercent
                 || before.ReservesLife != context.Life || before.ReservationEfficiencyPct != context.Efficiency
-                || before.FixedManaReservation != reservation.FixedMana
+                || before.FixedManaReservation != reservation.FixedMana || before.FixedLifeReservation != reservation.FixedLife
                 || before.Level != gem.Level || before.Quality != gem.Quality || before.WornGrant != gem.WornGrant
                 || before.SkillStats is null || !before.SkillStats.SequenceEqual(skillStats);
         }
@@ -1906,13 +1942,18 @@ public static partial class Game
     private static (List<AuraCatalog.Aura> EndedAuras, bool PetrifiedEnded) EndNonRighteousFireSkillEffectsLocked(
         Player player, IReadOnlyCollection<ushort> gone)
     {
+        if (player.PaidChannel is { } payment && payment.Action == player.ActionCount
+            && payment.Skill == player.ChannelSkill && gone.Contains(payment.Skill))
+            AbortStartedChannel(player, payment.Generation);
         List<AuraCatalog.Aura> ended = [.. player.Auras.Values.Where(a => gone.Contains(a.SkillId))];
         foreach (var aura in ended)
         {
             player.Auras.Remove(aura.SkillId);
             EndReservationRuntimeLocked(player, aura);
-            CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
         }
+        foreach (var aura in ended.DistinctBy(a => a.EffectId))
+            if (!player.Auras.Values.Any(a => a.EffectId == aura.EffectId))
+                CharacterSaves.SetAuraActive(CharacterName(player), aura.EffectId, false);
         if (ended.Any(a => StanceCatalog.IsStance(a.EffectId)))
             ReconcileStanceSelectionLocked(player, persist: true);
         bool petrifiedEnded = player.PetrifiedBlood.Active && gone.Contains(player.PetrifiedBlood.SkillId);
@@ -1922,6 +1963,12 @@ public static partial class Game
             CharacterSaves.SetPetrifiedBlood(CharacterName(player), false);
         }
         ClearCooldownTriggersLocked(player, gone);
+        ClearInstantBuffSkillsLocked(player, gone);
+        if (CurrentEnergyBlade(player) is { } blade && gone.Contains(blade.Skill) && ClearEnergyBlade(player))
+        {
+            EnergyBladeChanged(player);
+            _ = PublishEnergyBlade(player);
+        }
         double now = AreaTime(player);
         foreach (var fighter in player.Summons.Fighters.Values.Where(g => gone.Contains(g.Source)).ToArray())
             RemoveSummonLocked(player, fighter, now);
@@ -1931,6 +1978,10 @@ public static partial class Game
         foreach (var placed in player.Placed.All.Values.Where(p => gone.Contains(p.Skill)).ToArray())
         {
             player.Placed.All.Remove(placed.Id);
+            RemoveEnemyMineAura(player.Area, placed.Id);
+            player.Area.Buffs.Clear(placed.Id, TrarthanRuin, placed.Id);
+            BladeTrapSpins.Remove(placed);
+            SpectralTrapHands.Remove(placed);
             if (!player.Placed.Grounds.Any(g => g.Object == placed.Id))
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(placed.Id), "placed skill source removed", WorldId: placed.Id, RemovesObject: true));
             player.Placed.Dirty = true;

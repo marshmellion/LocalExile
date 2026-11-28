@@ -37,6 +37,18 @@ public static partial class Game
     public static Dictionary<uint, int> CachedPlayerStats(Player player, out double baselineLifePerSecond) =>
         CachedPlayerStats(player, out baselineLifePerSecond, out _);
 
+    public static Dictionary<uint, int> CachedPlayerStats(Player player, out double baselineLifePerSecond,
+        out double baselineEnergyShieldFromLifePerSecond)
+    {
+        if (FrameStatsOf.TryGetValue(player, out var frame) && frame.ByFrame && frame.Graph is { } graph)
+        {
+            baselineLifePerSecond = frame.Outputs.BaselineLifePerSecond;
+            baselineEnergyShieldFromLifePerSecond = frame.Outputs.BaselineEnergyShieldFromLifePerSecond;
+            return new(graph.Values);
+        }
+        return CharacterPlayerStatsSnapshot(player, out baselineLifePerSecond, out baselineEnergyShieldFromLifePerSecond, out _);
+    }
+
     /// <summary>The stats as of the graph's last step in an area's frames, else a fresh build; with
     /// <paramref name="capturePanelSources"/>, the panel's sources too (what the tail's first step saw).</summary>
     public static Dictionary<uint, int> CachedPlayerStats(Player player, out double baselineLifePerSecond,
@@ -209,6 +221,7 @@ public static partial class Game
     /// <summary>The framework's hand-over (Player.StatsChanged): marks the steps that read the input.</summary>
     internal static void PlayerStatInputChanged(Player player, StatInput input)
     {
+        if (input == StatInput.Pools) RefreshBloodRageDegen(player);
         if (!FrameStatsOf.TryGetValue(player, out var frame) || frame.Graph is not { } graph) return;
         switch (input)
         {
@@ -267,10 +280,12 @@ public static partial class Game
     static bool PetrifiedBloodCapped(Player player, IReadOnlyDictionary<uint, int> stats)
     {
         if (!player.PetrifiedBlood.Active || player.PlayerLife == 0) return false;
+        var recoveryGet = PanelStats.WhileMoving(name => name is var key ? stats.GetValueOrDefault(key) : 0,
+            player.Walk.Moving(AreaTime(player)));
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
-            name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
-        double factor = LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name));
-        uint margin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute * factor / 60);
+            recoveryGet, player.Pools.Life, player.Pools.EnergyShield,
+            LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name)));
+        uint margin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
         return (long)player.PlayerLife + margin >= (uint)((long)player.PlayerMaxLife * LowLifeThresholdPct(stats) / 100);
     }
 
@@ -413,7 +428,7 @@ public static partial class Game
         // A soul eaten at the cap changes no stat, but its beam is shown.
         On([PlayerStatStep.SoulEater, PlayerStatStep.AttackSpeed], a => player.SoulEater.Changed = () => { a(); PresentStats(player); });
         On([PlayerStatStep.SpiritLeadership], a => player.SpiritChieftains.Changed = a);
-        On([PlayerStatStep.Ward], a => player.Ward.Changed = a);
+        On([PlayerStatStep.Ward, PlayerStatStep.Sources], a => player.Ward.Changed = a);
         On([PlayerStatStep.Sources, PlayerStatStep.TimedRecovery], a => player.WardBreak.Changed = a);
         On([PlayerStatStep.TotemAura], a => player.Totems.Changed = a);
         On([PlayerStatStep.Rampage], a => player.Rampage.Changed = a);

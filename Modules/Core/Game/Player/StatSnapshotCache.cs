@@ -81,13 +81,14 @@ public static partial class Game
         double lifeRegenerationToEnergyShield, bool moving)
     {
         var items = ItemsOf(player);
-        var mainRow = items.Items(PlayerInventories.Weapon1);
-        var offRow = items.Items(PlayerInventories.Offhand1);
+        var mainRow = EnergyBladeRow(player, PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1));
+        var offRow = EnergyBladeRow(player, PlayerInventories.Offhand1, items.Items(PlayerInventories.Offhand1));
         var (bloodHeld, bloodShown) = BloodChargePanelInputs(player);
+        var recoveryGet = PanelStats.WhileMoving(name => name is var key ? stats.GetValueOrDefault(key) : 0, moving);
         var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
-            name => name is var key ? stats.GetValueOrDefault(key) : 0, player.Pools.Life);
-        double factor = LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name));
-        uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute * factor / 60);
+            recoveryGet, player.Pools.Life, player.Pools.EnergyShield,
+            LifeRegenerationKeystoneFactor(name => stats.GetValueOrDefault(name)));
+        uint recoveryMargin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
         return new()
         {
             Stats = stats, Pools = player.Pools with { Evasion = PlayerEvasion(player, stats) },
@@ -102,7 +103,7 @@ public static partial class Game
                     >= (uint)((long)player.PlayerMaxLife * LowLifeThresholdPct(stats) / 100),
             LifeRegenerationToEnergyShield = lifeRegenerationToEnergyShield, Moving = moving,
             IsPhasing = player.IsPhasing, MapLightRadiusPct = MapModsOf(player)?.Get(Stat.MapPlayerLightRadiusPlusPct) ?? 0,
-            BlindLess = PlayerBlindValue(player, stats).Less,
+            BlindLess = PlayerBlindPenalty(player, stats),
             BloodChargesHeld = bloodHeld, BloodChargesShown = bloodShown,
             Ailments = [], SuppressionChance = 0,
             AttackEffectId = SkillEffectId(player, SkillCatalog.FirstSkillId),
@@ -141,7 +142,7 @@ public static partial class Game
                 .Concat(PanelStats.FromPools(Get, pools))
                 .Concat(PanelStats.Defence(Get, pools, Monsters.BaseDamage(pools.Level), Monsters.BaseAccuracy(pools.Level)))
                 .Concat(PanelStats.Recovery(PanelStats.WhileMoving(Get, inputs.Moving), pools.Life, pools.Mana,
-                    LifeRegenerationKeystoneFactor(Get)))
+                    LifeRegenerationKeystoneFactor(Get), pools.EnergyShield))
                 // Leech limits and the client display use the full maximum pool. Petrified Blood caps only the
                 // recovery actually applied, not the instance's contribution or its displayed cap.
                 .Concat(LeechLimits.Compute(Get, pools.Life, pools.Mana, pools.EnergyShield, OnLowLife(stats)))

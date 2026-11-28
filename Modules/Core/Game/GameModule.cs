@@ -91,6 +91,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadPassiveGrantedSkillsRulesData();
         // Combat, skills and projectiles.
         Rules.LoadOwnAurasData();
+        global::SkillPoisonStats.LoadData();
         global::StationaryCollision.LoadStationaryCollisionData();
         Rules.LoadProjectilesData();
         Rules.LoadPlacedSkillsData();
@@ -129,6 +130,7 @@ public sealed class GameModule : IModule, IDisposable
         global::StrongboxCatalog.LoadGameData();
         global::StrongboxMods.LoadGameData();
         global::MapStrongboxes.LoadGameData();
+        Rules.LoadCampaignCombatAreas();
         global::CampaignDoors.LoadGameData();
         global::CampaignChests.LoadGameData();
         global::WeaponIdentity.LoadGameData();
@@ -164,6 +166,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.CloseInteractionsIfMovingAway(player, null, Rules.AreaTime(player))));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.TickMapRunBoss(player)));
+        GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => Rules.TickSporeguardFungalGround(player, Rules.AreaTime(player))));
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => Rules.TickMapRunBoss(kill.Player, force: true));
         // A dead monster's debuffs come off: each player's step for it.
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
@@ -245,13 +248,16 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapBeyond.Leave(conn); return Task.CompletedTask; });
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapBeyond.PlayerStats);
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapBeyond.Describe);
-        module.Lifetime.Own(IncomingResourceDefences.HandOverFinalTaken([MapBeyond.BossLessDamageStat]));
+        module.Lifetime.Own(IncomingResourceDefences.HandOverFinalTaken([MapBeyond.BossLessDamageStat, Stat.SoulLinkGrantsDamageTakenPlusPctFinal]));
+        module.Lifetime.Own(IncomingResourceDefences.HandOverOverTimeMoreStat(Stat.PassiveMasteryDamageTakenOverTimePlusPctFinal));
+        module.Lifetime.Own(EnergyShield.HandOverRechargeMoreStat(Stat.UniqueSoullessEleganceEnergyShieldRechargeRatePlusPctFinal));
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
         module.Lifetime.Own(MonsterModEffects.HandOverMore([MapTorment.LifeStat, MapBeyond.LifeStat], [], [MapTorment.TaperStat]));
         // Secrets of Suffering's "Cannot Ignite, Chill, Freeze or Shock" and Stormblood's Sap and Brittle
         // (MonsterAlternateAilments).
         module.Lifetime.Own(MonsterElementalAilments.HandOverInflictProhibitions(Rules.SecretsOfSufferingProhibitions));
-        module.Lifetime.Own(UtilityFlasks.HandOverDuringEffectFlags(Rules.AlternateAilmentFlaskFlags));
+        module.Lifetime.Own(UtilityFlasks.HandOverDuringEffectFlags(
+            Rules.AlternateAilmentFlaskFlags));
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Rules.InitializeAccountHideouts(module.Settings<Rules.HideoutMigrationSettings>().LegacySourceCharacter);
         // Build the optional melee clock tables before combat can admit an action, rather than inside its send gate.
@@ -260,8 +266,12 @@ public sealed class GameModule : IModule, IDisposable
         Program.SetGameLogic(new GameLogic(module.Lifetime));
         module.Lifetime.Own(Rules.InstallJoining());
         string id = module.Manifest.Id;
+        GameEvents.PlayerLeaving.Add(id, Rules.EndOutgoingPlayerLinksOnLeave);
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearInstantBuffSkills(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaTotems(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaPlacedSkills(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaSporeguard(player); Rules.EndAreaVoltaxicBurst(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearOwnerAttacks(player); return Task.CompletedTask; });
         GameEvents.ObjectUse.Add(id, Rules.TryUseCustomPortal);
@@ -340,6 +350,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::AtlasBosses.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::AtlasBosses.Leaving(player));
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
+        GameEvents.Kill.Add(module.Manifest.Id, Rules.GrantRetributionConflux);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.GrantLinkedMinionRareModifiers);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ItemMinionsOnKill);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.AkoyaItemOnKill);
@@ -472,6 +483,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IW
         player.IncomingAilments.Clear();
         Rules.ClearPlayerDecay(player);
         Rules.ClearCorruptedBlood(player);
+        Rules.ClearInstantBuffSkills(player);
         Rules.ClearEssenceAuraExposure(player);
         Rules.ClearReaveStages(player);
         player.RetirePlayerUpdates();
@@ -501,8 +513,11 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IW
     {
         Rules.ReleaseCharacter(player);
         Rules.ForgetVitalsAdmission(player);
-        Rules.ClearPyroclastAuras(player);
+        Rules.ClearEnemyMineAuras(player);
+        Rules.EndAreaPlacedSkills(player);
         Rules.ForgetSourceValues(player);
+        Rules.EndAreaSporeguard(player);
+        Rules.EndAreaVoltaxicBurst(player);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
         Rules.KeepInstanceMonsters(player);
     }

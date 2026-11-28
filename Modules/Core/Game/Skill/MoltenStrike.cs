@@ -343,10 +343,14 @@ public static partial class Game
             int totalExertWarcries = (cryExerted ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
             long exertedIncreased = ExertedAttackIncreasedDamage(playerStats, skillStats, totalExertWarcries,
                 ancestralExerted: ancestralTargets > 0);
-            var meleeHit = SupportedSwingHit(player, skillId, hand, w => SupportedHitInputsFor(player, skillId, weapon: w) is { } inputs
-                ? SupportedHitFrom(inputs, suppress: true, additionalIncreased: exertedIncreased)
-                : SupportedHitFor(player, skillId, suppress: true, weapon: w));
-            if (ruthless != 1) meleeHit = meleeHit.Scale(ruthless);
+            DamagePacket MeleeHit(DamageRange addedPhysical)
+            {
+                var hit = SupportedSwingHit(player, skillId, hand, w => SupportedHitInputsFor(player, skillId, weapon: w) is { } inputs
+                    ? SupportedHitFrom(inputs, suppress: true, addedPhysical, additionalIncreased: exertedIncreased)
+                    : SupportedHitFor(player, skillId, suppress: true, weapon: w));
+                return ruthless == 1 ? hit : hit.Scale(ruthless);
+            }
+            var meleeHit = MeleeHit(default);
             int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId, swingWeapon);
             var accuracy = SupportedAccuracy(player, skillId, hand, ExertedAttackAccuracyIncrease(totalExertWarcries, playerStats, skillStats));
             var leech = HitLeechSources(playerStats, true, skillStats, local, melee: true);
@@ -355,7 +359,8 @@ public static partial class Game
             var ignite = SupportedIgnite(player, skillId, spell: false, playerStats, swingWeapon, exertedIncreased);
             var bleed = SupportedBleed(player, skillId, spell: false, playerStats, swingWeapon, melee: true, exertedIncreased);
             var poison = SupportedPoison(player, skillId, spell: false, playerStats, swingWeapon, exertedIncreased);
-            double ailmentMore = repeatMore * ExertedAttackMore(skillStats, cryExerted, otherWarcries, rallyingDamage, playerStats);
+            double ailmentMore = repeatMore * ExertedAttackMore(skillStats, cryExerted, otherWarcries, rallyingDamage,
+                playerStats, ambush: criticalRoll.AmbushExerted);
             ignite = RepeatAilment(ignite, ailmentMore);
             bleed = RepeatAilment(bleed, ailmentMore);
             poison = RepeatAilment(poison, ailmentMore);
@@ -369,18 +374,20 @@ public static partial class Game
             {
                 if (m.Dead || m.Life == 0 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m))
                     continue;
-                var contactHit = WithMeleeProximityLocked(player, playerStats, skillStats, m, meleeHit, now);
                 int hitChance = AttackHitChanceAt(player, id, m, now, accuracy, playerStats);
                 if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, now, player.AttackAccuracyRandom))
                 {
                     Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} on 0x{id:x} ({m.Label}) evaded ({hitChance}% chance to hit)");
                     continue;
                 }
-                if (MonsterBlocks(m, AreaRng(player), spell: false, now, skillStats))
+                if (MonsterBlocks(m, AreaRng(player), spell: false, now, skillStats, attacker: playerStats))
                 {
                     Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
                     continue;
                 }
+                var addedPhysical = PoachersAddedPhysical(m, now);
+                var contactHit = WithMeleeProximityLocked(player, playerStats, skillStats, m,
+                    addedPhysical.IsZero ? meleeHit : MeleeHit(addedPhysical), now);
                 var hitRolls = HitRollsFor(playerStats);
                 var damageRoll = WithExertedAttackRollModifiers(
                     (hitRolls with { DamageMorePct = 0 }).ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats,
@@ -395,8 +402,10 @@ public static partial class Game
                     rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
                     m.HallowingFlameUntil = 0;
                 }
-                rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted, otherWarcries, rallyingDamage, playerStats);
-                int exertedBaseCrit = ExertedAttackBonusCritPermyriad(totalExertWarcries, playerStats, skillStats);
+                rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted, otherWarcries, rallyingDamage,
+                    playerStats, ambush: criticalRoll.AmbushExerted);
+                int exertedBaseCrit = ActorScale.Saturate((long)ExertedAttackBonusCritPermyriad(totalExertWarcries, playerStats, skillStats)
+                    + criticalRoll.AmbushBaseCrit);
                 int? moltenOffCrit = hand != AttackHand.Main && OffhandWeaponFor(player) is not null
                     ? HandWeaponCritical(player, AttackHand.Off, playerStats) : null;
                 int? moltenSwingCrit = SwingWeaponCritical(player, hand, playerStats);
@@ -407,7 +416,8 @@ public static partial class Game
                 bool critical = RollCriticalStrike(player, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                     && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                 rolled = damageRoll.CompleteCriticalMultiplier(rolled, AreaRng(player), critical, criticalDoubleDamage);
-                int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplierBase, m, local);
+                int sourceMultiplier = CriticalMultiplierWithWeapon(
+                    ActorScale.Saturate((long)criticalMultiplierBase + criticalRoll.AmbushCritMultiplier), m, local);
                 int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
                 var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, now);
                 rolled = resonance.Packet;

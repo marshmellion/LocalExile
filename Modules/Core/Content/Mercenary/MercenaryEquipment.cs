@@ -10,6 +10,29 @@ public static class MercenaryEquipment
 {
     public sealed record Worn(byte Slot, Item Item, VisibleItem Look);
 
+    /// <summary>Computed local stats for one equipped weapon (base phys, local flat/increased/quality, attack time, crit, range).</summary>
+    public sealed record WeaponHand(
+        DamagePacket LocalDamage,
+        int AttackMs,
+        int BaseCritPermyriad,
+        int Range,
+        string ItemClass,
+        bool IsBow,
+        bool IsWand,
+        bool IsMelee,
+        bool IsTwoHand);
+
+    /// <summary>Resolved weapon, shield, and quiver loadout for a mercenary.</summary>
+    public sealed record EquippedWeapons(
+        WeaponHand? MainHand,
+        WeaponHand? OffHand,
+        bool HasShield,
+        bool HasQuiver,
+        bool IsDualWielding)
+    {
+        public static readonly EquippedWeapons None = new(null, null, false, false, false);
+    }
+
     /// <summary>Resolved live stats for a mercenary (for both server combat and client <c>0x1b3</c> Defence/Loadout sync).</summary>
     public sealed record ComputedStats(
         MonsterModSet Mods,
@@ -17,11 +40,21 @@ public static class MercenaryEquipment
         uint MaxLife,
         uint MaxEnergyShield,
         int EquippedUniqueCount,
-        IReadOnlyList<(uint Key, int Value)> ClientStats);
+        IReadOnlyList<(uint Key, int Value)> ClientStats)
+    {
+        public EquippedWeapons Weapons { get; init; } = EquippedWeapons.None;
+    }
 
     static readonly HashSet<string> TwoHandClasses = new(
         ["Two Hand Sword", "Two Hand Axe", "Two Hand Mace", "Staff", "Warstaff", "Bow", "FishingRod"],
         StringComparer.OrdinalIgnoreCase);
+
+    // [ESTIMATE] The wiki (Mercenary, 2026-11) says gear is "always at least magic rarity, typically moderately to
+    // well-crafted", sometimes unique (Mercenary-exclusive uniques among them), and an Infamous Mercenary's is better rolled
+    // with at least one unique. Retail's chances are server-side; these are this server's.
+    const int UniqueChancePct = 3, MagicChancePct = 20, ExclusiveUniqueWeight = 10;
+    static readonly HashSet<string> ExclusiveUniques = new(StringComparer.Ordinal)
+        { "Azadi Crest", "Binds of Bloody Vengeance", "The Ghastly Theatre", "Hand of Heresy", "Howlcrack", "Scornflux" };
 
     public static List<Worn> Roll(MercenaryTables.Class kind, MercenaryTables.Build build, int level, Random rng,
         bool allUnique, UniqueCatalog uniques)
@@ -29,10 +62,12 @@ public static class MercenaryEquipment
         var result = new List<Worn>();
         var looks = MercenaryGear.Of(kind, build, level, rng);
         ushort? arrow = Program.Items.Visual("DefaultArrow");
+        var entries = new List<(VisibleItem Look, int Row, ItemCatalog.BaseType[] Pool)>(looks.Count);
         foreach (var look in looks)
         {
             if (look.Slot == MercenaryGear.MainHand && look.VisualIdentity == arrow) continue;
-            int row = look.Type is > 0 and < 255 ? look.Type - 1
+            // A bow and its quiver carry BowSetup.NoWeaponType, not a class row + 1: their class comes from the art.
+            int row = look.Type is > 0 and < 255 and not BowSetup.NoWeaponType ? look.Type - 1
                 : Program.Items.All.FirstOrDefault(t => t.VisualIdentity == look.VisualIdentity)?.ClassRow ?? -1;
             var pool = Program.Items.All.Where(t => t.Supported && t.CanBeMirrored && t.ClassRow == row && t.DropLevel <= level
                 && !t.Id.Contains("Royale", StringComparison.Ordinal) && !t.Id.Contains("Demigod", StringComparison.Ordinal)
@@ -47,26 +82,112 @@ public static class MercenaryEquipment
                     && !t.Id.Contains("Talisman", StringComparison.Ordinal)).OrderBy(t => t.Id, StringComparer.Ordinal).ToArray();
             }
             if (pool.Length == 0) continue;
-            Item item;
-            if (allUnique)
+            entries.Add((look, row, pool));
+        }
+
+        List<UniqueCatalog.Definition> UniqueCandidates(ItemCatalog.BaseType[] pool) =>
+            uniques.All.Where(d => !d.EncounterOnly && !d.Corrupted && !d.Mirrored
+                && !MercenaryTables.IsDisabledUnique(d.Name)
+                && Program.Items.Find(d.BaseTypeId) is { } t && pool.Any(p => p.Row == t.Row))
+            .OrderBy(d => d.Name, StringComparer.Ordinal).ToList();
+
+        // An Infamous Mercenary wears at least one unique: choose from non-Body slots that have eligible uniques at this
+        // level so an empty slot pool never silently leaves an Infamous Mercenary with zero uniques.
+        byte? forcedUnique = null;
+        if (build.Infamous && !allUnique)
+        {
+            var eligible = entries.Where(e => e.Look.Slot != MercenaryGear.Body && UniqueCandidates(e.Pool).Count > 0)
+                .Select(e => e.Look.Slot).ToArray();
+            if (eligible.Length > 0) forcedUnique = eligible[rng.Next(eligible.Length)];
+        }
+        bool needInfamousUnique = build.Infamous && !allUnique;
+        bool rolledUnique = false;
+        foreach (var (look, row, pool) in entries)
+        {
+            Item? item = null;
+            bool forceThis = look.Slot == forcedUnique || (needInfamousUnique && !rolledUnique && forcedUnique is null && look.Slot != MercenaryGear.Body);
+            bool wantUnique = allUnique || forceThis
+                || look.Slot != MercenaryGear.Body && rng.Next(100) < UniqueChancePct;
+            if (wantUnique)
             {
-                var candidates = uniques.All.Where(d => !d.EncounterOnly && !d.Corrupted && !d.Mirrored
-                    && !MercenaryTables.IsDisabledUnique(d.Name)
-                    && Program.Items.Find(d.BaseTypeId) is { } t && pool.Any(p => p.Row == t.Row)).OrderBy(d => d.Name, StringComparer.Ordinal).ToArray();
-                item = null!;
-                while (candidates.Length > 0 && item is null)
+                var candidates = UniqueCandidates(pool);
+                while (candidates.Count > 0 && item is null)
                 {
-                    int pick = rng.Next(candidates.Length);
-                    item = uniques.Create(candidates[pick], rng)!;
-                    candidates = [.. candidates.Where((_, i) => i != pick)];
+                    // The Mercenary-exclusive uniques drop only from Mercenaries, so they are weighted up among the rest.
+                    int roll = rng.Next(candidates.Sum(d => ExclusiveUniques.Contains(d.Name) ? ExclusiveUniqueWeight : 1));
+                    int pick = candidates.FindIndex(d => (roll -= ExclusiveUniques.Contains(d.Name) ? ExclusiveUniqueWeight : 1) < 0);
+                    item = uniques.Create(candidates[pick], rng);
+                    candidates.RemoveAt(pick);
                 }
-                if (item is null) throw new InvalidOperationException($"No mercenary unique for equipment class {row}");
+                if (item is not null) rolledUnique = true;
+                else if (look.Slot == forcedUnique) forcedUnique = null;
+                if (item is null && allUnique) throw new InvalidOperationException($"No mercenary unique for equipment class {row}");
             }
-            else item = Program.Rolls.Roll(ItemCatalog.Create(pool[rng.Next(pool.Length)]) with { ItemLevel = (byte)level }, ItemRarity.Rare, rng);
+            item ??= Program.Rolls.Roll(ItemCatalog.Create(pool[rng.Next(pool.Length)]) with { ItemLevel = (byte)level },
+                !build.Infamous && rng.Next(100) < MagicChancePct ? ItemRarity.Magic : ItemRarity.Rare, rng);
             var wornLook = look with { VisualIdentity = item.VisualIdentity };
             result.Add(new(look.Slot, item with { ItemLevel = (byte)level }, wornLook));
         }
         return result;
+    }
+
+    /// <summary>Each Infamous Mercenary's own Infamous modifiers (Mods domain 41, item level 68), by its build name without
+    /// "Infamous ". The data gives each modifier only its item slot (its spawn tag); which Mercenary wears it is the wiki's
+    /// "Infamous modifiers by mercenary class" table. A name missing here (Cardinal, Warpriest of the Ruckus) has none.</summary>
+    static readonly Dictionary<string, string[]> InfamousModifiers = new(StringComparer.Ordinal)
+    {
+        ["Ripper"] = ["MercenaryModRageDecaySpeed"], ["Eruptor"] = ["MercenaryModAshWarcries"],
+        ["Earthshaker"] = ["MercenaryModAddCritPerExert"], ["Striker"] = ["MercenaryModDebilitate"],
+        ["Bastion"] = ["MercenaryModFortificationDamageAura"], ["Swiftblade"] = ["MercenaryModUnaffectedShock"],
+        ["Bloodletter"] = ["MercenaryModLifeCostOnLowLife"], ["Combatant"] = ["MercenaryModProjSpeedVariance"],
+        ["Manyshot"] = ["MercenaryModClonesInheritGloves"], ["Toxicologist"] = ["MercenaryModSingleProjAOE"],
+        ["Sniper"] = ["MercenaryModImpaleEffectFromDistance"], ["Flamequiver"] = ["MercenaryModLGOHIgnitedEnemies"],
+        ["Blade Ambusher"] = ["MercenaryModTrapMineChain"], ["Bladecaster"] = ["MercenaryModMaxBlades"],
+        ["Bladebitter"] = ["MercenaryModMaimDOT"], ["Shock Ambusher"] = ["MercenaryModMineLifeReserve"],
+        ["Frosthand"] = ["MercenaryModCurseChillingAreas"], ["Withertouch"] = ["MercenaryModCurseEffect"],
+        ["Reanimator"] = ["MercenaryModMinionFireConvertToChaos"], ["Stormhand"] = ["MercenaryModLightningSkillManaCostWhileShocked"],
+        ["Cruel Mistress"] = ["MercenaryModSkipSacrifice"], ["Storming Zealot"] = ["MercenaryModConsecratedChaosRes"],
+        ["Fallen Reverend"] = ["MercenaryModRecentMinionCrit", "MercenaryModRecoupWhileFrozen"],
+        ["Warpriest"] = ["MercenaryModMinionCDR"], ["Kineticist"] = ["MercenaryModSpellslingerReservation"],
+        ["Sanguimancer"] = ["MercenaryModTravelSkillCrit"], ["Mysterious Diver"] = ["MercenaryModReverseChillEffectChilledGround"],
+    };
+
+    /// <summary>[ESTIMATE] The wiki says an Infamous Mercenary "almost always" has an item with its Infamous modifier.</summary>
+    const int InfamousModifierChancePct = 90;
+
+    /// <summary>Adds an Infamous Mercenary's Infamous modifier, from item level 68, to the non-unique item it wears in that
+    /// modifier's slot; equipment is returned as it is otherwise.</summary>
+    public static List<Worn> WithInfamousModifier(List<Worn> equipment, MercenaryTables.Build build, int level, Random rng)
+    {
+        if (!build.Infamous || level < 68 || rng.Next(100) >= InfamousModifierChancePct
+            || !InfamousModifiers.TryGetValue(build.Name.StartsWith("Infamous ", StringComparison.Ordinal) ? build.Name[9..] : build.Name,
+                out var ids)) return equipment;
+        var mod = Program.Items.Mods.ById(ids[rng.Next(ids.Length)]);
+        if (mod is null || mod.SpawnWeights.FirstOrDefault(w => w.Weight > 0).Tag is not { } slotTag) return equipment;
+        int at = equipment.FindIndex(w => w.Item.Rarity != ItemRarity.Unique
+            && Program.Items.ByHash(w.Item.TypeHash)?.Tags.Contains(slotTag) == true);
+        if (at < 0) return equipment;
+        var values = mod.Stats.Select((_, i) => mod.RangeAt(i)).Select(r => rng.Next(r.Min, r.Max + 1)).ToArray();
+        var worn = equipment[at];
+        int cap = worn.Item.Rarity switch { ItemRarity.Rare => 3, ItemRarity.Magic => 1, _ => int.MaxValue };
+        var added = new ItemMod(ModSection.Explicit, mod.Hash, values);
+        var mods = new List<ItemMod>(worn.Item.Mods);
+        if (mod.GenerationType is 1 or 2)
+        {
+            List<int> sameGen = [];
+            for (int i = 0; i < mods.Count; i++)
+            {
+                if (mods[i].Section == ModSection.Explicit
+                    && Program.Items.Mods.ByHash(mods[i].Hash) is { } existing
+                    && existing.GenerationType == mod.GenerationType)
+                    sameGen.Add(i);
+            }
+            if (sameGen.Count >= cap) mods[sameGen[rng.Next(sameGen.Count)]] = added;
+            else mods.Add(added);
+        }
+        else mods.Add(added);
+        equipment[at] = worn with { Item = worn.Item with { Mods = mods } };
+        return equipment;
     }
 
     public static IReadOnlyList<VisibleItem> Looks(IReadOnlyList<Worn> equipment, IReadOnlyList<VisibleItem> fallback) =>
@@ -318,11 +439,48 @@ public static class MercenaryEquipment
         foreach (var (k, v) in modStats)
             stats[k] = ActorScale.Saturate((long)stats.GetValueOrDefault(k) + v);
 
-        // Local armour / evasion / energy shield from equipped Armour items
+        // Local armour / evasion / energy shield from equipped Armour items, and local weapon/quiver/shield stats
         int gearArmour = 0, gearEvasion = 0, gearEs = 0, gearBlock = 0;
-        foreach (var item in equipped)
+        WeaponHand? mainHand = null, offHand = null;
+        bool hasShield = false, hasQuiver = false;
+        var skillCatalog = SkillsFor(player);
+
+        WeaponHand? BuildWeaponHand(Item item, ItemCatalog.BaseType bt)
         {
-            if (Program.Items.ByHash(item.TypeHash) is not { } bt || !bt.Components.Contains("Armour")) continue;
+            if (skillCatalog.WeaponBase(bt.Row) is not var (ms, min, max, range)) return null;
+            var calc = ItemWeaponStats.Calculate(item, (ms, min, max, range), Program.Items.Mods);
+            var local = ItemModStats.Sum([item], Program.Items.Mods, local: true);
+            int baseCrit = AddedBaseCriticalStrike.LocalWeaponChance(
+                Program.Items.WeaponCritical(bt),
+                local.GetValueOrDefault(Stat.LocalCriticalStrikeChance),
+                local.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct));
+            if (baseCrit <= 0) baseCrit = MonsterModEffects.DefaultBaseCriticalChance;
+            int effRange = Math.Max(1, range + local.GetValueOrDefault(Stat.LocalWeaponRangePlus));
+            bool isBow = string.Equals(bt.Class, "Bow", StringComparison.OrdinalIgnoreCase);
+            bool isWand = string.Equals(bt.Class, "Wand", StringComparison.OrdinalIgnoreCase);
+            bool isTwoHand = TwoHandClasses.Contains(bt.Class);
+            return new WeaponHand(calc.Damage, calc.AttackMs, baseCrit, effRange, bt.Class,
+                isBow, isWand, IsMelee: !isBow && !isWand, isTwoHand);
+        }
+
+        foreach (var invItem in items)
+        {
+            var item = invItem.Item;
+            if (Program.Items.ByHash(item.TypeHash) is not { } bt) continue;
+            byte? equipRow = PlayerInventories.MercenarySlotAtX(invItem.X)?.EquipmentRow;
+
+            if (equipRow == PlayerInventories.Weapon1)
+            {
+                mainHand ??= BuildWeaponHand(item, bt);
+            }
+            else if (equipRow == PlayerInventories.Offhand1)
+            {
+                if (bt.ClassRow == MercenaryTables.ShieldClassRow) hasShield = true;
+                else if (bt.ClassRow == MercenaryTables.QuiverClassRow) hasQuiver = true;
+                else offHand ??= BuildWeaponHand(item, bt);
+            }
+
+            if (!bt.Components.Contains("Armour")) continue;
             var local = ItemModStats.Sum([item], Program.Items.Mods, local: true);
             var (baseArm, baseEva, baseShield) = Program.Items.Defences(bt)?.AtRoll(item.DefenceBaseRoll) ?? (0, 0, 0);
             int quality = item.Quality;
@@ -334,6 +492,18 @@ public static class MercenaryEquipment
             gearEs += (int)Math.Round((baseShield + local.GetValueOrDefault(Stat.LocalEnergyShield)) * esPct);
             gearBlock += Program.Items.ShieldBlock(bt) + local.GetValueOrDefault(Stat.LocalAdditionalBlockChancePct);
         }
+        bool isDualWielding = mainHand is not null && offHand is not null;
+        if (isDualWielding)
+        {
+            stats[Stat.IsDualWielding] = 1;
+            gearBlock += 20 + stats.GetValueOrDefault(Stat.BlockWhileDualWieldingPct)
+                + stats.GetValueOrDefault(Stat.DualWieldOrShieldBlockPct);
+        }
+        else if (hasShield)
+        {
+            gearBlock += stats.GetValueOrDefault(Stat.DualWieldOrShieldBlockPct);
+        }
+        var weapons = new EquippedWeapons(mainHand, offHand, hasShield, hasQuiver, isDualWielding);
         if (gearArmour > 0) stats[Stat.BasePhysicalDamageReductionRating] = stats.GetValueOrDefault(Stat.BasePhysicalDamageReductionRating) + gearArmour;
         if (gearEvasion > 0) stats[Stat.BaseEvasionRating] = stats.GetValueOrDefault(Stat.BaseEvasionRating) + gearEvasion;
         if (gearEs > 0) stats[Stat.BaseMaximumEnergyShield] = stats.GetValueOrDefault(Stat.BaseMaximumEnergyShield) + gearEs;
@@ -472,6 +642,9 @@ public static class MercenaryEquipment
         clientStats.Add((Stat.UncappedLightningDamageResistancePct, uncappedLight));
         clientStats.Add((Stat.UncappedChaosDamageResistancePct, uncappedChaos));
 
-        return new ComputedStats(new([], [], modEffects), stats, maxLife, maxEs, uniqueCount, clientStats);
+        return new ComputedStats(new([], [], modEffects), stats, maxLife, maxEs, uniqueCount, clientStats)
+        {
+            Weapons = weapons,
+        };
     }
 }

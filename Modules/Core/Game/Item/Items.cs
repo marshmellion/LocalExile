@@ -174,7 +174,8 @@ public static partial class Game
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], now is null ? [] : [now]),
             $"0x00bf cursor: remove gem {before.Id}" + (now is null ? "" : $", hold gem {now.Id} from the socket"));
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id],
+            [EnergyBladeItem(player, row, item)]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} with a gem in socket {s.Socket}");
         if (ItemModStats.EquipmentRows.Contains(row)) await SendEquipment(player, items);
     }
@@ -256,7 +257,8 @@ public static partial class Game
             if (why is not null) await player.Commands!.Reply(why);
             return;
         }
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id],
+            [EnergyBladeItem(player, row, after)]),
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem to level {level + 1}");
         await SendSkills(player);
         Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}'s {ItemsFor(player).GemName(next)} levels to {level + 1}");
@@ -291,7 +293,7 @@ public static partial class Game
         {
             uint[] ids = [.. row.Select(c => c.Item.Id)];
             await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
-                ids, [.. row.Select(c => c.Item)]),
+                ids, [.. row.Select(c => EnergyBladeItem(player, row.Key, c.Item))]),
                 $"0x00bf inventory {PlayerInventories.InventoryId(row.Key)}: {ids.Length} item(s) with ready gems levelled at once");
         }
         foreach (var (before, after) in changed.SelectMany(c => c.Gems))
@@ -318,7 +320,8 @@ public static partial class Game
             return it with { Sockets = sockets };
         });
         if (after is null) return;
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id],
+            [EnergyBladeItem(player, row, after)]),
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem {(s.Locked ? "locked" : "unlocked")}");
         Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}'s {ItemsFor(player).GemName(gem)} in item {after.Id} socket {s.Socket}: {(s.Locked ? "level locked" : "level unlocked")}");
     }
@@ -360,7 +363,8 @@ public static partial class Game
             return;
         }
         var (item, held) = result;
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id],
+            [EnergyBladeItem(player, row, item)]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold gem {held.Id}");
@@ -373,7 +377,8 @@ public static partial class Game
         var effects = ItemsFor(player).GemEffects(gem).Select(e => SkillsFor(player).EffectId(e)).OfType<string>().ToArray();
         foreach (string effect in effects)
         {
-            CharacterSaves.SetAuraActive(CharacterName(player), effect, false);
+            if (!player.Auras.Values.Any(a => a.EffectId == effect))
+                CharacterSaves.SetAuraActive(CharacterName(player), effect, false);
             if (effect == PetrifiedBlood.EffectId)
                 CharacterSaves.SetPetrifiedBlood(CharacterName(player), false);
         }
@@ -881,25 +886,36 @@ public static partial class Game
         recoveryOwner = ResourceEffectsOf(player);
         r = FlaskRecovery.For(use, flask.Item, local,
             stat => flaskCharacter(stat) + (stat == Stat.FlaskLifeToRecoverPlusPct ? Lifetap.FlaskRecovery(player) : 0),
-            player.PlayerLife, player.PlayerMaxLife, playerLevel, finalMultiplier);
+            player.PlayerLife, player.PlayerMaxLife, playerLevel, finalMultiplier,
+            lifeAmountMultiplier: Get(Stat.KeystoneEmperorsHeart) != 0 ? .7 : 1);
         copyLife = ManaFlaskCopiesLife(r, character);
-        bool appliesToPlayer = Get(Stat.CannotBeAffectedByFlasks) == 0;
-        bool lifeFlaskBlocked = use.LifePerUse > 0 && Get(Stat.CannotUseLifeFlasks) != 0;
-        canRecover = !lifeFlaskBlocked && (appliesToPlayer && (Flasks.CanRecover(use, player.PlayerLife, LifeCap(player),
-                player.PlayerMana, (uint)UnreservedMana(player)) || copyLife && player.PlayerLife < LifeCap(player)
-            || ConditionalFlaskAilmentProtectionTriggered(player, local, AreaTime(player)))
-            || CanRecoverRaisedMinionsWithFlask(player, use, Get));
+        string? RecoveryUseRestriction(Func<uint, int> read)
+        {
+            if (use.LifePerUse > 0 && read(Stat.CannotUseLifeFlasks) != 0) return "life flask use disabled";
+            if (use.ManaPerUse > 0 && read(Stat.CannotUseManaFlasks) != 0) return "mana flask use disabled";
+            return null;
+        }
+        string? blockedReason = RecoveryUseRestriction(Get);
+        bool RecoveryTargetAvailable(Func<uint, int> read)
+        {
+            uint lifeCap = LifeCap(player);
+            return read(Stat.CannotBeAffectedByFlasks) == 0
+                && (Flasks.CanRecover(use, player.PlayerLife, lifeCap, player.PlayerMana, (uint)UnreservedMana(player))
+                    || copyLife && player.PlayerLife < lifeCap || use.LifePerUse > 0 && CanRecoverFlaskEnergyShield(player, read)
+                    || ConditionalFlaskAilmentProtectionTriggered(player, local, AreaTime(player)))
+                || CanRecoverRaisedMinionsWithFlask(player, use, read);
+        }
+        canRecover = blockedReason is null && RecoveryTargetAvailable(Get);
         bool CurrentRecovery()
         {
-            return ResourceEffectsCurrent(player, recoveryOwner) && CurrentGameWork
-                && !player.LeavingArea && player.PlayerLife > 0
-                && (use.LifePerUse <= 0 || CharacterPlayerStats(player).GetValueOrDefault(Stat.CannotUseLifeFlasks) == 0)
-                && (appliesToPlayer || CanRecoverRaisedMinionsWithFlask(player, use, Get))
-                && items.Items(PlayerInventories.Flask).Any(i => i.Id == flask.Id && i.X == slot);
+            if (!ResourceEffectsCurrent(player, recoveryOwner) || !CurrentGameWork || player.LeavingArea || player.PlayerLife == 0
+                || !items.Items(PlayerInventories.Flask).Any(i => i.Id == flask.Id && i.X == slot)) return false;
+            var current = CharacterPlayerStats(player);
+            return RecoveryUseRestriction(current.GetValueOrDefault) is null && RecoveryTargetAvailable(current.GetValueOrDefault);
         }
         if (!canRecover)
         {
-            string reason = lifeFlaskBlocked ? "life flask use disabled" : "recovery pools full";
+            string reason = blockedReason ?? "recovery pools full";
             await Send(player, InstanceItems.ItemUsed(flask.Item.TypeHash,
                 PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id, result: 0x4e2),
                 $"0x0263 flask {slot} ({type.Name}) refused: {reason} (0x4e2), charges unchanged");
@@ -920,10 +936,17 @@ public static partial class Game
         var during = UtilityFlasks.DuringEffectSources(local,
             FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct),
                 finalMultiplier: finalMultiplier));
+        // This flag stays with its paid recovery rather than entering the reusable character stat snapshot.
+        uint freeMana = Stat.LocalUniqueFlaskNoManaCostWhileHealing;
+        if (local.GetValueOrDefault(freeMana) != 0)
+            during.Add(new("recovery mana cost waiver", freeMana, 1));
         int? deathEpoch = null;
-        await SpendFlask(player, flask, charges, slot, CurrentRecovery,
-            spent => deathEpoch = AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, Get,
-                appliesToPlayer, during));
+        await SpendFlask(player, flask, charges, slot, CurrentRecovery, spent =>
+        {
+            var current = CharacterPlayerStats(player);
+            deathEpoch = AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, current.GetValueOrDefault,
+                current.GetValueOrDefault(Stat.CannotBeAffectedByFlasks) == 0, during);
+        });
         if (deathEpoch is int epoch)
             await RunOnAreaFrame(player, () => PlayerDiedAtEpoch(player, $"death from {type.Name}", epoch));
     }

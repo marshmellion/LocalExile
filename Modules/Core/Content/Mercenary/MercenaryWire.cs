@@ -45,7 +45,15 @@ public static class MercenaryWire
 
     /// <summary>The four shared states of a Mercenaries type, in .ot order: encounter_state, hired_state, leavetalk_enabled, light.</summary>
     public static readonly int[] MetStates = [1, 0, 0, 1], TalkStates = [1, 0, 1, 1], CountdownStates = [7, 0, 1, 1],
-        QuietStates = [7, 0, 0, 1], DuelStates = [2, 0, 0, 1], HiredStates = [0, 1, 0, 1];
+        QuietStates = [7, 0, 0, 1], DuelStates = [2, 0, 0, 1], HiredStates = [0, 1, 0, 1],
+        // encounter_state 8, "Party Member idle" in Mercenary.ot: the companions that wait beside the main Mercenary.
+        PartyIdleStates = [8, 0, 0, 1],
+        // encounter_state 3, "Duel failed": the client plays the Mercenary's beat-player line and hides its minimap icon.
+        FailedStates = [3, 0, 0, 1];
+
+    /// <summary>The actor skill id of a duel body's EASMercenaryPortalOut: above every kit (0x4000+) and combo child (0x4400+) id,
+    /// since the client binary-searches the actor's skills by id.</summary>
+    public const ushort PortalOutSkillId = 0x4ff0;
 
     /// <summary>The frames, counted from the duel choice, of the second mark, the quiet state and the switch to the duel.</summary>
     public static readonly int[] CountdownFrames = [18, 24, 54];

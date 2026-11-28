@@ -163,22 +163,22 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> playerStats, double now) =>
         ApplyIntimidatingCryLocked(player, own, playerStats, now, applyMovementBuff: true, skillId: 0);
 
-    static void ApplyIntimidatingCryLocked(Player player, IReadOnlyDictionary<uint, int> own,
-        IReadOnlyDictionary<uint, int> playerStats, double now, bool applyMovementBuff, ushort skillId = 0)
+    static int ApplyIntimidatingCryLocked(Player player, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> playerStats, double now, bool applyMovementBuff, ushort skillId = 0,
+        int? radiusOverride = null)
     {
         int Own(uint n) => GolemStat(own, n);
         int Player(uint n) => GolemStat(playerStats, n);
         var at = player.Walk.Position(now);
-        int radius = SkillArea.Radius(WarcryRadius, n => ActorScale.Saturate((long)Player(n) + Own(n)), spell: false);
+        int radius = radiusOverride ?? SkillArea.Radius(WarcryRadius,
+            n => ActorScale.Saturate((long)Player(n) + Own(n)), spell: false);
         var enemies = player.Area.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0
             && Dist(m.Walk.Position(now), at) <= radius).ToArray();
         int power = Player(Stat.WarcriesHaveInfinitePower) != 0 ? InfiniteWarcryPower
             : enemies.Sum(m => WarcryPower(m.Rarity));
-        double taunt = TauntSeconds(Player);
-        TauntLocked(player, at, radius, now, taunt);
-        if (Own(Stat.EnemiesTauntedByYourWarciesAreIntimidated) != 0 && taunt > 0)
-            foreach (var m in enemies)
-                { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + taunt / m.RecipientDebuffRate); m.PresentationChanged?.Invoke(); }
+        double taunt = TauntSeconds(key => ActorScale.Saturate((long)Player(key) + Own(key)));
+        int taunted = TauntLocked(player, at, radius, now, taunt, Own(Stat.EnemiesTauntedByYourWarciesAreIntimidated) != 0,
+            Player(Stat.EnemiesYouIntimidateHaveStunDurationOnSelfPlusPct), fromWarcry: true);
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own)
             * SkillDurationModifiers.CallToArmsMore(Player);
         double effect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.SkillBuffEffectPlusPct)) / 100d);
@@ -212,8 +212,9 @@ public static partial class Game
         SyncExertedAttackBuffsLocked(player);
         player.RecentEvents.Record(StatConditions.UsedWarcry, now);
         player.AuraStatsDirty = true;
-        Console.WriteLine($"[gateway] Intimidating Cry: power={power} taunted={enemies.Length} movement={movement} "
+        Console.WriteLine($"[gateway] Intimidating Cry: power={power} taunted={taunted} movement={movement} "
             + $"duration={duration:0.###} exerts={cry.Exerts}");
+        return taunted;
     }
 
     public static int IntimidatingCryMovement(Player player)
@@ -336,9 +337,11 @@ public static partial class Game
     }
 
     internal static (bool Intimidating, int? SeismicArea, int AncestralTargets, int? RallyingDamage) ConsumeMeleeWarcryExertsLocked(
-        Player player, ushort skill, int effect, SkillCriticalRoll attack, bool eligible)
+        Player player, ushort skill, int effect, SkillCriticalRoll attack, bool eligible, ushort sequence = 0)
     {
         if (!eligible || !WarcryCanExert(player, skill, effect)) return default;
+        if (AmbushBuffs.TryGetValue(player, out _) && ShieldWeapon(player, skill) is null
+            && ConsumeAmbush(player, HandWeapon(player, AttackHandFor(player, skill, sequence)), attack)) return default;
         var cry = CryOf(player);
         IntimidatingCryMovementLocked(player);
         bool consume = !ExertedAttackKeepsCountLocked(player);
@@ -414,10 +417,10 @@ public static partial class Game
                 + (skillStats?.GetValueOrDefault(Stat.EmpoweredAttackAccuracyRatingPlusPct) ?? 0);
 
     static double ExertedAttackMore(IReadOnlyDictionary<uint, int>? skill, bool exerted, int otherWarcries = 0,
-        int? rallyingDamage = null, IReadOnlyDictionary<uint, int>? playerStats = null)
+        int? rallyingDamage = null, IReadOnlyDictionary<uint, int>? playerStats = null, bool ambush = false)
     {
         int warcries = (exerted ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
-        if (warcries == 0)
+        if (warcries == 0 && !ambush)
             return ((playerStats?.GetValueOrDefault(Stat.NonExertedAttacksDealNoDamage) ?? 0) != 0
                 || (skill?.GetValueOrDefault(Stat.NonExertedAttacksDealNoDamage) ?? 0) != 0) ? 0 : 1;
         double warcryMore = Math.Max(0, 1 + (skill?.GetValueOrDefault(Stat.SupportOverexertionDamagePlusPctFinalPerWarcryExertingAction) ?? 0) / 100d * warcries);
@@ -432,9 +435,9 @@ public static partial class Game
     }
 
     static DamagePacket WithExertedAttackDamage(DamagePacket hit, IReadOnlyDictionary<uint, int>? skill, bool exerted,
-        int otherWarcries = 0, int? rallyingDamage = null, IReadOnlyDictionary<uint, int>? playerStats = null)
+        int otherWarcries = 0, int? rallyingDamage = null, IReadOnlyDictionary<uint, int>? playerStats = null, bool ambush = false)
     {
-        double more = ExertedAttackMore(skill, exerted, otherWarcries, rallyingDamage, playerStats);
+        double more = ExertedAttackMore(skill, exerted, otherWarcries, rallyingDamage, playerStats, ambush);
         return more == 1 ? hit : hit.Scale(more);
     }
 
