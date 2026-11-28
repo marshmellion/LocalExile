@@ -174,7 +174,8 @@ public static partial class Game
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], now is null ? [] : [now]),
             $"0x00bf cursor: remove gem {before.Id}" + (now is null ? "" : $", hold gem {now.Id} from the socket"));
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id],
+            [EnergyBladeItem(player, row, item)]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} with a gem in socket {s.Socket}");
         if (ItemModStats.EquipmentRows.Contains(row)) await SendEquipment(player, items);
     }
@@ -256,7 +257,8 @@ public static partial class Game
             if (why is not null) await player.Commands!.Reply(why);
             return;
         }
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id],
+            [EnergyBladeItem(player, row, after)]),
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem to level {level + 1}");
         await SendSkills(player);
         Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}'s {ItemsFor(player).GemName(next)} levels to {level + 1}");
@@ -291,7 +293,7 @@ public static partial class Game
         {
             uint[] ids = [.. row.Select(c => c.Item.Id)];
             await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
-                ids, [.. row.Select(c => c.Item)]),
+                ids, [.. row.Select(c => EnergyBladeItem(player, row.Key, c.Item))]),
                 $"0x00bf inventory {PlayerInventories.InventoryId(row.Key)}: {ids.Length} item(s) with ready gems levelled at once");
         }
         foreach (var (before, after) in changed.SelectMany(c => c.Gems))
@@ -318,7 +320,8 @@ public static partial class Game
             return it with { Sockets = sockets };
         });
         if (after is null) return;
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id],
+            [EnergyBladeItem(player, row, after)]),
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem {(s.Locked ? "locked" : "unlocked")}");
         Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}'s {ItemsFor(player).GemName(gem)} in item {after.Id} socket {s.Socket}: {(s.Locked ? "level locked" : "level unlocked")}");
     }
@@ -360,7 +363,8 @@ public static partial class Game
             return;
         }
         var (item, held) = result;
-        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
+        await Send(player, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id],
+            [EnergyBladeItem(player, row, item)]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold gem {held.Id}");

@@ -76,7 +76,12 @@ public static partial class Game
         {
             foreach (var (player, _) in VaalArcticArmours) EndVaalArcticArmour(player);
             foreach (var (player, state) in VaalRighteousFires) EndVaalRighteousFire(player, state);
-            foreach (var (player, _) in SelfBuffs) ClearEnergyBlade(player);
+            foreach (var (player, _) in SelfBuffs)
+                if (ClearEnergyBlade(player))
+                {
+                    EnergyBladeChanged(player);
+                    _ = PublishEnergyBlade(player);
+                }
             foreach (var (player, _) in ConvergenceWindows) ClearConvergence(player);
             foreach (var (player, _) in RetributionConflux) ClearRetributionConflux(player);
             foreach (var (player, _) in AmbushBuffs) ClearAmbush(player);

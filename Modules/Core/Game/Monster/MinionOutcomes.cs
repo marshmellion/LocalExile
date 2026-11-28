@@ -292,7 +292,7 @@ public static partial class Game
                 {
                     var items = ItemsOf(player); byte row = output.InventoryRow!.Value;
                     return InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), output.ItemIds!,
-                        [.. items.Items(row).Where(item => output.ItemIds!.Contains(item.Id))]);
+                        [.. items.Items(row).Where(item => output.ItemIds!.Contains(item.Id)).Select(item => EnergyBladeItem(player, row, item))]);
                 }
                 if (output.Kind == PlayerMinions.OutputKind.Charges) return AcceptedChargePresentationLocked(player, player.Connection.Remote);
                 if (output.Kind == PlayerMinions.OutputKind.RighteousFireRing)

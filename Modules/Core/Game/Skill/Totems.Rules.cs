@@ -915,11 +915,13 @@ public static partial class Game
         WorldRecordBuilder bytes)
     {
         if (now < devour.NextUse) return;
-        bool life = devour.Life > 0 && player.PlayerLife < player.PlayerMaxLife;
+        var leech = LeechOf(player);
+        bool life = devour.Life > 0 && (leech.ConvertsLifeToEnergyShield
+            ? player.EnergyShield.Current < player.EnergyShield.Maximum
+            : player.PlayerLife < LifeCap(player));
         bool mana = devour.Mana > 0 && player.PlayerMana < UnreservedMana(player);
         if (!life && !mana) return;
         var playerStats = CharacterPlayerStats(player);
-        var leech = LeechOf(player);
         life &= leech.ConvertsLifeToEnergyShield || GolemStat(playerStats, Stat.CannotRecoverLife) == 0;
         mana &= GolemStat(playerStats, Stat.Of("cannot_recover_mana")) == 0;
         if (!life && !mana) return;

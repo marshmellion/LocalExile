@@ -2903,7 +2903,7 @@ public static partial class Game
             // Accepted output may wait behind a hook/refund/item move. Keep ids for a current row projection.
             if (projectRows is not null) projectRows.Add((row.Key, ids));
             else packets.Add(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
-                ids, [.. row.Select(c => c.Item)]));
+                ids, [.. row.Select(c => EnergyBladeItem(player, row.Key, c.Item))]));
         }
         return (packets, leveled);
     }
