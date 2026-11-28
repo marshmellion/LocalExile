@@ -20,12 +20,6 @@ public sealed partial class Player
     public bool IsElusive => ElusiveUntil > Clock.Elapsed.TotalSeconds;
     public bool SourcePhasing;
     public bool IsPhasing => SourcePhasing || Phasing || (PhasingUntil > 0 && PhasingUntil > Clock.Elapsed.TotalSeconds) || Reservations.CatPhasing;
-    /// <summary>A moment of walking through bodies while one of your own minions is in your way (Game.MinionBodyPass, on
-    /// this clock): the client's phasing stat without the Phasing buff or its "while Phasing" bonuses.</summary>
-    public double MinionPassUntil;
-    public bool MinionPassShown;
-    /// <summary>Living bodies do not block this player's path (and it does not block theirs): Phasing, or a pass by a minion.</summary>
-    public bool PassesBodies => IsPhasing || MinionPassUntil > Clock.Elapsed.TotalSeconds;
     public ITransientCombatState? OwnedCombatState;
     public ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
     public HashSet<uint> RetiredCombatObjects { get; } = [];

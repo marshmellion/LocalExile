@@ -1090,7 +1090,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
         {
             if (Instance?.World.AreaBodies is { } area) return area(Id);
             var fixedOnes = _blockerList;
-            if (PassesBodies) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
+            if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
             lock (_playerBlockersGate)
             {
