@@ -270,6 +270,7 @@ public static partial class Game
 
         long percent = 0;
         int chaosPercent = 0;
+        bool profaneBloom = false;   // a cursed victim's quarter-life chaos explosion (Profane Bloom) is among the sources
         int inpulsaPercent = 0;
         DamageType? element = null;
         DamageType? annihilationElement = null;
@@ -289,6 +290,7 @@ public static partial class Game
             long physicalChance = (long)Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct)
                 + captured.PrideChance + captured.BannerPhysicalChance;
             long chaosChance = (long)Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct) + captured.CursedVictimChaosChance;
+            profaneBloom = captured.CursedVictimChaosChance > 0;
             if (AttackKillExplosions.TryGetValue(corpse, out var attack))
             {
                 physicalChance += attack.PhysicalChance;
@@ -366,7 +368,7 @@ public static partial class Game
         // Profane Bloom (a cursed enemy's quarter-life chaos explosion) grows with the player's area of effect, its art
         // with it (system setting profane_bloom_area_scaling, 0 = the fixed radius as before).
         float artScale = 1;
-        if (chaos > 0 && captured.CursedVictimChaosChance > 0 && ProfaneBloomScales())
+        if (chaosPercent > 0 && profaneBloom && ProfaneBloomScales())
         {
             double scale = PlayerKillExplosionAreaScale(playerStats);
             radius = ProfaneBloomRadius(KillExplosionRadius, scale);
