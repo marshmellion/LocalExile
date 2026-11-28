@@ -563,7 +563,8 @@ public static partial class Game
             if (charmType.Class != "AnimalCharm") return "only a Wildwood charm goes in a charm socket";
             if (!player.Character.Passives.Contains(charmNode) && !player.Character.DescendancyNodes.Contains(charmNode))
                 return "the charm socket is not allocated";
-            int charmNeeds = ItemModStats.LevelRequirement(item, charmType.DropLevel, ItemsFor(player).Mods);
+            // The level the client was sent (as for any equipment below).
+            int charmNeeds = item.RequiredLevel ?? (Item.LevelRequirementOf is { } sentCharm ? sentCharm(item) : ItemModStats.LevelRequirement(item, charmType.DropLevel, ItemsFor(player).Mods));
             return player.Pools.Level < charmNeeds
                 ? $"{charmType.Name} requires level {charmNeeds} (character is {player.Pools.Level})" : null;
         }
@@ -654,7 +655,9 @@ public static partial class Game
                 return $"only {limit} {limited.Name} can be socketed";
         }
         if (!JewelFitsCell(x, item)) return $"{type.Name} does not fit this socket";
-        int needs = ItemModStats.LevelRequirement(item, type.DropLevel, ItemsFor(player).Mods);
+        // The level the client was sent with the item (its recorded one, else Item.LevelRequirementOf, which a mod may change
+        // to waive it), so the server refuses what the client shows and nothing more.
+        int needs = item.RequiredLevel ?? (Item.LevelRequirementOf is { } sent ? sent(item) : ItemModStats.LevelRequirement(item, type.DropLevel, ItemsFor(player).Mods));
         return player.Pools.Level < needs ? $"{type.Name} requires level {needs} (character is {player.Pools.Level})" : null;
     }
 
@@ -1185,9 +1188,15 @@ public static partial class Game
         return AutoEquipRequirementsMetLocked(player, catalog, item, type) ? target : null;
     }
 
+    /// <summary>The level requirement the client was sent with the item: its recorded one, else Item.LevelRequirementOf
+    /// (which a mod may change to waive it). The character's checks use it (equipping, auto-equip, worn items counting,
+    /// abyss jewels), so the server refuses what the client shows and nothing more.</summary>
+    internal static int SentLevelRequirement(Item item, int dropLevel, ModCatalog mods) =>
+        item.RequiredLevel ?? (Item.LevelRequirementOf is { } sent ? sent(item) : ItemModStats.LevelRequirement(item, dropLevel, mods));
+
     static bool AutoEquipRequirementsMetLocked(Player player, ItemCatalog catalog, Item item, ItemCatalog.BaseType type)
     {
-        int reqLevel = ItemModStats.LevelRequirement(item, type.DropLevel, catalog.Mods);
+        int reqLevel = SentLevelRequirement(item, type.DropLevel, catalog.Mods);
         var (rawStr, rawDex, rawInt) = ItemModStats.AttributeRequirements(catalog, item, type);
         int reqPct = AttributeRequirementsPct(player);
         int reqStr = ScaledRequirement(rawStr, reqPct);
@@ -1198,7 +1207,7 @@ public static partial class Game
         foreach (var socket in item.Sockets)
         {
             if (socket is { Colour: SocketColour.Abyss, Gem: { } jewel } && catalog.ByHash(jewel.TypeHash) is { Class: "AbyssJewel" } eye)
-                reqLevel = Math.Max(reqLevel, ItemModStats.LevelRequirement(jewel, eye.DropLevel, catalog.Mods));
+                reqLevel = Math.Max(reqLevel, SentLevelRequirement(jewel, eye.DropLevel, catalog.Mods));
             else if (socket.Gem is { } gem)
             {
                 if (catalog.ByHash(gem.TypeHash) is { } gemBase && !LeagueFor(player).Rules.AllowsGemBase(gemBase.Id))

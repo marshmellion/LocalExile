@@ -738,7 +738,7 @@ public static partial class Game
             bool ignoreGemAttributes = ignoreAttributes || SocketedGemAttributeRequirementsIgnored(catalog, item.Item);
             foreach (var socket in item.Item.Sockets)
                 if (socket is { Colour: SocketColour.Abyss, Gem: { } jewel } && catalog.ByHash(jewel.TypeHash) is { Class: "AbyssJewel" } eye)
-                    item = item with { Level = Math.Max(item.Level, ItemModStats.LevelRequirement(jewel, eye.DropLevel, catalog.Mods)) };
+                    item = item with { Level = Math.Max(item.Level, SentLevelRequirement(jewel, eye.DropLevel, catalog.Mods)) };
                 else if (socket.Gem is { } gem && SocketedGemRequirements(player, gem, requirementsPct, ignoreGemAttributes) is var g)
                     item = item with { Level = Math.Max(item.Level, g.Level), Strength = Math.Max(item.Strength, g.Str),
                         Dexterity = Math.Max(item.Dexterity, g.Dex), Intelligence = Math.Max(item.Intelligence, g.Int) };
@@ -751,7 +751,7 @@ public static partial class Game
                 if (x.t is not { } t) return new ItemModStats.Worn(x.i.Id, x.i.Item, 0, 0, 0, 0);
                 var (str, dex, intel) = ItemModStats.AttributeRequirements(ItemsFor(player), x.i.Item, t);
                 return new ItemModStats.Worn(x.i.Id, x.i.Item, Req(str), Req(dex), Req(intel),
-                    ItemModStats.LevelRequirement(x.i.Item, t.DropLevel, ItemsFor(player).Mods));
+                    SentLevelRequirement(x.i.Item, t.DropLevel, ItemsFor(player).Mods));
             })
             .Select(w => ItemModStats.ApplyBaseRequirementOverrides(w, ItemsFor(player).Mods))
             .Select(WithGems).ToList();

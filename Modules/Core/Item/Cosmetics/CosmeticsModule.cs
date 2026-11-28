@@ -180,11 +180,14 @@ public static class CosmeticsFeature
             await Send(player, InstanceMicrotransactions.Added([], InstanceMicrotransactions.StoreSecond),
                 "0x01f4 microtransactions: the guild's list, empty");
         if (asked.HasFlag(InstanceMicrotransactions.Lists.Hideouts))
-            await Send(player, InstanceMicrotransactions.Hideouts(HideoutCatalog.OwnedRows),
-                $"0x01f5 owned hideouts: all {HideoutCatalog.OwnedRows.Length} templates including MTX");
+        {
+            byte[] rows = GameEvents.HideoutsOwnedBy(player, HideoutCatalog.OwnedRows);
+            await Send(player, InstanceMicrotransactions.Hideouts(rows),
+                $"0x01f5 owned hideouts: {rows.Length} of {HideoutCatalog.OwnedRows.Length} templates including MTX");
+        }
         if (asked.HasFlag(InstanceMicrotransactions.Lists.GuildHideouts))
         {
-            byte[] guildRows = GameEvents.ResolveGuildStorageKey(player) is not null ? HideoutCatalog.OwnedRows : [];
+            byte[] guildRows = GameEvents.ResolveGuildStorageKey(player) is not null ? GameEvents.HideoutsOwnedBy(player, HideoutCatalog.OwnedRows) : [];
             await Send(player, InstanceMicrotransactions.Hideouts(guildRows, guild: true),
                 guildRows.Length > 0
                     ? $"0x01f5 guild hideouts: all {guildRows.Length} templates"

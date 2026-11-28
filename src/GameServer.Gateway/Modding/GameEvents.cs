@@ -584,6 +584,14 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, int, int>> IncomingDamage = new();
     /// <summary>False suppresses drops, ground publication and automatic gold collection.</summary>
     public static readonly GameEvent<Func<Player, bool>> LootAllowed = new();
+    /// <summary>Which cosmetics a player owns: the Microtransactions panel's records, the store's owned marks, what the
+    /// Cosmetics tab and the hideout decorations can pick and what stays worn. Each subscriber gets the list so far and returns
+    /// the records the player owns; it may add copies of a record (its hash under another id, from
+    /// <see cref="ModCosmeticIds"/> up) so one cosmetic can be worn in two places. No subscriber: every cosmetic.</summary>
+    public static readonly GameEvent<Func<Player, IReadOnlyList<InstanceMicrotransactions.Record>, IReadOnlyList<InstanceMicrotransactions.Record>>> OwnedCosmetics = new();
+    /// <summary>Which personal hideouts (Hideouts rows) a player can pick at Helena and in the hideout list: each subscriber
+    /// gets the rows so far and returns the ones the player owns. No subscriber: all of them.</summary>
+    public static readonly GameEvent<Func<Player, IReadOnlyList<byte>, IReadOnlyList<byte>>> OwnedHideouts = new();
     /// <summary>True when an optional system handled closing the native reward dialogue.</summary>
     public static readonly GameEvent<Func<Player, Task<bool>>> RewardClosing = new();
     /// <summary>A quest reward choice the server built for this QuestRewardOffers row; a module completes its league's
@@ -609,6 +617,33 @@ public static class GameEvents
     }
 
     public static bool AllowsLoot(Player player) => LootAllowed.For(player).All(run => run(player));
+
+    /// <summary>The first record id a mod's cosmetic copies use (the shop's local grants start at 0x100000).</summary>
+    public const uint ModCosmeticIds = 0x40000000;
+
+    /// <summary>The cosmetics this player owns out of <paramref name="all"/> (<see cref="OwnedCosmetics"/>).</summary>
+    public static IReadOnlyList<InstanceMicrotransactions.Record> CosmeticsOwnedBy(Player player, IReadOnlyList<InstanceMicrotransactions.Record> all)
+    {
+        var owned = all;
+        foreach (var (owner, run) in OwnedCosmetics.Subscribers(player))
+        {
+            var before = owned;
+            if (!GameEventOwners.Guard(owner, nameof(OwnedCosmetics), () => { owned = run(player, before); })) owned = before;
+        }
+        return owned;
+    }
+
+    /// <summary>The hideout rows this player owns out of <paramref name="all"/> (<see cref="OwnedHideouts"/>).</summary>
+    public static byte[] HideoutsOwnedBy(Player player, byte[] all)
+    {
+        IReadOnlyList<byte> owned = all;
+        foreach (var (owner, run) in OwnedHideouts.Subscribers(player))
+        {
+            var before = owned;
+            if (!GameEventOwners.Guard(owner, nameof(OwnedHideouts), () => { owned = run(player, before); })) owned = before;
+        }
+        return owned as byte[] ?? [.. owned];
+    }
 
     public static async Task<bool> AnyRewardClosing(Player player)
     {
