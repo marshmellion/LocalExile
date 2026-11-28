@@ -328,6 +328,43 @@ public sealed class CooldownAdmissionTests
         }
     }
 
+    [Fact]
+    public void Frostblink_resolves_in_walkmapless_hideout_clamps_oob_aim_and_handles_non_monster_targets()
+    {
+        using var f = new Fixture();
+        var c = f.Player;
+        c.Connection.PlayerSent = true;
+        // HideoutDivine has GridW=0, GridH=0, Walkable=null.
+        c.Use(new(1, "HideoutDivine", 0, 0, 197, 261, null, []));
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (250, 261), false, _ => 0, out var from, out var to));
+        Assert.Equal((197, 261), from);
+        Assert.Equal((239, 261), to);
+        // Dead monster / corpse target falls back to non-monster ground target resolution without Walkable!.
+        var zombie = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Zombies/ZombieBite"));
+        c.Area.Monsters[0x80000010u] = new("corpse", new(240, 261, 0), 0, 0, 0) { Dead = true, Hostile = true, Variety = zombie };
+        Assert.True(InstantLocationSkill.TryResolveObject(c, c.ProjectileEpoch, 0x80000010u, false, _ => 0,
+            out _, out var corpseTo, out var corpseAim, out bool monsterTarget));
+        Assert.False(monsterTarget);
+        Assert.Equal((240, 261), corpseAim);
+        Assert.Equal((239, 261), corpseTo);
+        // Living monster target on a walkmap-less hideout also works without NRE and marks monsterTarget=true.
+        c.Area.Monsters[0x80000011u] = new("alive", new(240, 261, 0), 0, 0, 100) { Hostile = true, Variety = zombie };
+        Assert.True(InstantLocationSkill.TryResolveObject(c, c.ProjectileEpoch, 0x80000011u, false, _ => 0,
+            out _, out _, out _, out monsterTarget));
+        Assert.True(monsterTarget);
+        // Out-of-bounds positive cursor on a walked map is clamped instead of rejected.
+        c.Use(new(2, "map-oob", 200, 200, 165, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, []));
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (350, 100), false, _ => 0, out _, out var clampedTo));
+        Assert.Equal((199, 100), clampedTo);
+        // With a sight grid, aiming OOB near the edge still falls back to the last clear floor cell.
+        c.Use(new(3, "map-oob-sight", 200, 200, 180, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, [])
+        {
+            Sight = (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 ? (byte)5 : (byte)0
+        });
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (350, 100), false, _ => 0, out _, out var edgeTo));
+        Assert.Equal((199, 100), edgeTo);
+    }
+
     sealed class Fixture : IDisposable
     {
         readonly string path = Path.Combine(Path.GetTempPath(), $"cooldown-admission-{Guid.NewGuid():N}.db");

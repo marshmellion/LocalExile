@@ -75,10 +75,9 @@ public static class InstantLocationSkill
     {
         to = default;
         if (!player.ProjectileActive(epoch) || !player.Connection.PlayerSent || player.PlayerLife == 0 || player.Paused
-            || player.PendingTransfer is not null || inTown || stat(Stat.YourMovementSkillsAreDisabled) != 0
-            || player.Layout.Walkable is not { } walkable || player.Layout.GridW <= 0 || player.Layout.GridH <= 0)
+            || player.PendingTransfer is not null || inTown || stat(Stat.YourMovementSkillsAreDisabled) != 0)
             return false;
-        if (aim.X >= player.Layout.GridW || aim.Y >= player.Layout.GridH) return false;
+        if (aim.X > int.MaxValue || aim.Y > int.MaxValue) return false;
         return TryResolveLanding(player, from, ((int)aim.X, (int)aim.Y),
             stat(Stat.SkillMaximumTravelDistancePlusPct), allowTerrainFallback: false, out to);
     }
@@ -97,9 +96,21 @@ public static class InstantLocationSkill
         int travelDistancePct, bool allowTerrainFallback, out (int X, int Y) to, int minRange, int baseMaxRange)
     {
         to = default;
-        if (player.Layout.Walkable is not { } walkable || player.Layout.GridW <= 0 || player.Layout.GridH <= 0)
-            return false;
         if (aim.X < 0 || aim.Y < 0) return false;
+        // 0x141c00440 (IceDashClient::CanExecute): requires dx² + dy² > 24 (>= 5 cells) or the client rejects 0x01ce.
+        bool FarEnough((int X, int Y) target)
+        {
+            long dx = (long)target.X - from.X, dy = (long)target.Y - from.Y;
+            return dx * dx + dy * dy >= 25;
+        }
+        if (player.Layout.Walkable is not { } walkable || player.Layout.GridW <= 0 || player.Layout.GridH <= 0)
+        {
+            if (Endpoint(from, ((uint)aim.X, (uint)aim.Y), travelDistancePct, minRange, baseMaxRange) is not { } openEndpoint)
+                return false;
+            if (!FarEnough(openEndpoint)) return false;
+            to = openEndpoint;
+            return true;
+        }
         int clampedX = Math.Clamp(aim.X, 0, player.Layout.GridW - 1);
         int clampedY = Math.Clamp(aim.Y, 0, player.Layout.GridH - 1);
         if (Endpoint(from, ((uint)clampedX, (uint)clampedY), travelDistancePct, minRange, baseMaxRange) is not { } endpoint)
@@ -130,12 +141,6 @@ public static class InstantLocationSkill
                 if (sight is not null && sight(cell.X, cell.Y) < 1) return false;
             }
             return true;
-        }
-        // 0x141c00440 (IceDashClient::CanExecute): requires dx² + dy² > 24 (>= 5 cells) or the client rejects 0x01ce.
-        bool FarEnough((int X, int Y) target)
-        {
-            long dx = (long)target.X - from.X, dy = (long)target.Y - from.Y;
-            return dx * dx + dy * dy >= 25;
         }
         if (!Allowed(from.X, from.Y)) return false;
         bool directAllowed = Allowed(endpoint.X, endpoint.Y);
@@ -204,32 +209,53 @@ public static class InstantLocationSkill
     }
 
     // Object 0x1ce binds the entity again on delivery.
-    // Only the native clear-grid trace is supported: partial terrain searches and coincident RNG fail closed.
+    // Living monsters extend past the target's footprint; non-monster objects and corpses fall back to resolving toward their position.
     public static bool TryResolveObject(Player player, int epoch, uint targetId, bool inTown,
-        Func<uint, int> stat, out (int X, int Y) from, out (int X, int Y) to, out (int X, int Y) aim)
+        Func<uint, int> stat, out (int X, int Y) from, out (int X, int Y) to, out (int X, int Y) aim) =>
+        TryResolveObject(player, epoch, targetId, inTown, stat, out from, out to, out aim, out _);
+
+    public static bool TryResolveObject(Player player, int epoch, uint targetId, bool inTown,
+        Func<uint, int> stat, out (int X, int Y) from, out (int X, int Y) to, out (int X, int Y) aim, out bool monsterTarget)
     {
         double now = Game.ProjectileWorldTime(player);
-        from = player.Walk.Position(now); to = aim = default;
-        if (!player.Area.Monsters.TryGetValue(targetId, out var target) || target.Dead || target.Life == 0
-            || target.Variety is not { ObjectSize: >= 1 and <= 128 } variety) return false;
-        aim = target.Walk.Position(now);
-        if (ObjectAim(from, aim, 1, variety.ObjectSize - 1) is not { } trace
-            || !TryResolveFrom(player, epoch, from, ((uint)trace.End.X, (uint)trace.End.Y), inTown, stat, out to)) return false;
-        // 0x141c04ae0 retains the last valid Bresenham candidate. Requiring a wholly clear extension avoids
-        // guessing its two terrain-layer thresholds or the outer native terrain fallback on partial traces.
-        foreach (var cell in ClientPathfinder.Line(trace.Start, trace.End))
-            if (cell.X < 0 || cell.Y < 0 || cell.X >= player.Layout.GridW || cell.Y >= player.Layout.GridH
-                || player.Layout.Walkable!(cell.X, cell.Y) == false || player.Barrier.Contains(cell)) return false;
-        return Math.Max(Math.Abs((long)trace.End.X - aim.X), Math.Abs((long)trace.End.Y - aim.Y))
-            - (variety.ObjectSize - 1) >= 1; // Native candidate must be outside the target's footprint.
+        from = player.Walk.Position(now); to = aim = default; monsterTarget = false;
+        if (player.Area.Monsters.TryGetValue(targetId, out var target)
+            && !target.Dead && target.Life > 0
+            && target.Variety is { ObjectSize: >= 1 and <= 128 } variety)
+        {
+            aim = target.Walk.Position(now);
+            if (ObjectAim(from, aim, 1, variety.ObjectSize - 1) is not { } trace
+                || !TryResolveFrom(player, epoch, from, ((uint)trace.End.X, (uint)trace.End.Y), inTown, stat, out to)) return false;
+            // 0x141c04ae0 retains the last valid Bresenham candidate. Requiring a wholly clear extension avoids
+            // guessing its two terrain-layer thresholds or the outer native terrain fallback on partial traces.
+            if (player.Layout.Walkable is { } walkable && player.Layout.GridW > 0 && player.Layout.GridH > 0)
+            {
+                foreach (var cell in ClientPathfinder.Line(trace.Start, trace.End))
+                    if (cell.X < 0 || cell.Y < 0 || cell.X >= player.Layout.GridW || cell.Y >= player.Layout.GridH
+                        || !walkable(cell.X, cell.Y) || player.Barrier.Contains(cell)) return false;
+            }
+            if (Math.Max(Math.Abs((long)trace.End.X - aim.X), Math.Abs((long)trace.End.Y - aim.Y))
+                - (variety.ObjectSize - 1) < 1) return false; // Native candidate must be outside the target's footprint.
+            monsterTarget = true;
+            return true;
+        }
+        if (Game.ResolveObjectAimCell(player, targetId, target, now) is not { } fallbackAim
+            || fallbackAim.X < 0 || fallbackAim.Y < 0)
+            return false;
+        aim = fallbackAim;
+        return TryResolveFrom(player, epoch, from, ((uint)fallbackAim.X, (uint)fallbackAim.Y), inTown, stat, out to);
     }
 
     public static bool TryCommitObject(Player player, int epoch, uint targetId, bool inTown,
-        Func<uint, int> stat, out (int X, int Y) aim, out (int X, int Y) to)
+        Func<uint, int> stat, out (int X, int Y) aim, out (int X, int Y) to) =>
+        TryCommitObject(player, epoch, targetId, inTown, stat, out aim, out to, out _);
+
+    public static bool TryCommitObject(Player player, int epoch, uint targetId, bool inTown,
+        Func<uint, int> stat, out (int X, int Y) aim, out (int X, int Y) to, out bool monsterTarget)
     {
         using (Game.ProjectileMutation(player))
         {
-            if (!TryResolveObject(player, epoch, targetId, inTown, stat, out _, out to, out aim)) return false;
+            if (!TryResolveObject(player, epoch, targetId, inTown, stat, out _, out to, out aim, out monsterTarget)) return false;
             player.Walk.Teleport(to.X, to.Y, Game.ProjectileWorldTime(player));
             return true;
         }
