@@ -104,6 +104,13 @@ To make another account later:
 "your-password" | dotnet run --project src\GameServer.Auth -c Release -- register yourname
 ```
 
+## More mods: `add-mod.cmd`
+
+Double-click **`Exciting\add-mod.cmd`**: it lists every mod of [our mods repository](https://github.com/marshmellion/LocalExile-Mods)
+with what it does; type the one you want (its id, the first column), then restart the servers. `update-all.cmd` keeps it
+up to date from then on. For example **State Control** (`statecontrol`): `/state organise_stash confirm` sorts your
+stash into themed, coloured folders with a tab per item kind, which Quality of Life's Deposit all then fills.
+
 ## The testing build
 
 New things go to the **testing build** first (the branch `exciting-testing`) and become the released build (`exciting`)
