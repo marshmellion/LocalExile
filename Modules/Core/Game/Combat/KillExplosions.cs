@@ -191,6 +191,24 @@ public static partial class Game
             || stats.GetValueOrDefault(Stat.ExplodeCursedEnemiesFor25PctLifeAsChaosOnKillChancePct) > 0;
     }
 
+    static bool ProfaneBloomScales() => SystemSettings.Default.GetIntOrDefault("profane_bloom_area_scaling", 1) != 0;
+
+    /// <summary>A Profane Bloom radius: the base radius times the area scale, at most profane_bloom_max_radius cells (a
+    /// guard against huge chains: a far larger blast floods kills, loot and packets, as the fixed radius's note says).</summary>
+    static int ProfaneBloomRadius(int baseRadius, double scale) =>
+        (int)Math.Clamp(Math.Round(baseRadius * scale), 1, Math.Max(baseRadius, SystemSettings.Default.GetIntOrDefault("profane_bloom_max_radius", 60)));
+
+    /// <summary>The player's area of effect as a radius factor: the square root of (1 + increased area) times each more
+    /// multiplier (SkillArea), and the "radius more" final stat. The player's base increase is in the panel total
+    /// skill_area_of_effect_+%, so the base form counts only when there is no total.</summary>
+    static double PlayerKillExplosionAreaScale(IReadOnlyDictionary<uint, int> stats)
+    {
+        int total = stats.GetValueOrDefault(SkillArea.Increase);
+        int Get(uint key) => key == SkillArea.BaseIncreased && total != 0 ? 0 : stats.GetValueOrDefault(key);
+        return Math.Sqrt(SkillArea.Modifier(Get, spell: false))
+            * Math.Max(0, 1 + Get(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal) / 100.0);
+    }
+
     public static async Task<bool> ExplodeOnKill(Player player, uint corpseId, SpawnedMonster corpse, (int X, int Y) at,
         KillEquipmentSnapshot? equipment = null)
     {
@@ -242,6 +260,15 @@ public static partial class Game
             element is { } t ? t.ToString().ToLowerInvariant() : null, hitFire > 0 && element != DamageType.Fire ? "fire" : null }
             .Where(x => x is not null));
         int radius = KillExplosionRadius;
+        // Profane Bloom (a cursed enemy's quarter-life chaos explosion) grows with the player's area of effect, its art
+        // with it (system setting profane_bloom_area_scaling, 0 = the fixed radius as before).
+        float artScale = 1;
+        if (chaos > 0 && captured.CursedVictimChaosChance > 0 && ProfaneBloomScales())
+        {
+            double scale = PlayerKillExplosionAreaScale(playerStats);
+            radius = ProfaneBloomRadius(KillExplosionRadius, scale);
+            artScale = (float)((double)radius / KillExplosionRadius);
+        }
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit)>();
         uint effect;
         bool showArt;
@@ -286,7 +313,7 @@ public static partial class Game
                 (showArt ? "" : ", no art (burst budget)"));
         string art = chaos > 0 ? ChaosExplosionAo : KillExplosionAo;
         var effectBytes = showArt ? InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            new EffectObject(at.X, at.Y, art).Blob()) : null;
+            new EffectObject(at.X, at.Y, art) { Scale = artScale }.Blob()) : null;
         try
         {
             await SendKillExplosionBatch(player, effect, effectBytes, at, art,
@@ -329,6 +356,12 @@ public static partial class Game
 
         double factor = MinionAreaDamageFactor(source, DamageType.Chaos, skill);
         double radius = 22 * Math.Sqrt(Math.Max(0, 1 + source.Effects[Stat.BaseSkillAreaOfEffectPlusPct] / 100d));
+        float artScale = 1;
+        if (ProfaneBloomScales())
+        {
+            radius = ProfaneBloomRadius(22, radius / 22);
+            artScale = (float)(radius / 22);
+        }
         var pending = new Queue<(uint Id, SpawnedMonster Monster)>();
         pending.Enqueue((corpseId, corpse));
         while (pending.TryDequeue(out var entry))
@@ -342,7 +375,7 @@ public static partial class Game
             if (player.Connection.Connected && TakeExplosionArt(player, now))
             {
                 uint effect = player.TakeObjectId();
-                var art = new EffectObject(at.X, at.Y, ChaosExplosionAo);
+                var art = new EffectObject(at.X, at.Y, ChaosExplosionAo) { Scale = artScale };
                 player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(effect,
                     InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), "minion chaos kill explosion",
                     WorldId: effect, CreatesObject: true));
