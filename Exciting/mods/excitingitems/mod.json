@@ -3,7 +3,7 @@
   "name": "Exciting Items",
   "description": "Needs the Exciting build of LocalExile (github.com/marshmellion/LocalExile, branch exciting). Works with Quality of Life (its gem panel lists the alternate quality gems) and any loot filter (HasEnchantment \"Exciting\"). Rare chances on magic, rare and unique drops: a unique item's modifier as an extra implicit, an empowered modifier 10-100% above its roll, and one modifier more than the item could have, fractured with its side; they can all land on one item.",
   "author": "marshmellion",
-  "version": "1.17.2",
+  "version": "1.17.3",
   "compatibleClientVersions": ["0.6.1-beta"],
   "kind": "feature",
   "depends": [
